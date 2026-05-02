@@ -27,6 +27,7 @@ import (
 	"github.com/chef-guo/agents-hive/internal/plugin"
 	"github.com/chef-guo/agents-hive/internal/runtimepolicy"
 	"github.com/chef-guo/agents-hive/internal/security"
+	"github.com/chef-guo/agents-hive/internal/sessiontodo"
 	"github.com/chef-guo/agents-hive/internal/skills"
 	"github.com/chef-guo/agents-hive/internal/specdriven/ingress"
 	"github.com/chef-guo/agents-hive/internal/store"
@@ -95,6 +96,8 @@ const (
 	EventTypeToolListChanged = "tool_list_changed" // 工具列表变更
 	EventTypeAgentStatus     = "agent_status"      // Agent 状态变更（thinking/completed/error）
 	EventTypeInputReceived   = "input_received"    // 用户输入已抵达 master（早于 LLM 调用），供 renderer 做 ack
+	EventTypeTodoSnapshot    = "todo_snapshot"     // 当前 session todo 完整快照（非关键事件，可由 API 恢复）
+	EventTypePlanModeChanged = "plan_mode_changed" // plan mode / plan status 变化（关键事件）
 	// EventTypeSpecContinuationAmbiguous 是 spec-driven Phase 2 Guard 1 的 UI 事件：
 	// continuation.Resolve 返回 DecisionAsk 时广播，前端据此弹出候选 change 让用户确认。
 	// payload 为 SpecContinuationAmbiguousEvent——含 AskReason + Trigger + Candidates。
@@ -284,6 +287,8 @@ type Master struct {
 	EnableStreamingExecutor bool
 
 	middlewarePipeline MiddlewarePipeline
+
+	sessionTodoStore sessiontodo.Store
 }
 
 // NewMaster 创建一个新的 Master agent

@@ -168,6 +168,32 @@ func RegisterBuiltinTools(host *mcphost.Host, logger *zap.Logger, cfg *config.Co
 		globalGrepEngine = nil
 	}
 
+	var agentSpawner AgentSpawner
+	var todoStore SessionTodoStore
+	var todoBroadcaster TodoSnapshotBroadcaster
+	var nestedToolGate NestedToolGate
+	var planRuntimeObserver PlanRuntimeObserver
+	for _, optional := range agentSpawnerI {
+		if optional == nil {
+			continue
+		}
+		if spawner, ok := optional.(AgentSpawner); ok && agentSpawner == nil {
+			agentSpawner = spawner
+		}
+		if store, ok := optional.(SessionTodoStore); ok && todoStore == nil {
+			todoStore = store
+		}
+		if broadcaster, ok := optional.(TodoSnapshotBroadcaster); ok && todoBroadcaster == nil {
+			todoBroadcaster = broadcaster
+		}
+		if gate, ok := optional.(NestedToolGate); ok && nestedToolGate == nil {
+			nestedToolGate = gate
+		}
+		if observer, ok := optional.(PlanRuntimeObserver); ok && planRuntimeObserver == nil {
+			planRuntimeObserver = observer
+		}
+	}
+
 	registerReadFile(host, logger, globalReadTracker)
 	registerWriteFile(host, logger, globalReadTracker)
 	registerGlob(host, logger)
@@ -186,7 +212,7 @@ func RegisterBuiltinTools(host *mcphost.Host, logger *zap.Logger, cfg *config.Co
 	registerWebSearch(host, logger, websearchStrict, nil)
 	registerWebFetch(host, logger)
 	registerBrowserInteract(host, logger)
-	registerBatch(host, logger)
+	registerBatch(host, logger, nestedToolGate)
 	registerApplyPatch(host, logger)
 	registerToolSearch(host, logger)
 	registerCreateTool(host, logger, customToolsDir, cfg, globalApprovalBridge)
@@ -253,12 +279,16 @@ func RegisterBuiltinTools(host *mcphost.Host, logger *zap.Logger, cfg *config.Co
 		count++
 
 		// 如果提供了 agentSpawner，注册 spawn_agent 工具
-		if len(agentSpawnerI) > 0 && agentSpawnerI[0] != nil {
-			if spawner, ok := agentSpawnerI[0].(AgentSpawner); ok {
-				registerSpawnAgent(host, taskExecutor, spawner, logger, delegationObserver, spawnTimeout)
-				count++
-			}
+		if agentSpawner != nil {
+			registerSpawnAgent(host, taskExecutor, agentSpawner, logger, delegationObserver, spawnTimeout)
+			count++
 		}
+	}
+
+	if todoStore != nil {
+		registerTodoWrite(host, logger, todoStore, todoBroadcaster, planRuntimeObserver)
+		registerPlanModeTools(host, logger, todoStore, todoBroadcaster, planRuntimeObserver)
+		count += 4
 	}
 
 	// 如果提供了 router，注册 send_im_message 工具

@@ -77,6 +77,7 @@ import type {
   UsageQualityCost,
 } from '../types/api';
 import type { JournalResponse, JournalStatsResponse } from '../types/journal';
+import type { TodoSnapshot } from '../store/todos';
 import { apiClient, ApiClient } from './client';
 
 // NodeClient 接口 - Phase 2 扩展为 RemoteNodeClient
@@ -95,6 +96,7 @@ export interface NodeClient {
   // 消息
   sendMessage(sessionId: string, content: string, options?: { attachments?: FileAttachment[]; deepThinking?: boolean }): Promise<SendMessageResponse>;
   getMessages(sessionId: string, limit?: number): Promise<Message[]>;
+  getTodoSnapshot(sessionId: string): Promise<TodoSnapshot>;
   // HITL
   submitInput(taskId: string, resp: InputResponse): Promise<void>;
   getPendingInput(taskId: string): Promise<unknown[]>;
@@ -278,6 +280,10 @@ export class LocalNodeClient implements NodeClient {
     const params = limit ? `?limit=${limit}` : '';
     const res = await this.client.get<MessagesListResponse>(`/api/v1/sessions/${sessionId}/messages${params}`);
     return res.messages || [];
+  }
+
+  getTodoSnapshot(sessionId: string): Promise<TodoSnapshot> {
+    return this.client.get(`/api/v1/sessions/${sessionId}/todos`);
   }
 
   submitInput(taskId: string, resp: InputResponse): Promise<void> {

@@ -276,6 +276,46 @@ func TestSpawnAgent_WithToolWhitelist(t *testing.T) {
 	}
 }
 
+func TestSpawnAgent_RejectsPlanControlToolWhitelist(t *testing.T) {
+	logger := zap.NewNop()
+	host := mcphost.NewHost(logger)
+
+	spawner := &mockAgentSpawner{}
+	executor := &mockTaskExecutor{}
+	registerSpawnAgent(host, executor, spawner, logger, nil, 0)
+
+	ctx := WithToolContext(context.Background(), &ToolContext{
+		CallerType: CallerMaster,
+		CallerName: "master",
+	})
+
+	input, _ := json.Marshal(spawnAgentInput{
+		Name:         "受限 Agent",
+		SystemPrompt: "test",
+		Tools:        []string{"read_file", "todo_write"},
+		Instruction:  "搜索代码",
+	})
+
+	result, err := host.ExecuteTool(ctx, "spawn_agent", input)
+	if err != nil {
+		t.Fatalf("调用工具失败: %v", err)
+	}
+	if !result.IsError {
+		t.Fatal("SubAgent 工具白名单包含 plan/todo 控制工具时应返回错误")
+	}
+	if len(spawner.created) != 0 {
+		t.Fatalf("拒绝后不应创建 agent，实际创建 %d 个", len(spawner.created))
+	}
+
+	var errMsg string
+	if err := json.Unmarshal(result.Content, &errMsg); err != nil {
+		t.Fatalf("解析错误消息失败: %v", err)
+	}
+	if !contains(errMsg, "todo_write") {
+		t.Fatalf("错误消息应包含被拒绝工具名: %q", errMsg)
+	}
+}
+
 func TestSpawnAgent_PropagatesDepthAndMaxTurns(t *testing.T) {
 	logger := zap.NewNop()
 	host := mcphost.NewHost(logger)

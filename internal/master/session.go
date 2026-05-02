@@ -11,6 +11,7 @@ import (
 	"github.com/chef-guo/agents-hive/internal/imctx"
 	"github.com/chef-guo/agents-hive/internal/llm"
 	"github.com/chef-guo/agents-hive/internal/memory"
+	"github.com/chef-guo/agents-hive/internal/sessiontodo"
 	"github.com/chef-guo/agents-hive/internal/specdriven"
 )
 
@@ -41,6 +42,12 @@ type SessionState struct {
 	// 写入者仅限 session_loop.go:processTask 入口 hook，持锁外写。
 	// subagent / tool 路径触碰应走 runtime guard（specCtxGuard）。
 	SpecState specdriven.SessionSpecState `json:"spec_state,omitzero"`
+
+	// Plan Runtime 状态。PlanMode 控制 planning 阶段的工具 gate；
+	// PlanStatus 表示当前 session plan 的完成判定状态。
+	// 不在 SessionState 保存 per-session allowed tools，白名单由统一 gate 函数计算。
+	PlanMode   bool                   `json:"plan_mode,omitempty"`
+	PlanStatus sessiontodo.PlanStatus `json:"plan_status,omitempty"`
 
 	// 内部状态（不持久化）
 	lastSavedIndex int         `json:"-"` // 上次保存的消息索引
@@ -134,10 +141,40 @@ type SessionRequest struct {
 // TaskResponse 表示任务处理的响应
 type TaskResponse struct {
 	Content   string `json:"content"`           // 响应内容
+	Status    string `json:"status,omitempty"`  // completed/paused/failed，新代码权威状态
 	Completed bool   `json:"completed"`         // 任务是否完成
 	Error     string `json:"error,omitempty"`   // 错误信息
 	Exit      bool   `json:"exit"`              // 指示会话应退出
 	Message   string `json:"message,omitempty"` // 系统消息(如"已清空")
+}
+
+type TaskStatus string
+
+const (
+	TaskStatusCompleted TaskStatus = "completed"
+	TaskStatusPaused    TaskStatus = "paused"
+	TaskStatusFailed    TaskStatus = "failed"
+)
+
+func NewTaskResponse(content string, status TaskStatus) TaskResponse {
+	return NormalizeTaskResponse(TaskResponse{
+		Content: content,
+		Status:  string(status),
+	})
+}
+
+func NormalizeTaskResponse(resp TaskResponse) TaskResponse {
+	if resp.Status == "" {
+		if resp.Error != "" {
+			resp.Status = string(TaskStatusFailed)
+			resp.Completed = false
+		} else if resp.Completed {
+			resp.Status = string(TaskStatusCompleted)
+		}
+		return resp
+	}
+	resp.Completed = resp.Status == string(TaskStatusCompleted)
+	return resp
 }
 
 // SessionInfo 表示会话的简要信息（用于列表显示）

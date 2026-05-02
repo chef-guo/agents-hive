@@ -144,6 +144,7 @@ func (sm *SessionManager) GetOrCreateSession(sessionID string) (*SessionState, b
 
 // SendResponse 发送响应到 per-request channel 或通用 responseCh
 func (sm *SessionManager) SendResponse(responseID uint64, resp TaskResponse) {
+	resp = NormalizeTaskResponse(resp)
 	if responseID > 0 {
 		sm.responseMu.Lock()
 		ch, ok := sm.pendingResponses[responseID]

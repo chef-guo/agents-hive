@@ -12,6 +12,8 @@ import { MessageList } from '../components/chat/MessageList';
 import { ChatInput } from '../components/chat/ChatInput';
 import { CanvasPanel } from '../components/canvas/CanvasPanel';
 import { useTaskProgressStore } from '../store/taskProgress';
+import { shouldShowTodosPanel, useTodosStore } from '../store/todos';
+import { TodosList } from '../components/todos/TodosList';
 
 export function Chat() {
   const { t } = useTranslation();
@@ -41,14 +43,20 @@ export function Chat() {
   const updateSessionName = useSessionStore((s) => s.updateSessionName);
 
   const canvasOpen = useCanvasStore((s) => s.open);
+  const todosSnapshot = useTodosStore((s) => s.snapshot);
+  const todosPanelOpen = shouldShowTodosPanel(todosSnapshot);
+  const workspaceOpen = canvasOpen || todosPanelOpen;
+  const workspaceWidthClass = canvasOpen ? 'md:w-1/2' : 'md:w-80';
 
   useEffect(() => {
     if (id) {
       useCanvasStore.getState().closeAll(); // 切换会话时清理 Canvas
       clearMessages();
+      useTodosStore.getState().clear();
       // 切换会话时清理进度
       useTaskProgressStore.getState().clear();
       fetchSession(client, id);
+      useTodosStore.getState().loadSnapshot(client, id);
       // 先加载消息，再拉取待处理权限请求（确保锚定位置正确）
       loadMessages(client, id, 100).then(() => {
         useHITLStore.getState().fetchPending(client, id);
@@ -57,23 +65,24 @@ export function Chat() {
         if (pendingMessage) {
           // 清除 state 避免刷新后重复发送
           window.history.replaceState({}, '');
-            sendMessage(client, id, pendingMessage);
-            // 用消息内容自动命名会话
-            const title = pendingMessage.trim().slice(0, 20);
-            if (title) {
-              client.updateSession(id, { name: title }).catch(() => {});
-              updateSessionName(id, title);
-            }
+          sendMessage(client, id, pendingMessage);
+          // 用消息内容自动命名会话
+          const title = pendingMessage.trim().slice(0, 20);
+          if (title) {
+            client.updateSession(id, { name: title }).catch(() => {});
+            updateSessionName(id, title);
           }
-        });
-        loadModels(client);
-      }
-      return () => {
-        clearMessages();
-        useCanvasStore.getState().closeAll();
-        useTaskProgressStore.getState().clear();
-      };
-    }, [id, client, fetchSession, loadMessages, clearMessages, loadModels, pendingMessage, sendMessage, updateSessionName]);
+        }
+      });
+      loadModels(client);
+    }
+    return () => {
+      clearMessages();
+      useCanvasStore.getState().closeAll();
+      useTaskProgressStore.getState().clear();
+      useTodosStore.getState().clear();
+    };
+  }, [id, client, fetchSession, loadMessages, clearMessages, loadModels, pendingMessage, sendMessage, updateSessionName]);
 
   // 会话被删除后自动跳转回会话列表
   useEffect(() => {
@@ -199,13 +208,13 @@ export function Chat() {
         </div>
       )}
 
-      {/* 分屏布局：聊天区 + Canvas 面板 */}
-      {/* 宽屏（md+）：并排分屏；窄屏：Canvas 全屏覆盖在聊天区上方 */}
+      {/* 分屏布局：聊天区 + 右侧工作区 */}
+      {/* 宽屏（md+）：工作区承载 Todos + Canvas stack；窄屏：Todos 贴近输入区，Canvas 全屏覆盖 */}
       <div style={{ display: 'flex', flex: '1 1 0%', minHeight: 0, position: 'relative' }}>
-        {/* 聊天区：窄屏 Canvas 打开时隐藏，宽屏时占 50% */}
+        {/* 聊天区：窄屏 Canvas 打开时隐藏；宽屏有工作区时占 50% */}
         <div
-          className={`${canvasOpen ? 'hidden md:flex md:w-1/2' : 'w-full'} transition-[width] duration-200`}
-          style={{ display: canvasOpen ? undefined : 'flex', flexDirection: 'column', minWidth: 0, minHeight: 0, overflow: 'hidden' }}
+          className={`${canvasOpen ? 'hidden md:flex' : 'flex'} ${workspaceOpen ? (canvasOpen ? 'md:w-1/2' : 'md:flex-1') : 'md:w-full'} w-full transition-[width] duration-200`}
+          style={{ flexDirection: 'column', minWidth: 0, minHeight: 0, overflow: 'hidden' }}
         >
           <MessageList
             key={id}
@@ -214,12 +223,18 @@ export function Chat() {
             streamingStatus={streaming ? agentStatus : null}
             onRegenerate={handleRegenerate}
           />
+          <TodosList variant="mobile" />
           <ChatInput onSend={handleSend} onStop={handleStop} disabled={sending || streaming} />
         </div>
-        {/* Canvas 面板：宽屏占 50%，窄屏全屏覆盖 */}
-        {canvasOpen && (
-          <div className="absolute inset-0 md:relative md:inset-auto md:w-1/2 flex flex-col min-w-0 min-h-0">
-            <CanvasPanel />
+        {/* 右侧工作区：宽屏 stack，窄屏仅 Canvas 覆盖 */}
+        {workspaceOpen && (
+          <div className={`${canvasOpen ? 'absolute inset-0' : 'hidden'} md:relative md:inset-auto md:flex ${workspaceWidthClass} flex-col min-w-0 min-h-0 border-l border-[var(--border-color)] bg-[var(--bg-primary)]`}>
+            <TodosList variant="desktop" />
+            {canvasOpen && (
+              <div className="flex min-h-0 flex-1 flex-col">
+                <CanvasPanel />
+              </div>
+            )}
           </div>
         )}
       </div>

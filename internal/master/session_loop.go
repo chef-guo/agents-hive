@@ -17,6 +17,7 @@ import (
 	"github.com/chef-guo/agents-hive/internal/llm"
 	"github.com/chef-guo/agents-hive/internal/observability"
 	"github.com/chef-guo/agents-hive/internal/plugin"
+	"github.com/chef-guo/agents-hive/internal/sessiontodo"
 	"github.com/chef-guo/agents-hive/internal/store"
 	"github.com/chef-guo/agents-hive/internal/subagent"
 )
@@ -762,12 +763,22 @@ func (m *Master) processTask(ctx context.Context, request string, session *Sessi
 			err = fmt.Errorf("panic in processTask: %v", r)
 		}
 		if !completedBroadcasted {
+			session.mu.RLock()
+			planStatus := session.PlanStatus
+			session.mu.RUnlock()
+			status := "completed"
+			payload := map[string]interface{}{
+				"status":     status,
+				"session_id": session.ID,
+			}
+			if planStatus == sessiontodo.PlanStatusPaused {
+				status = string(TaskStatusPaused)
+				payload["status"] = status
+				payload["message"] = "Send a message to continue"
+			}
 			m.eventBus.BroadcastSessionMessage(session.ID, BroadcastMessage{
-				Type: EventTypeAgentStatus,
-				Payload: map[string]interface{}{
-					"status":     "completed",
-					"session_id": session.ID,
-				},
+				Type:    EventTypeAgentStatus,
+				Payload: payload,
 			})
 		}
 	}()

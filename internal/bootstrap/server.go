@@ -39,6 +39,7 @@ import (
 	"github.com/chef-guo/agents-hive/internal/plugin"
 	"github.com/chef-guo/agents-hive/internal/runtimepolicy"
 	"github.com/chef-guo/agents-hive/internal/sandbox"
+	"github.com/chef-guo/agents-hive/internal/sessiontodo"
 	"github.com/chef-guo/agents-hive/internal/skills"
 	"github.com/jackc/pgx/v5/pgxpool"
 	// Blank-import to force skill_install_confirmation choice_type registration
@@ -103,6 +104,7 @@ type ServerComponents struct {
 	MemStore            memory.MemoryStore
 	Executor            sandbox.Executor // 沙箱执行器
 	TaskBoard           taskboard.TaskBoard
+	SessionTodoStore    sessiontodo.Store
 	AuthEngine          *auth.Engine
 	PromptLoader        interface {
 		Start(context.Context)
@@ -319,6 +321,10 @@ func InitServer(cfg *config.Config, configPath string, logger *zap.Logger) *Serv
 		logger.Info("Agent Quality 候选用例池已启用")
 	}
 
+	if cfg.Agent.PlanRuntime.Enabled {
+		sc.SessionTodoStore = initSessionTodoStore(context.Background(), cfg, pgPool, logger)
+	}
+
 	// 7.1 沙箱执行器（在 DB 配置加载之后创建，确保 cfg.Sandbox 已被 DB 覆盖）
 	sc.Executor = initExecutor(cfg, logger)
 	tools.SetExecutor(sc.Executor)
@@ -372,6 +378,9 @@ func InitServer(cfg *config.Config, configPath string, logger *zap.Logger) *Serv
 
 	sc.Master.EnableStreamingExecutor = true // 域D: 并发工具执行已就绪，正式启用
 	sc.Master.SetMCPHost(sc.MCPHost)
+	if sc.SessionTodoStore != nil {
+		sc.Master.SetSessionTodoStore(sc.SessionTodoStore)
+	}
 
 	// hive-skill-on-demand §11.5：把 Master 适配为 mcphost.HITLEmitter 注入 Host。
 	// tasks.md §6.2c 契约：SetHITLEmitter 后 Host.EmitInputRequest 才会把 HITL
@@ -463,7 +472,7 @@ func InitServer(cfg *config.Config, configPath string, logger *zap.Logger) *Serv
 		tools.SetApprovalBridge(NewApprovalBridge(sc.Master.GetHITLBroker()))
 	}
 	tools.RegisterBuiltinTools(sc.MCPHost, logger, cfg, sc.Master, sc.Master,
-		cfg.CustomToolsDir, nil, sc.SkillReg, sc.PluginMgr, nil, sc.MemStore, sc.Master.GetAgentFactory())
+		cfg.CustomToolsDir, nil, sc.SkillReg, sc.PluginMgr, nil, sc.MemStore, sc.Master.GetAgentFactory(), sc.SessionTodoStore, sc.Master)
 
 	// 11.1 hive-skill-on-demand：按需注册 skill_install / skill_search。
 	// OnDemandEnabled=false 时完全 skip，对旧部署 byte-identical（§8.4 回归基线配套）。
@@ -1138,6 +1147,22 @@ func initTaskBoard(sc *ServerComponents, _ *config.Config, logger *zap.Logger) {
 	}
 	sc.TaskBoard = tb
 	logger.Info("TaskBoard 已初始化（PostgreSQL 模式）")
+}
+
+func initSessionTodoStore(ctx context.Context, _ *config.Config, pgPool *pgxpool.Pool, logger *zap.Logger) sessiontodo.Store {
+	if pgPool == nil {
+		logger.Warn("Plan Runtime 已启用，但 PostgreSQL pool 不可用，session todos 回退到内存模式")
+		return sessiontodo.NewMemoryStore()
+	}
+	initCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	st, err := sessiontodo.NewPGStore(initCtx, pgPool)
+	if err != nil {
+		logger.Error("session todo store 初始化失败，回退到内存模式", zap.Error(err))
+		return sessiontodo.NewMemoryStore()
+	}
+	logger.Info("Plan Runtime session todo store 已初始化（PostgreSQL 模式）")
+	return st
 }
 
 func initObservability(sc *ServerComponents, logger *zap.Logger) {

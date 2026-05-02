@@ -999,6 +999,38 @@ ALTER TABLE qualityworkbench_replay_jobs ADD COLUMN IF NOT EXISTS result JSONB N
 ALTER TABLE qualityworkbench_replay_jobs ADD COLUMN IF NOT EXISTS error TEXT NOT NULL DEFAULT '';
 `
 
+// pgAddSessionTodos 创建 session-scoped todos 独立表。
+const pgAddSessionTodos = `
+CREATE TABLE IF NOT EXISTS hive_session_todos (
+    session_id       TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    todo_id          TEXT NOT NULL,
+    content          TEXT NOT NULL,
+    status           TEXT NOT NULL,
+    order_index      INTEGER NOT NULL,
+    version          BIGINT NOT NULL DEFAULT 1,
+    plan_version     BIGINT NOT NULL,
+    plan_status      TEXT NOT NULL DEFAULT 'none',
+    source           TEXT NOT NULL DEFAULT 'agent',
+    trace_id         TEXT,
+    span_id          TEXT,
+    source_change_id TEXT,
+    source_revision  BIGINT,
+    source_tool_call_id TEXT,
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (session_id, todo_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_hive_session_todos_session_plan
+    ON hive_session_todos(session_id, plan_version);
+
+CREATE INDEX IF NOT EXISTS idx_hive_session_todos_source_change
+    ON hive_session_todos(source_change_id);
+
+CREATE INDEX IF NOT EXISTS idx_hive_session_todos_trace
+    ON hive_session_todos(trace_id);
+`
+
 // pgMigrate 初始化 PostgreSQL 数据库表结构
 func pgMigrate(ctx context.Context, pool *pgxpool.Pool, logger *zap.Logger) error {
 	logger.Info("初始化 PostgreSQL 数据库表结构")
@@ -1057,6 +1089,11 @@ func pgMigrate(ctx context.Context, pool *pgxpool.Pool, logger *zap.Logger) erro
 	// 为已有表添加 user_id 列
 	if _, err := pool.Exec(ctx, pgAddUserColumns); err != nil {
 		return errs.Wrap(errs.CodeStoreError, "PostgreSQL user_id 列迁移失败", err)
+	}
+
+	// Agent Plan Runtime：session-scoped todo snapshot 表
+	if _, err := pool.Exec(ctx, pgAddSessionTodos); err != nil {
+		return errs.Wrap(errs.CodeStoreError, "PostgreSQL session todo 表迁移失败", err)
 	}
 
 	// Phase 6: user_session_prefs 表（per-user 收藏偏好）

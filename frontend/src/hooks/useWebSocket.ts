@@ -5,6 +5,7 @@ import { useChatStore } from '../store/chat';
 import { useTaskProgressStore, type TaskGroupEvent, type TaskProgressEvent, type AgentProgressEvent } from '../store/taskProgress';
 import { useAgentActivityStore } from '../store/agentActivity';  // Sidebar SessionStatusDot 依赖 sessionStatus
 import { useSessionStore } from '../store/session';
+import { useTodosStore, type TodoSnapshot } from '../store/todos';
 import { rfc3339Now } from '../utils/date';
 import { maxConfirmedTimestamp } from '../store/chat';
 import type { NodeClient } from '../api/node-client';
@@ -36,8 +37,9 @@ interface ToolCallPayload {
 
 interface AgentStatusPayload {
   session_id?: string;
-  status: 'thinking' | 'tool_calling' | 'warning' | 'completed' | 'error';
+  status: 'thinking' | 'tool_calling' | 'warning' | 'completed' | 'paused' | 'error';
   error?: string;
+  message?: string;
   warning?: string;
 }
 
@@ -171,7 +173,7 @@ export function useWebSocket({ url, sessionId, enabled = true, onMessage, client
         if (isOtherSession(payload.session_id)) break;
 
         setAgentStatus(payload.status);
-        if (payload.status === 'completed') {
+        if (payload.status === 'completed' || payload.status === 'paused') {
           setStreaming(false);
           setAgentStatus(null);
         } else if (payload.status === 'error') {
@@ -247,6 +249,13 @@ export function useWebSocket({ url, sessionId, enabled = true, onMessage, client
         useTaskProgressStore.getState().updateAgentProgress(msg.payload as AgentProgressEvent);
         break;
 
+      case 'todo_snapshot': {
+        const snapshot = msg.payload as TodoSnapshot;
+        if (isOtherSession(snapshot.session_id)) break;
+        useTodosStore.getState().applySnapshot(snapshot);
+        break;
+      }
+
       case 'session_title': {
         const payload = msg.payload as { session_id: string; title: string };
         useSessionStore.getState().updateSessionName(payload.session_id, payload.title);
@@ -271,6 +280,7 @@ export function useWebSocket({ url, sessionId, enabled = true, onMessage, client
           useChatStore.getState().addInlineApproval(req);
         }
       }).catch(() => {});
+      useTodosStore.getState().loadSnapshot(client, sid).catch(() => {});
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [client]);

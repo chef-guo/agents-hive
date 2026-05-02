@@ -139,6 +139,31 @@
     "responsePlaceholder": "Enter your response...",
     "pendingApprovals": "Pending Approvals"
   },
+  "todos": {
+    "title": "Todos",
+    "ariaLabel": "Session todos",
+    "pausedHint": "Send a message to continue",
+    "emptyActivePlan": "Plan is active; todos will appear here.",
+    "source": {
+      "specProjected": "Projected from spec",
+      "specProjectedDetails": "Projected from spec · change {{changeId}} · revision {{revision}}"
+    },
+    "status": {
+      "pending": "Pending",
+      "in_progress": "In progress",
+      "completed": "Completed",
+      "cancelled": "Cancelled"
+    },
+    "planStatus": {
+      "none": "Plan",
+      "planning": "Planning",
+      "awaiting_approval": "Awaiting approval",
+      "executing": "Executing",
+      "paused": "Paused",
+      "completed": "Completed",
+      "failed": "Failed"
+    }
+  },
   "settings": {
     "title": "Settings",
     "preferences": "Preferences",

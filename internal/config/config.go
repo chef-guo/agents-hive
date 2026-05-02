@@ -311,6 +311,12 @@ type AgentConfig struct {
 	ToolPolicy          ToolPolicyConfig    `json:"tool_policy,omitempty"`         // 工具过滤策略配置
 	MaxSessionCost      float64             `json:"max_session_cost,omitempty"`    // per-session 成本预算上限（USD），<=0 不限制（需要 PostgreSQL 成本追踪启用）
 	QualityGuards       QualityGuardsConfig `json:"quality_guards,omitempty"`      // 质量护栏灰度开关（见 docs/计划与路线/Agent-质量护栏治理计划.md）
+	PlanRuntime         PlanRuntimeConfig   `json:"plan_runtime,omitempty"`        // session 级 plan/todos runtime，默认关闭
+}
+
+// PlanRuntimeConfig 控制 session-scoped todos 与 Plan Runtime Guard。
+type PlanRuntimeConfig struct {
+	Enabled bool `json:"enabled,omitempty"`
 }
 
 // QualityGuardsConfig 控制 agent-quality-remediation-plan P0 措施的灰度启用。

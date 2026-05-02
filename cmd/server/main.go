@@ -89,6 +89,9 @@ func main() {
 	// 创建 HTTP 服务器
 	server := api.NewServer(cfg.Server, cfg.HITL, cfg.WebUI, sc.Master, sc.SkillReg, cfg, *configPath, sc.ChannelRouter, sc.DB, sc.AuthEngine, logger)
 	server.SetWSPingInterval(cfg.Agent.WSPingInterval)
+	if sc.SessionTodoStore != nil {
+		server.SetSessionTodoStore(sc.SessionTodoStore)
+	}
 	if sc.FeishuIngressBridge != nil {
 		sc.FeishuIngressBridge.Bind(
 			server.GetFeishuIngressMode,

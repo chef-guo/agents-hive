@@ -37,6 +37,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/sessions/{id}/messages", s.handleSendMessage)
 	mux.HandleFunc("POST /api/v1/sessions/{id}/clear", s.handleClearSession)
 	mux.HandleFunc("GET /api/v1/sessions/{id}/messages", s.handleGetMessages)
+	mux.HandleFunc("GET /api/v1/sessions/{id}/todos", s.handleGetSessionTodos)
 	mux.HandleFunc("POST /api/v1/sessions/{id}/fork", s.handleForkSession)
 	mux.HandleFunc("POST /api/v1/sessions/{id}/revert", s.handleRevertSession)
 	mux.HandleFunc("POST /api/v1/sessions/{id}/regenerate", s.handleRegenerateMessage)

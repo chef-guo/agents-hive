@@ -102,6 +102,9 @@ func registerSpawnAgent(host *mcphost.Host, executor TaskExecutor, spawner Agent
 			if params.Instruction == "" {
 				return errorResult("instruction 不能为空"), nil
 			}
+			if denied := deniedPlanControlTools(params.Tools); len(denied) > 0 {
+				return errorResult(fmt.Sprintf("tools 包含 SubAgent 不允许使用的 plan/todo 控制工具: %v", denied)), nil
+			}
 
 			logger.Info("spawn_agent: 创建动态 Agent",
 				zap.String("name", params.Name),
@@ -198,4 +201,18 @@ func registerSpawnAgent(host *mcphost.Host, executor TaskExecutor, spawner Agent
 			return textResult(fmt.Sprintf("Agent %q (%s) 已创建并执行完成。\n\n结果:\n%s", agentID, params.Name, result)), nil
 		},
 	)
+}
+
+func deniedPlanControlTools(toolNames []string) []string {
+	if len(toolNames) == 0 {
+		return nil
+	}
+	denied := make([]string, 0)
+	for _, name := range toolNames {
+		switch name {
+		case todoWriteToolName, finishPlanToolName, enterPlanModeToolName, exitPlanModeToolName:
+			denied = append(denied, name)
+		}
+	}
+	return denied
 }

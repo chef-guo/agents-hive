@@ -856,10 +856,15 @@ func (m *Master) runReActLoop(
 			// completed 终态由 processTask defer 统一广播
 			m.logDecisionIfFinal(ctx, session)
 			if !session.IsTerminated() {
-				m.sessionMgr.SendResponse(responseID, TaskResponse{
-					Content:   resp.Content,
-					Completed: true,
-				})
+				decision := CompletionDecision{Status: TaskStatusCompleted, Completed: true}
+				if guard := m.planRuntimeGuard(); guard != nil {
+					var guardErr error
+					decision, guardErr = guard.DecideTurnCompletion(ctx, session, resp.Content, sessionTraceID, sessionSpanID)
+					if guardErr != nil {
+						return guardErr
+					}
+				}
+				m.sessionMgr.SendResponse(responseID, decision.TaskResponse(resp.Content))
 			}
 			return nil
 		}
@@ -1132,8 +1137,45 @@ func (m *Master) executeTool(ctx context.Context, session *SessionState, userID 
 	if session != nil {
 		sessionID = session.ID
 	}
+	toolSpanID := observability.NewSpanID()
 	// 统一注入 sessionID，确保下游工具（如 spawn_agent）能从 ctx 中提取
 	ctx = toolctx.WithSessionID(ctx, sessionID)
+	// Master-local bridge: 后续 toolctx worker 合并后，应改为 toolctx.ToolContext 字段。
+	ctx = WithPlanToolTrace(ctx, PlanToolTraceContext{
+		TraceID:      sessionTraceID,
+		SpanID:       toolSpanID,
+		ParentSpanID: sessionSpanID,
+		ToolCallID:   toolCall.ID,
+	})
+	ctx = toolctx.WithTraceContext(ctx, sessionTraceID, toolSpanID, sessionSpanID, toolCall.ID)
+
+	if decision := m.evaluatePlanToolGate(ctx, session, toolCall.Name); !decision.Allowed {
+		content := fmt.Sprintf("[plan mode gate denied: %s]", decision.Reason)
+		m.emitToolCallEvent(sessionID, ToolCallEvent{
+			ToolCallID: toolCall.ID,
+			ToolName:   toolCall.Name,
+			Status:     "error",
+			Error:      decision.Reason,
+			SessionID:  sessionID,
+		})
+		m.enqueueSpan(observability.Span{
+			TraceID:      sessionTraceID,
+			SpanID:       toolSpanID,
+			ParentSpanID: sessionSpanID,
+			Operation:    "tool.execute",
+			Service:      "master",
+			SessionID:    sessionID,
+			UserID:       userID,
+			Status:       "error",
+			Attributes: map[string]any{
+				"tool_name":   toolCall.Name,
+				"caller_type": string(decision.CallerType),
+				"error":       decision.Reason,
+			},
+			Ts: time.Now(),
+		})
+		return toolResult{Content: content, IsError: true, Terminal: true}
+	}
 
 	// 广播工具调用开始事件
 	m.emitToolCallEvent(sessionID, ToolCallEvent{
@@ -1251,7 +1293,6 @@ func (m *Master) executeTool(ctx context.Context, session *SessionState, userID 
 	executedToolCall.Name = call.Name
 	executedArgs := call.Arguments
 	duration := time.Since(start)
-	toolSpanID := observability.NewSpanID()
 
 	// 统一工具执行结束日志：记录原始返回状态，方便排查工具调用链路问题
 	{
@@ -1404,6 +1445,7 @@ func (m *Master) executeTool(ctx context.Context, session *SessionState, userID 
 	m.logToolCall(ctx, sessionID, executedToolCall, string(executedArgs), content, false, duration)
 	m.logFileChangeIfNeeded(ctx, sessionID, executedToolCall.Name, executedArgs, content)
 	recordToolDiscoveryFromResult(session, executedToolCall, content, false)
+	m.applyPlanToolStateAfterSuccess(session, executedToolCall.Name, toolCall.ID)
 
 	return toolResult{Content: content}
 }
@@ -2198,6 +2240,12 @@ func (m *Master) executeToolsConcurrent(
 
 			// 构建 ToolCall（executeTool 需要完整字段）
 			tc := llm.ToolCall{Name: name, Arguments: input}
+			for _, p := range callByID {
+				if canonicalFingerprint(p.tc.Name, p.tc.Arguments) == fp {
+					tc.ID = p.tc.ID
+					break
+				}
+			}
 			tr := m.executeTool(resolvedCtx, session, userID, tc, sessionTraceID, sessionSpanID)
 
 			// 将 string content 编码为 json.RawMessage

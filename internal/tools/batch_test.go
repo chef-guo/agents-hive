@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -34,9 +35,10 @@ func TestBatch(t *testing.T) {
 	// 注册模拟工具
 	host.RegisterTool(
 		mcphost.ToolDefinition{
-			Name:        "test_success",
-			Description: "测试成功工具",
-			InputSchema: json.RawMessage(`{"type":"object"}`),
+			Name:              "test_success",
+			Description:       "测试成功工具",
+			InputSchema:       json.RawMessage(`{"type":"object"}`),
+			IsConcurrencySafe: true,
 		},
 		mockTool(false, "success result"),
 	)
@@ -187,6 +189,122 @@ func TestBatch(t *testing.T) {
 				t.Errorf("期望 %d 个结果, 实际 %d 个", tt.expectedTotal, len(output.Results))
 			}
 		})
+	}
+}
+
+type testNestedToolGate struct {
+	denyTool string
+	called   int
+}
+
+func (g *testNestedToolGate) CheckNestedToolAllowed(ctx context.Context, toolName string) error {
+	g.called++
+	if toolName == g.denyTool {
+		return fmt.Errorf("plan mode gate denied %s", toolName)
+	}
+	return nil
+}
+
+func TestBatchNestedToolGateRejectsBeforeExecution(t *testing.T) {
+	logger := zap.NewNop()
+	host := mcphost.NewHost(logger)
+
+	executed := false
+	host.RegisterTool(
+		mcphost.ToolDefinition{
+			Name:        "write_file",
+			Description: "测试写工具",
+			InputSchema: json.RawMessage(`{"type":"object"}`),
+		},
+		func(ctx context.Context, input json.RawMessage) (*mcphost.ToolResult, error) {
+			executed = true
+			return textResult("不应该执行"), nil
+		},
+	)
+
+	gate := &testNestedToolGate{denyTool: "write_file"}
+	registerBatch(host, logger, gate)
+
+	inputJSON, err := json.Marshal(batchInput{
+		Operations: []batchOperation{
+			{Tool: "write_file", Input: json.RawMessage(`{}`)},
+		},
+	})
+	if err != nil {
+		t.Fatalf("序列化输入失败: %v", err)
+	}
+
+	result, err := host.ExecuteTool(context.Background(), "batch", inputJSON)
+	if err != nil {
+		t.Fatalf("ExecuteTool 失败: %v", err)
+	}
+	if !result.IsError {
+		t.Fatal("期望 batch 返回错误")
+	}
+	if executed {
+		t.Fatal("nested gate 拒绝后不应执行子工具")
+	}
+	if gate.called != 1 {
+		t.Fatalf("期望 gate 调用 1 次，实际 %d", gate.called)
+	}
+
+	var output batchOutput
+	if err := json.Unmarshal(result.Content, &output); err != nil {
+		t.Fatalf("解析输出失败: %v", err)
+	}
+	if output.Failed != 1 || output.Results[0].Success {
+		t.Fatalf("期望 1 个失败结果: %+v", output)
+	}
+	if !strings.Contains(output.Results[0].Error, "plan mode gate denied") {
+		t.Fatalf("错误消息未包含 gate 原因: %q", output.Results[0].Error)
+	}
+}
+
+func TestBatchParallelRejectsUnsafeTools(t *testing.T) {
+	logger := zap.NewNop()
+	host := mcphost.NewHost(logger)
+
+	executed := false
+	host.RegisterTool(
+		mcphost.ToolDefinition{
+			Name:        "todo_write",
+			Description: "测试状态工具",
+			InputSchema: json.RawMessage(`{"type":"object"}`),
+		},
+		func(ctx context.Context, input json.RawMessage) (*mcphost.ToolResult, error) {
+			executed = true
+			return textResult("不应该执行"), nil
+		},
+	)
+	registerBatch(host, logger)
+
+	inputJSON, err := json.Marshal(batchInput{
+		Parallel: true,
+		Operations: []batchOperation{
+			{Tool: "todo_write", Input: json.RawMessage(`{}`)},
+		},
+	})
+	if err != nil {
+		t.Fatalf("序列化输入失败: %v", err)
+	}
+
+	result, err := host.ExecuteTool(context.Background(), "batch", inputJSON)
+	if err != nil {
+		t.Fatalf("ExecuteTool 失败: %v", err)
+	}
+	if !result.IsError {
+		t.Fatal("期望 batch.parallel 拒绝非并发安全工具")
+	}
+	if executed {
+		t.Fatal("batch.parallel 拒绝后不应执行子工具")
+	}
+
+	var errMsg string
+	if err := json.Unmarshal(result.Content, &errMsg); err != nil {
+		t.Fatalf("解析错误消息失败: %v", err)
+	}
+	if !strings.Contains(errMsg, "不允许并发执行非只读工具") {
+		t.Fatalf("错误消息不符合预期: %q", errMsg)
 	}
 }
 

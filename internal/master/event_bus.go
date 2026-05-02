@@ -55,10 +55,11 @@ func assertNoAssistantPayload(payload any) {
 func isCriticalEvent(msgType string) bool {
 	switch msgType {
 	case EventTypeInputRequest, // HITL 输入请求
-		EventTypeInputResponse, // HITL 输入响应（EmitInputRequest 订阅依赖）
-		"approval_request",     // 审批请求（为未来扩展保留）
-		EventTypeError,         // 错误通知
-		EventTypeAgentStatus:   // Agent 状态变更（completed/error 丢失会导致前端卡在"思考中"）
+		EventTypeInputResponse,   // HITL 输入响应（EmitInputRequest 订阅依赖）
+		"approval_request",       // 审批请求（为未来扩展保留）
+		EventTypeError,           // 错误通知
+		EventTypeAgentStatus,     // Agent 状态变更（completed/error 丢失会导致前端卡在"思考中"）
+		EventTypePlanModeChanged: // Plan mode 切换改变用户可见阶段，不能静默丢失
 		return true
 	default:
 		return false

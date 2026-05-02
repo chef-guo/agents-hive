@@ -5,6 +5,7 @@ import (
 
 	"github.com/chef-guo/agents-hive/internal/llm"
 	"github.com/chef-guo/agents-hive/internal/mcphost"
+	"github.com/chef-guo/agents-hive/internal/sessiontodo"
 )
 
 func TestModelVisibleTools_DefaultsHideExtensionsUntilDiscovered(t *testing.T) {
@@ -35,6 +36,38 @@ func TestModelVisibleTools_DefaultsHideExtensionsUntilDiscovered(t *testing.T) {
 	}
 	if !hasTool(afterDiscovery, "acme__publish") {
 		t.Fatal("discovered external MCP tool should become model-visible")
+	}
+}
+
+func TestModelVisibleTools_PlanModeUsesExecutionGate(t *testing.T) {
+	session := &SessionState{
+		ID:         "s-plan",
+		PlanMode:   true,
+		PlanStatus: sessiontodo.PlanStatusPlanning,
+	}
+	catalog := []mcphost.ToolDefinition{
+		{Name: "read_file", Core: true},
+		{Name: "grep", Core: true},
+		{Name: "question", Core: true},
+		{Name: "todo_write", Core: true},
+		{Name: "exit_plan_mode", Core: true},
+		{Name: "write_file", Core: true},
+		{Name: "bash", Core: true},
+		{Name: "taskboard", Core: true},
+		{Name: "send_im_message", Core: true},
+	}
+
+	visible := modelVisibleToolsForSession(session, catalog)
+
+	for _, name := range []string{"read_file", "grep", "question", "todo_write", "exit_plan_mode"} {
+		if !hasTool(visible, name) {
+			t.Fatalf("plan mode should keep %q visible", name)
+		}
+	}
+	for _, name := range []string{"write_file", "bash", "taskboard", "send_im_message"} {
+		if hasTool(visible, name) {
+			t.Fatalf("plan mode should hide write/control tool %q", name)
+		}
 	}
 }
 

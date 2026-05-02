@@ -18,9 +18,9 @@ export const useAgentActivityStore = create<AgentActivityState>((set) => ({
       if (status === 'thinking' || status === 'tool_calling') {
         return { sessionStatus: { ...s.sessionStatus, [sessionId]: 'running' } };
       }
-      if (status === 'completed') {
-        return { sessionStatus: { ...s.sessionStatus, [sessionId]: 'idle' } };
-      }
+      if (status === 'completed' || status === 'paused') {
+		return { sessionStatus: { ...s.sessionStatus, [sessionId]: 'idle' } };
+	}
       if (status === 'error') {
         return { sessionStatus: { ...s.sessionStatus, [sessionId]: 'error' } };
       }

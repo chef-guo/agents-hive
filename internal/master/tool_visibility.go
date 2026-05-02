@@ -1,6 +1,7 @@
 package master
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 
@@ -27,6 +28,9 @@ func modelVisibleToolsForSession(session *SessionState, catalog []mcphost.ToolDe
 	}
 	out := make([]mcphost.ToolDefinition, 0, len(catalog))
 	for _, tool := range catalog {
+		if decision := EvaluatePlanToolGate(context.Background(), session, tool.Name); !decision.Allowed {
+			continue
+		}
 		if tool.Core || defaultModelVisibleTools[tool.Name] || (session != nil && session.IsToolDiscovered(tool.Name)) {
 			out = append(out, tool)
 		}

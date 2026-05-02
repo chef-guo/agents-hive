@@ -104,6 +104,7 @@ type Server struct {
 	feishuHealthClient          *feishu.Client
 	pushService                 *push.Service
 	feishuAuditSink             feishu.AuditSink
+	sessionTodoStore            sessionTodoSnapshotStore
 }
 
 type pushScheduleStore interface {

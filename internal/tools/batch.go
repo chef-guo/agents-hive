@@ -12,6 +12,11 @@ import (
 	"github.com/chef-guo/agents-hive/internal/mcphost"
 )
 
+// NestedToolGate 是 batch 等工具执行子工具前调用的统一执行层 gate。
+type NestedToolGate interface {
+	CheckNestedToolAllowed(ctx context.Context, toolName string) error
+}
+
 // batchInput 定义批量操作的输入结构
 type batchInput struct {
 	Operations []batchOperation `json:"operations"`
@@ -45,7 +50,15 @@ const (
 )
 
 // registerBatch 注册 batch 工具
-func registerBatch(host *mcphost.Host, logger *zap.Logger) {
+func registerBatch(host *mcphost.Host, logger *zap.Logger, gates ...NestedToolGate) {
+	var gate NestedToolGate
+	for _, candidate := range gates {
+		if candidate != nil {
+			gate = candidate
+			break
+		}
+	}
+
 	schema, _ := json.Marshal(map[string]any{
 		"type": "object",
 		"properties": map[string]any{
@@ -111,9 +124,12 @@ func registerBatch(host *mcphost.Host, logger *zap.Logger) {
 			// 执行批量操作
 			var output batchOutput
 			if params.Parallel {
-				output = executeBatchParallel(ctx, host, logger, params.Operations)
+				if err := validateBatchParallelSafety(host, params.Operations); err != nil {
+					return errorResult(err.Error()), nil
+				}
+				output = executeBatchParallel(ctx, host, logger, params.Operations, gate)
 			} else {
-				output = executeBatchSerial(ctx, host, logger, params.Operations)
+				output = executeBatchSerial(ctx, host, logger, params.Operations, gate)
 			}
 
 			// 格式化输出
@@ -138,8 +154,21 @@ func registerBatch(host *mcphost.Host, logger *zap.Logger) {
 	)
 }
 
+func validateBatchParallelSafety(host *mcphost.Host, operations []batchOperation) error {
+	for i, op := range operations {
+		def, err := host.GetTool(op.Tool)
+		if err != nil {
+			return fmt.Errorf("操作 #%d: 工具不存在: %s", i+1, op.Tool)
+		}
+		if !def.IsConcurrencySafe {
+			return fmt.Errorf("操作 #%d: 工具 %q 不允许并发执行非只读工具，请改用串行 batch", i+1, op.Tool)
+		}
+	}
+	return nil
+}
+
 // executeBatchSerial 串行执行批量操作
-func executeBatchSerial(ctx context.Context, host *mcphost.Host, logger *zap.Logger, operations []batchOperation) batchOutput {
+func executeBatchSerial(ctx context.Context, host *mcphost.Host, logger *zap.Logger, operations []batchOperation, gate NestedToolGate) batchOutput {
 	output := batchOutput{
 		Total:   len(operations),
 		Results: make([]batchResult, len(operations)),
@@ -154,7 +183,7 @@ func executeBatchSerial(ctx context.Context, host *mcphost.Host, logger *zap.Log
 			break
 		}
 
-		result := executeOperation(ctx, host, logger, op, i+1)
+		result := executeOperation(ctx, host, logger, op, i+1, gate)
 		output.Results[i] = result
 
 		if result.Success {
@@ -168,7 +197,7 @@ func executeBatchSerial(ctx context.Context, host *mcphost.Host, logger *zap.Log
 }
 
 // executeBatchParallel 并行执行批量操作
-func executeBatchParallel(ctx context.Context, host *mcphost.Host, logger *zap.Logger, operations []batchOperation) batchOutput {
+func executeBatchParallel(ctx context.Context, host *mcphost.Host, logger *zap.Logger, operations []batchOperation, gate NestedToolGate) batchOutput {
 	output := batchOutput{
 		Total:   len(operations),
 		Results: make([]batchResult, len(operations)),
@@ -182,7 +211,7 @@ func executeBatchParallel(ctx context.Context, host *mcphost.Host, logger *zap.L
 		go func(index int, operation batchOperation) {
 			defer wg.Done()
 
-			result := executeOperation(ctx, host, logger, operation, index+1)
+			result := executeOperation(ctx, host, logger, operation, index+1, gate)
 
 			mu.Lock()
 			output.Results[index] = result
@@ -200,7 +229,7 @@ func executeBatchParallel(ctx context.Context, host *mcphost.Host, logger *zap.L
 }
 
 // executeOperation 执行单个操作
-func executeOperation(ctx context.Context, host *mcphost.Host, logger *zap.Logger, op batchOperation, index int) batchResult {
+func executeOperation(ctx context.Context, host *mcphost.Host, logger *zap.Logger, op batchOperation, index int, gate NestedToolGate) batchResult {
 	logger.Debug("执行批量操作",
 		zap.Int("index", index),
 		zap.String("tool", op.Tool))
@@ -218,6 +247,18 @@ func executeOperation(ctx context.Context, host *mcphost.Host, logger *zap.Logge
 			zap.Int("index", index),
 			zap.String("tool", op.Tool))
 		return result
+	}
+
+	if gate != nil {
+		if err := gate.CheckNestedToolAllowed(ctx, op.Tool); err != nil {
+			result.Success = false
+			result.Error = err.Error()
+			logger.Warn("批量操作失败：执行层 gate 拒绝",
+				zap.Int("index", index),
+				zap.String("tool", op.Tool),
+				zap.Error(err))
+			return result
+		}
 	}
 
 	// 执行工具
