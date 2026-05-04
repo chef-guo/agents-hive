@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/openai/openai-go"
 	"go.uber.org/zap"
@@ -210,7 +211,17 @@ func (c *Client) chatWithToolsStreamViaCompletions(ctx context.Context, req Chat
 	}
 
 	// 4. 发送流式请求（不使用 retryableAPICall）
+	streamStart := time.Now()
 	stream := c.client.Chat.Completions.NewStreaming(ctx, params)
+	c.logger.Info("[stream-diag] Chat Completions 流式请求已创建",
+		zap.String("model", snapModel),
+		zap.String("provider", providerName),
+		zap.Int("message_count", len(messages)),
+		zap.Int("tool_count", len(tools)),
+		zap.String("tool_choice", req.ToolChoice),
+		zap.String("reasoning_effort", req.ReasoningEffort),
+		zap.Int64("create_stream_ms", time.Since(streamStart).Milliseconds()),
+	)
 	defer stream.Close()
 
 	// 累积器
@@ -222,9 +233,45 @@ func (c *Client) chatWithToolsStreamViaCompletions(ctx context.Context, req Chat
 	var usage Usage
 	insideThink := false       // 是否正在 <think> 块内
 	var tagBuf strings.Builder // 用于检测 <think> 和 </think> 标签的缓冲区
+	var rawChunkCount int
+	var firstRawChunkAt time.Time
 
 	for stream.Next() {
 		chunk := stream.Current()
+		rawChunkCount++
+		rawSummary := summarizeChatCompletionRawChunk(chunk)
+		if rawChunkCount == 1 {
+			firstRawChunkAt = time.Now()
+			c.logger.Info("[stream-diag] 首个 SDK 原始 chunk 抵达",
+				zap.String("model", snapModel),
+				zap.String("provider", providerName),
+				zap.Int64("ttfb_ms", firstRawChunkAt.Sub(streamStart).Milliseconds()),
+				zap.String("chunk_id", rawSummary.ChunkID),
+				zap.String("chunk_model", rawSummary.Model),
+				zap.Int("choice_count", rawSummary.ChoiceCount),
+				zap.Bool("has_text", rawSummary.HasText),
+				zap.Bool("has_tool_calls", rawSummary.HasToolCalls),
+				zap.Bool("has_usage", rawSummary.HasUsage),
+				zap.Int("content_delta_len", rawSummary.ContentDeltaLen),
+				zap.Int("tool_call_delta_count", rawSummary.ToolCallDeltaCount),
+				zap.String("finish_reason", rawSummary.FinishReason),
+			)
+		} else if rawChunkCount <= 3 || rawChunkCount%20 == 0 {
+			c.logger.Debug("[stream-diag] SDK 原始 chunk 抵达",
+				zap.String("model", snapModel),
+				zap.String("provider", providerName),
+				zap.Int("n", rawChunkCount),
+				zap.Int64("elapsed_since_start_ms", time.Since(streamStart).Milliseconds()),
+				zap.Int64("elapsed_since_first_ms", time.Since(firstRawChunkAt).Milliseconds()),
+				zap.Int("choice_count", rawSummary.ChoiceCount),
+				zap.Bool("has_text", rawSummary.HasText),
+				zap.Bool("has_tool_calls", rawSummary.HasToolCalls),
+				zap.Bool("has_usage", rawSummary.HasUsage),
+				zap.Int("content_delta_len", rawSummary.ContentDeltaLen),
+				zap.Int("tool_call_delta_count", rawSummary.ToolCallDeltaCount),
+				zap.String("finish_reason", rawSummary.FinishReason),
+			)
+		}
 
 		// 处理 usage（最后一个 chunk，choices 可能为空）
 		if chunk.Usage.TotalTokens > 0 {
@@ -358,6 +405,22 @@ func (c *Client) chatWithToolsStreamViaCompletions(ctx context.Context, req Chat
 	if err := stream.Err(); err != nil {
 		c.logAPIError(err, "chat_completion_stream_with_tools")
 		return nil, errs.Wrap(errs.CodePlanGenFailed, "流式聊天补全失败", err)
+	}
+	if rawChunkCount > 0 {
+		c.logger.Info("[stream-diag] SDK 原始流结束汇总",
+			zap.String("model", snapModel),
+			zap.String("provider", providerName),
+			zap.Int("raw_chunks", rawChunkCount),
+			zap.Int64("total_ms", time.Since(streamStart).Milliseconds()),
+			zap.Int64("sdk_ttfb_ms", firstRawChunkAt.Sub(streamStart).Milliseconds()),
+			zap.Int64("sdk_stream_span_ms", time.Since(firstRawChunkAt).Milliseconds()),
+		)
+	} else {
+		c.logger.Warn("[stream-diag] SDK 原始流未收到任何 chunk",
+			zap.String("model", snapModel),
+			zap.String("provider", providerName),
+			zap.Int64("total_ms", time.Since(streamStart).Milliseconds()),
+		)
 	}
 
 	// 处理累积的内容：提取推理内容

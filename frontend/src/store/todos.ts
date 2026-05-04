@@ -10,6 +10,8 @@ export interface Todo {
   content: string;
   status: TodoStatus;
   source?: string;
+  turn_id?: string;
+  runtime_epoch?: string;
   source_change_id?: string;
   source_revision?: number;
   order: number;
@@ -26,10 +28,28 @@ export interface TodoSnapshot {
   source?: string;
   trace_id?: string;
   span_id?: string;
+  turn_id?: string;
+  runtime_epoch?: string;
   source_tool_call_id?: string;
   source_change_id?: string;
   source_revision?: number;
   updated_at: string;
+}
+
+export interface TodoResumeAction {
+  allowed: boolean;
+  mode: 'manual' | 'auto';
+  reason?: string;
+  prompt?: string;
+  plan_version?: number;
+  runtime_epoch?: string;
+  pending_todo_ids?: string[];
+}
+
+export interface TodoResumeResponse {
+  action: TodoResumeAction;
+  response?: unknown;
+  snapshot?: TodoSnapshot;
 }
 
 export function shouldShowTodosPanel(snapshot: { plan_status: PlanStatus; todos: unknown[] } | null): boolean {
@@ -41,8 +61,10 @@ interface TodosState {
   snapshot: TodoSnapshot | null;
   localVersion: number;
   loading: boolean;
+  resuming: boolean;
   error: string | null;
   loadSnapshot: (client: NodeClient, sessionId: string) => Promise<void>;
+  resumePlan: (client: NodeClient) => Promise<void>;
   applySnapshot: (snapshot: TodoSnapshot) => void;
   clear: () => void;
 }
@@ -58,6 +80,7 @@ export const useTodosStore = create<TodosState>((set) => ({
   snapshot: null,
   localVersion: 0,
   loading: false,
+  resuming: false,
   error: null,
 
   loadSnapshot: async (client, sessionId) => {
@@ -99,6 +122,40 @@ export const useTodosStore = create<TodosState>((set) => ({
     }
   },
 
+  resumePlan: async (client) => {
+    const current = useTodosStore.getState().snapshot;
+    if (!current || current.plan_status !== 'paused') return;
+    if (!current.runtime_epoch) {
+      set({ error: 'Missing runtime epoch; refresh todos before resuming.' });
+      return;
+    }
+    set({ resuming: true, error: null });
+    try {
+      const result = await client.resumeTodos(current.session_id, current.plan_version, current.runtime_epoch);
+      set((state) => {
+        if (state.currentSessionId && state.currentSessionId !== current.session_id) {
+          return { resuming: false };
+        }
+        if (result.snapshot && result.snapshot.plan_version > state.localVersion) {
+          return {
+            snapshot: result.snapshot,
+            localVersion: result.snapshot.plan_version,
+            resuming: false,
+            error: null,
+          };
+        }
+        return { resuming: false, error: null };
+      });
+    } catch (error: unknown) {
+      set((state) => state.currentSessionId === current.session_id
+        ? {
+            resuming: false,
+            error: error instanceof Error ? error.message : 'Failed to resume todos',
+          }
+        : state);
+    }
+  },
+
   applySnapshot: (snapshot) => set((state) => {
     if (state.currentSessionId && snapshot.session_id !== state.currentSessionId) return state;
     if (snapshot.plan_version <= state.localVersion) return state;
@@ -110,5 +167,5 @@ export const useTodosStore = create<TodosState>((set) => ({
     };
   }),
 
-  clear: () => set({ currentSessionId: null, snapshot: null, localVersion: 0, loading: false, error: null }),
+  clear: () => set({ currentSessionId: null, snapshot: null, localVersion: 0, loading: false, resuming: false, error: null }),
 }));

@@ -3,12 +3,14 @@ package master
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/chef-guo/agents-hive/internal/llm"
 	"github.com/chef-guo/agents-hive/internal/mcphost"
 	"github.com/chef-guo/agents-hive/internal/sessiontodo"
+	"github.com/chef-guo/agents-hive/internal/store"
 	"github.com/chef-guo/agents-hive/internal/toolctx"
 	"github.com/chef-guo/agents-hive/internal/tools"
 	"github.com/stretchr/testify/assert"
@@ -127,16 +129,19 @@ func TestExecuteTool_InjectsTraceContextBeforeExecution(t *testing.T) {
 	assert.Equal(t, "trace-root", captured.TraceID)
 	assert.NotEmpty(t, captured.SpanID)
 	assert.Equal(t, "parent-span", captured.ParentSpanID)
+	assert.Equal(t, "trace-root", captured.TurnID)
 	assert.Equal(t, "tool-call-1", captured.ToolCallID)
 	require.NotNil(t, capturedToolContext)
 	assert.Equal(t, captured.TraceID, capturedToolContext.TraceID)
 	assert.Equal(t, captured.SpanID, capturedToolContext.SpanID)
 	assert.Equal(t, captured.ParentSpanID, capturedToolContext.ParentSpanID)
+	assert.Equal(t, captured.TurnID, capturedToolContext.TurnIDOrTraceID())
 	assert.Equal(t, captured.ToolCallID, capturedToolContext.ToolCallID)
 }
 
 func TestExecuteToolGate_BlocksPlanModeWriteTools(t *testing.T) {
 	m := newPhase6MasterWithMCPHost(t)
+	m.obsCh = make(chan observabilityEntry, 16)
 
 	called := false
 	m.mcpHost.RegisterTool(
@@ -158,11 +163,13 @@ func TestExecuteToolGate_BlocksPlanModeWriteTools(t *testing.T) {
 	assert.True(t, result.Terminal)
 	assert.False(t, called, "gate 必须在工具执行前拒绝")
 	assert.Contains(t, result.Content, "plan mode")
+	assertPlanModeAuditLog(t, m, "tool_blocked", "plan-gate", "", "write_file")
 }
 
 func TestExecuteTool_SyncsPlanModeStateAfterPlanToolSuccess(t *testing.T) {
 	m := newPhase6MasterWithMCPHost(t)
 	m.eventBus = NewEventBus(zap.NewNop())
+	m.obsCh = make(chan observabilityEntry, 16)
 	t.Cleanup(func() { m.eventBus.Close() })
 	_, events := m.eventBus.Subscribe()
 
@@ -202,6 +209,7 @@ func TestExecuteTool_SyncsPlanModeStateAfterPlanToolSuccess(t *testing.T) {
 			t.Fatal("expected plan_mode_changed event")
 		}
 	}
+	assertPlanModeAuditLog(t, m, "mode_changed", "plan-sync", sessiontodo.PlanStatusNone, "enter_plan_mode")
 }
 
 func TestPlanToolGate_SubAgentCannotCallPlanControlTools(t *testing.T) {
@@ -284,6 +292,172 @@ func TestBroadcastTodoSnapshot_EmitsMetricAndLog(t *testing.T) {
 	assertObsLog(t, m, "todo_snapshot broadcasted")
 }
 
+func TestPlanRuntimeAutoContinueClaimsAndEnqueuesContinuation(t *testing.T) {
+	todoStore := sessiontodo.NewMemoryStore()
+	m := &Master{
+		config: masterTestConfigWithAutoContinue(),
+		sessionMgr: &SessionManager{
+			requestCh:        make(chan SessionRequest, 1),
+			responseCh:       make(chan TaskResponse, 1),
+			pendingResponses: make(map[uint64]chan TaskResponse),
+			stopCh:           make(chan struct{}),
+			sessions:         make(map[string]*SessionState),
+			logger:           zap.NewNop(),
+		},
+		sessionTodoStore: todoStore,
+		store:            store.NewMemoryStore(),
+		runtimeEpoch:     "epoch-new",
+		eventBus:         NewEventBus(zap.NewNop()),
+		obsCh:            make(chan observabilityEntry, 16),
+		autoContinueRuns: make(map[string]int),
+	}
+	t.Cleanup(func() { m.eventBus.Close() })
+	ctx := context.Background()
+
+	snap, err := todoStore.SetPlanStatusWithMeta(ctx, "sess-auto", sessiontodo.PlanStatusPaused, sessiontodo.SnapshotMeta{RuntimeEpoch: "epoch-old", TurnID: "turn-old"})
+	require.NoError(t, err)
+	snap, err = todoStore.Replace(ctx, "sess-auto", snap.PlanVersion, []sessiontodo.TodoInput{
+		{ID: "next", Content: "继续实现", Status: sessiontodo.TodoStatusPending, RuntimeEpoch: "epoch-old", TurnID: "turn-old"},
+	})
+	require.NoError(t, err)
+	snap, err = todoStore.SetPlanStatusWithMeta(ctx, "sess-auto", sessiontodo.PlanStatusPaused, sessiontodo.SnapshotMeta{RuntimeEpoch: "epoch-old", TurnID: "turn-old"})
+	require.NoError(t, err)
+
+	m.maybeAutoContinuePlan(ctx, snap)
+
+	select {
+	case req := <-m.sessionMgr.requestCh:
+		require.Equal(t, "sess-auto", req.SessionID)
+		require.NotEmpty(t, req.TurnID)
+		require.Contains(t, req.Input, "继续实现")
+		m.sessionMgr.SendResponse(req.ResponseID, NewTaskResponse("queued", TaskStatusCompleted))
+	case <-time.After(300 * time.Millisecond):
+		t.Fatal("auto_continue should enqueue continuation request")
+	}
+	claimed, err := todoStore.Snapshot(ctx, "sess-auto")
+	require.NoError(t, err)
+	require.Equal(t, sessiontodo.PlanStatusExecuting, claimed.PlanStatus)
+	require.Equal(t, "epoch-new", claimed.RuntimeEpoch)
+}
+
+func TestPlanRuntimeAutoContinueDoesNotConsumeRunOnClaimFailure(t *testing.T) {
+	todoStore := sessiontodo.NewMemoryStore()
+	m := &Master{
+		config: masterTestConfigWithAutoContinue(),
+		sessionMgr: &SessionManager{
+			requestCh:        make(chan SessionRequest, 1),
+			responseCh:       make(chan TaskResponse, 1),
+			pendingResponses: make(map[uint64]chan TaskResponse),
+			stopCh:           make(chan struct{}),
+			sessions:         make(map[string]*SessionState),
+			logger:           zap.NewNop(),
+		},
+		sessionTodoStore: todoStore,
+		store:            store.NewMemoryStore(),
+		runtimeEpoch:     "epoch-new",
+		eventBus:         NewEventBus(zap.NewNop()),
+		obsCh:            make(chan observabilityEntry, 16),
+		autoContinueRuns: make(map[string]int),
+	}
+	t.Cleanup(func() { m.eventBus.Close() })
+	ctx := context.Background()
+
+	stale, err := todoStore.SetPlanStatusWithMeta(ctx, "sess-auto-stale", sessiontodo.PlanStatusPaused, sessiontodo.SnapshotMeta{RuntimeEpoch: "epoch-old", TurnID: "turn-old"})
+	require.NoError(t, err)
+	stale, err = todoStore.Replace(ctx, "sess-auto-stale", stale.PlanVersion, []sessiontodo.TodoInput{
+		{ID: "next", Content: "继续实现", Status: sessiontodo.TodoStatusPending, RuntimeEpoch: "epoch-old", TurnID: "turn-old"},
+	})
+	require.NoError(t, err)
+	stale, err = todoStore.SetPlanStatusWithMeta(ctx, "sess-auto-stale", sessiontodo.PlanStatusPaused, sessiontodo.SnapshotMeta{RuntimeEpoch: "epoch-old", TurnID: "turn-old"})
+	require.NoError(t, err)
+
+	_, err = todoStore.SetPlanStatusWithMeta(ctx, "sess-auto-stale", sessiontodo.PlanStatusPaused, sessiontodo.SnapshotMeta{RuntimeEpoch: "epoch-old", TurnID: "turn-old"})
+	require.NoError(t, err)
+
+	m.maybeAutoContinuePlan(ctx, stale)
+	assert.Equal(t, 0, m.autoContinueRuns[autoContinueRunKey(stale)], "claim 失败不应消耗 auto_continue 次数")
+	select {
+	case req := <-m.sessionMgr.requestCh:
+		t.Fatalf("claim 失败不应 enqueue continuation: %+v", req)
+	default:
+	}
+
+	fresh, err := todoStore.Snapshot(ctx, "sess-auto-stale")
+	require.NoError(t, err)
+	m.maybeAutoContinuePlan(ctx, fresh)
+
+	select {
+	case req := <-m.sessionMgr.requestCh:
+		require.Equal(t, "sess-auto-stale", req.SessionID)
+		m.sessionMgr.SendResponse(req.ResponseID, NewTaskResponse("queued", TaskStatusCompleted))
+	case <-time.After(300 * time.Millisecond):
+		t.Fatal("fresh snapshot should enqueue continuation after stale claim failure")
+	}
+	assert.Equal(t, 1, m.autoContinueRuns[autoContinueRunKey(fresh)])
+}
+
+func TestResumeFailureRestoresPausedSnapshot(t *testing.T) {
+	todoStore := sessiontodo.NewMemoryStore()
+	m := &Master{
+		sessionTodoStore: todoStore,
+		runtimeEpoch:     "epoch-new",
+		eventBus:         NewEventBus(zap.NewNop()),
+		obsCh:            make(chan observabilityEntry, 16),
+	}
+	t.Cleanup(func() { m.eventBus.Close() })
+	_, events := m.eventBus.Subscribe()
+	ctx := context.Background()
+
+	snap, err := todoStore.SetPlanStatusWithMeta(ctx, "sess-resume-fail", sessiontodo.PlanStatusPaused, sessiontodo.SnapshotMeta{RuntimeEpoch: "epoch-old", TurnID: "turn-old"})
+	require.NoError(t, err)
+	snap, err = todoStore.Replace(ctx, "sess-resume-fail", snap.PlanVersion, []sessiontodo.TodoInput{
+		{ID: "next", Content: "继续实现", Status: sessiontodo.TodoStatusPending, RuntimeEpoch: "epoch-old", TurnID: "turn-old"},
+	})
+	require.NoError(t, err)
+	snap, err = todoStore.SetPlanStatusWithMeta(ctx, "sess-resume-fail", sessiontodo.PlanStatusPaused, sessiontodo.SnapshotMeta{RuntimeEpoch: "epoch-old", TurnID: "turn-old"})
+	require.NoError(t, err)
+	claimed, err := todoStore.ClaimResume(ctx, "sess-resume-fail", snap.PlanVersion, snap.RuntimeEpoch, "epoch-new", "turn-resume")
+	require.NoError(t, err)
+
+	m.restorePausedAfterResumeFailure(ctx, "sess-resume-fail", claimed.PlanVersion, claimed.RuntimeEpoch, claimed.TurnID, "manual resume process failed", errors.New("enqueue failed"))
+
+	restored, err := todoStore.Snapshot(ctx, "sess-resume-fail")
+	require.NoError(t, err)
+	assert.Equal(t, sessiontodo.PlanStatusPaused, restored.PlanStatus)
+	assert.Equal(t, claimed.PlanVersion+1, restored.PlanVersion)
+	assert.Equal(t, "epoch-new", restored.RuntimeEpoch)
+	assert.Equal(t, "turn-resume", restored.TurnID)
+	assertTodoSnapshotEvent(t, events, sessiontodo.PlanStatusPaused, restored.PlanVersion)
+}
+
+func TestRecordPlanStatusTransitionIncludesTurnID(t *testing.T) {
+	m := &Master{obsCh: make(chan observabilityEntry, 4), runtimeEpoch: "epoch-1"}
+
+	m.recordPlanStatusTransition("sess-transition", sessiontodo.PlanStatusExecuting, sessiontodo.PlanStatusPaused, "trace-1", "span-1", "call-1", "plan_runtime", "turn-1")
+
+	deadline := time.After(200 * time.Millisecond)
+	for {
+		select {
+		case e := <-m.obsCh:
+			if e.log == nil || e.log.Message != "session todo plan status changed" {
+				continue
+			}
+			require.Equal(t, "turn-1", e.log.Attributes["turn_id"])
+			return
+		case <-deadline:
+			t.Fatal("expected plan status transition log")
+		}
+	}
+}
+
+func masterTestConfigWithAutoContinue() Config {
+	cfg := Config{}
+	cfg.RuntimePolicy = cfg.RuntimePolicy.WithDefaults()
+	cfg.PlanRuntime.AutoContinue = true
+	cfg.PlanRuntime.MaxAutoContinue = 1
+	return cfg
+}
+
 func assertPlanRuntimeObs(t *testing.T, m *Master) {
 	t.Helper()
 
@@ -293,7 +467,15 @@ func assertPlanRuntimeObs(t *testing.T, m *Master) {
 	for !foundSpan || !foundMetric {
 		select {
 		case e := <-m.obsCh:
-			if e.span != nil && e.span.Operation == "plan_runtime.decide" {
+			if e.span != nil && e.span.Operation == "plan_runtime.decide_turn_completion" {
+				if e.span.SessionID != "active" || e.span.Attributes["decision"] != "paused" {
+					continue
+				}
+				require.Equal(t, "active", e.span.SessionID)
+				require.Equal(t, "paused", e.span.Attributes["decision"])
+				require.Equal(t, 1, e.span.Attributes["pending_count"])
+				require.Equal(t, 1, e.span.Attributes["completed_count"])
+				require.Equal(t, "trace-2", e.span.Attributes["turn_id"])
 				foundSpan = true
 			}
 			if e.metric != nil && e.metric.Name == "hive_plan_runtime_decisions_total" {
@@ -350,6 +532,40 @@ func assertObsLog(t *testing.T, m *Master, message string) {
 			}
 		case <-deadline:
 			t.Fatalf("expected log %q", message)
+		}
+	}
+}
+
+func assertPlanModeAuditLog(t *testing.T, m *Master, action string, sessionID string, fromStatus sessiontodo.PlanStatus, toolName string) {
+	t.Helper()
+	deadline := time.After(200 * time.Millisecond)
+	for {
+		select {
+		case e := <-m.obsCh:
+			if e.log == nil || e.log.Message != "plan_mode audit" {
+				continue
+			}
+			if e.log.SessionID != sessionID {
+				continue
+			}
+			attrs := e.log.Attributes
+			if attrs["action"] != action {
+				continue
+			}
+			if fromStatus != "" && attrs["from_status"] != string(fromStatus) {
+				continue
+			}
+			if toolName != "" {
+				if action == "tool_blocked" && attrs["blocked_tool_name"] != toolName {
+					continue
+				}
+				if action != "tool_blocked" && attrs["tool_name"] != toolName {
+					continue
+				}
+			}
+			return
+		case <-deadline:
+			t.Fatalf("expected plan_mode audit action=%s session=%s tool=%s", action, sessionID, toolName)
 		}
 	}
 }

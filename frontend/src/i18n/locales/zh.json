@@ -143,6 +143,8 @@
     "title": "待办",
     "ariaLabel": "会话待办",
     "pausedHint": "发送一条消息以继续",
+    "resume": "继续",
+    "resumeRunning": "继续中",
     "emptyActivePlan": "计划已激活，待办稍后会显示在这里。",
     "source": {
       "specProjected": "从规格预测生成",

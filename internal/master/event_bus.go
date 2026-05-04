@@ -212,9 +212,9 @@ func (eb *EventBus) broadcastInternal(msg BroadcastMessage) {
 	}
 
 	eb.mu.RLock()
-	defer eb.mu.RUnlock()
 
 	if len(eb.subs) == 0 {
+		eb.mu.RUnlock()
 		return
 	}
 
@@ -224,6 +224,11 @@ func (eb *EventBus) broadcastInternal(msg BroadcastMessage) {
 	)
 
 	critical := isCriticalEvent(msg.Type)
+	type pruneCandidate struct {
+		subID uint64
+		drops int
+	}
+	var pruneCandidates []pruneCandidate
 
 	for subID, ch := range eb.subs {
 		select {
@@ -258,8 +263,16 @@ func (eb *EventBus) broadcastInternal(msg BroadcastMessage) {
 					zap.Int("consecutive_drops", drops),
 					zap.Int64("total_dropped", total),
 				)
+				if msg.Type == EventTypeTodoSnapshot && drops >= deadSubscriberThreshold {
+					pruneCandidates = append(pruneCandidates, pruneCandidate{subID: subID, drops: drops})
+				}
 			}
 		}
+	}
+	eb.mu.RUnlock()
+
+	for _, candidate := range pruneCandidates {
+		eb.pruneDeadSubscriber(candidate.subID, candidate.drops)
 	}
 }
 
@@ -358,6 +371,30 @@ func (eb *EventBus) PruneDeadSubscribers() []uint64 {
 		)
 	}
 	return pruned
+}
+
+func (eb *EventBus) pruneDeadSubscriber(subID uint64, drops int) bool {
+	eb.mu.Lock()
+	eb.dropsMu.Lock()
+	defer eb.dropsMu.Unlock()
+	defer eb.mu.Unlock()
+
+	if currentDrops, ok := eb.consecutiveDrops[subID]; !ok || currentDrops < deadSubscriberThreshold {
+		return false
+	}
+	ch, exists := eb.subs[subID]
+	if !exists {
+		delete(eb.consecutiveDrops, subID)
+		return false
+	}
+	close(ch)
+	delete(eb.subs, subID)
+	delete(eb.consecutiveDrops, subID)
+	eb.logger.Warn("已自动清理死订阅者",
+		zap.Uint64("sub_id", subID),
+		zap.Int("consecutive_drops", drops),
+	)
+	return true
 }
 
 // DroppedTotal 返回累计丢弃的消息数量（含关键事件最终放弃的情况）。

@@ -311,12 +311,14 @@ type AgentConfig struct {
 	ToolPolicy          ToolPolicyConfig    `json:"tool_policy,omitempty"`         // 工具过滤策略配置
 	MaxSessionCost      float64             `json:"max_session_cost,omitempty"`    // per-session 成本预算上限（USD），<=0 不限制（需要 PostgreSQL 成本追踪启用）
 	QualityGuards       QualityGuardsConfig `json:"quality_guards,omitempty"`      // 质量护栏灰度开关（见 docs/计划与路线/Agent-质量护栏治理计划.md）
-	PlanRuntime         PlanRuntimeConfig   `json:"plan_runtime,omitempty"`        // session 级 plan/todos runtime，默认关闭
+	PlanRuntime         PlanRuntimeConfig   `json:"plan_runtime,omitempty"`        // session 级 plan/todos runtime，默认开启；可显式配置关闭
 }
 
 // PlanRuntimeConfig 控制 session-scoped todos 与 Plan Runtime Guard。
 type PlanRuntimeConfig struct {
-	Enabled bool `json:"enabled,omitempty"`
+	Enabled         bool `json:"enabled,omitempty"`
+	AutoContinue    bool `json:"auto_continue,omitempty"`
+	MaxAutoContinue int  `json:"max_auto_continue,omitempty"`
 }
 
 // QualityGuardsConfig 控制 agent-quality-remediation-plan P0 措施的灰度启用。
@@ -392,6 +394,11 @@ func Default() *Config {
 			Type: "postgres",
 		},
 		SpecDriven: DefaultSpecDrivenConfig,
+		Agent: AgentConfig{
+			PlanRuntime: PlanRuntimeConfig{
+				Enabled: true,
+			},
+		},
 		// LLM 及其他运行时配置的默认值由 DB SQL 种子提供，服务器模式下由 LoadLLMFromDB / LoadAllConfigFromDB 填充。
 		// CLI 模式（无 DB）使用 CLIDefaults() 填充。
 	}
@@ -424,6 +431,9 @@ func (c *Config) CLIDefaults() {
 			LazyThreshold:       DefaultCompactionLazyThreshold,
 			PipelineStages:      DefaultCompactionPipelineStages,
 			ToolOutputMaxTokens: DefaultCompactionToolOutputMaxTokens,
+		},
+		PlanRuntime: PlanRuntimeConfig{
+			Enabled: true,
 		},
 	}
 	c.MCP = MCPConfig{

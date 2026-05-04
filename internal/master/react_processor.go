@@ -298,6 +298,7 @@ func (m *Master) runReActLoop(
 			Type: EventTypeAgentProgress,
 			Payload: map[string]any{
 				"turn":         i + 1,
+				"turn_id":      sessionTraceID,
 				"max_turns":    0,
 				"status":       "turn_start",
 				"session_id":   session.ID,
@@ -859,7 +860,7 @@ func (m *Master) runReActLoop(
 				decision := CompletionDecision{Status: TaskStatusCompleted, Completed: true}
 				if guard := m.planRuntimeGuard(); guard != nil {
 					var guardErr error
-					decision, guardErr = guard.DecideTurnCompletion(ctx, session, resp.Content, sessionTraceID, sessionSpanID)
+					decision, guardErr = guard.DecideTurnCompletion(ctx, session, resp.Content, sessionTraceID, sessionSpanID, sessionTraceID)
 					if guardErr != nil {
 						return guardErr
 					}
@@ -1145,6 +1146,7 @@ func (m *Master) executeTool(ctx context.Context, session *SessionState, userID 
 		TraceID:      sessionTraceID,
 		SpanID:       toolSpanID,
 		ParentSpanID: sessionSpanID,
+		TurnID:       sessionTraceID,
 		ToolCallID:   toolCall.ID,
 	})
 	ctx = toolctx.WithTraceContext(ctx, sessionTraceID, toolSpanID, sessionSpanID, toolCall.ID)
@@ -1154,6 +1156,7 @@ func (m *Master) executeTool(ctx context.Context, session *SessionState, userID 
 		m.emitToolCallEvent(sessionID, ToolCallEvent{
 			ToolCallID: toolCall.ID,
 			ToolName:   toolCall.Name,
+			TurnID:     sessionTraceID,
 			Status:     "error",
 			Error:      decision.Reason,
 			SessionID:  sessionID,
@@ -1181,6 +1184,7 @@ func (m *Master) executeTool(ctx context.Context, session *SessionState, userID 
 	m.emitToolCallEvent(sessionID, ToolCallEvent{
 		ToolCallID: toolCall.ID,
 		ToolName:   toolCall.Name,
+		TurnID:     sessionTraceID,
 		Status:     "start",
 		SessionID:  sessionID,
 	})
@@ -1217,6 +1221,7 @@ func (m *Master) executeTool(ctx context.Context, session *SessionState, userID 
 		m.emitToolCallEvent(sessionID, ToolCallEvent{
 			ToolCallID: toolCall.ID,
 			ToolName:   toolCall.Name,
+			TurnID:     sessionTraceID,
 			Status:     "error",
 			Error:      fmt.Sprintf("tool %q is not allowed by tool policy", toolCall.Name),
 			SessionID:  sessionID,
@@ -1236,6 +1241,7 @@ func (m *Master) executeTool(ctx context.Context, session *SessionState, userID 
 			m.emitToolCallEvent(sessionID, ToolCallEvent{
 				ToolCallID: toolCall.ID,
 				ToolName:   toolCall.Name,
+				TurnID:     sessionTraceID,
 				Status:     "error",
 				Error:      err.Error(),
 				SessionID:  sessionID,
@@ -1321,6 +1327,7 @@ func (m *Master) executeTool(ctx context.Context, session *SessionState, userID 
 		m.emitToolCallEvent(sessionID, ToolCallEvent{
 			ToolCallID: toolCall.ID,
 			ToolName:   executedToolCall.Name,
+			TurnID:     sessionTraceID,
 			Status:     "error",
 			Duration:   duration.Milliseconds(),
 			Error:      err.Error(),
@@ -1355,6 +1362,7 @@ func (m *Master) executeTool(ctx context.Context, session *SessionState, userID 
 		m.emitToolCallEvent(sessionID, ToolCallEvent{
 			ToolCallID: toolCall.ID,
 			ToolName:   executedToolCall.Name,
+			TurnID:     sessionTraceID,
 			Status:     "error",
 			Duration:   duration.Milliseconds(),
 			Error:      decoded,
@@ -1386,6 +1394,7 @@ func (m *Master) executeTool(ctx context.Context, session *SessionState, userID 
 		m.emitToolCallEvent(sessionID, ToolCallEvent{
 			ToolCallID: toolCall.ID,
 			ToolName:   executedToolCall.Name,
+			TurnID:     sessionTraceID,
 			Status:     "error",
 			Duration:   duration.Milliseconds(),
 			SessionID:  sessionID,
@@ -1411,6 +1420,7 @@ func (m *Master) executeTool(ctx context.Context, session *SessionState, userID 
 	m.emitToolCallEvent(sessionID, ToolCallEvent{
 		ToolCallID: toolCall.ID,
 		ToolName:   executedToolCall.Name,
+		TurnID:     sessionTraceID,
 		Status:     "success",
 		Duration:   duration.Milliseconds(),
 		SessionID:  sessionID,
@@ -1445,7 +1455,7 @@ func (m *Master) executeTool(ctx context.Context, session *SessionState, userID 
 	m.logToolCall(ctx, sessionID, executedToolCall, string(executedArgs), content, false, duration)
 	m.logFileChangeIfNeeded(ctx, sessionID, executedToolCall.Name, executedArgs, content)
 	recordToolDiscoveryFromResult(session, executedToolCall, content, false)
-	m.applyPlanToolStateAfterSuccess(session, executedToolCall.Name, toolCall.ID)
+	m.applyPlanToolStateAfterSuccess(session, executedToolCall.Name, toolCall.ID, sessionTraceID)
 
 	return toolResult{Content: content}
 }

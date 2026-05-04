@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/openai/openai-go/packages/param"
 	"github.com/openai/openai-go/responses"
@@ -71,7 +72,16 @@ func (c *Client) chatWithToolsStreamViaResponses(ctx context.Context, req ChatWi
 	}
 
 	// 启动流式请求
+	streamStart := time.Now()
 	stream := c.client.Responses.NewStreaming(ctx, params)
+	c.logger.Info("[stream-diag] Responses 流式请求已创建",
+		zap.String("model", snapModel),
+		zap.Int("input_count", len(input)),
+		zap.Int("tool_count", len(tools)),
+		zap.String("tool_choice", req.ToolChoice),
+		zap.String("reasoning_effort", effort),
+		zap.Int64("create_stream_ms", time.Since(streamStart).Milliseconds()),
+	)
 	defer stream.Close()
 
 	// 累积状态
@@ -82,11 +92,43 @@ func (c *Client) chatWithToolsStreamViaResponses(ctx context.Context, req ChatWi
 		usage            Usage
 		toolCalls        []ToolCall
 		// pendingCalls 按 ItemID 索引正在构建的工具调用
-		pendingCalls = make(map[string]*responsesPendingToolCall)
+		pendingCalls    = make(map[string]*responsesPendingToolCall)
+		rawEventCount   int
+		firstRawEventAt time.Time
 	)
 
 	for stream.Next() {
 		event := stream.Current()
+		rawEventCount++
+		rawSummary := summarizeResponsesRawEvent(event)
+		if rawEventCount == 1 {
+			firstRawEventAt = time.Now()
+			c.logger.Info("[stream-diag] 首个 Responses 原始 event 抵达",
+				zap.String("model", snapModel),
+				zap.Int64("ttfb_ms", firstRawEventAt.Sub(streamStart).Milliseconds()),
+				zap.String("event_type", rawSummary.EventType),
+				zap.Int64("sequence", rawSummary.Sequence),
+				zap.String("item_id", rawSummary.ItemID),
+				zap.Bool("has_text", rawSummary.HasText),
+				zap.Bool("has_tool_args", rawSummary.HasToolArgs),
+				zap.Bool("has_usage", rawSummary.HasUsage),
+				zap.Int("delta_len", rawSummary.DeltaLen),
+			)
+		} else if rawEventCount <= 3 || rawEventCount%20 == 0 {
+			c.logger.Debug("[stream-diag] Responses 原始 event 抵达",
+				zap.String("model", snapModel),
+				zap.Int("n", rawEventCount),
+				zap.Int64("elapsed_since_start_ms", time.Since(streamStart).Milliseconds()),
+				zap.Int64("elapsed_since_first_ms", time.Since(firstRawEventAt).Milliseconds()),
+				zap.String("event_type", rawSummary.EventType),
+				zap.Int64("sequence", rawSummary.Sequence),
+				zap.String("item_id", rawSummary.ItemID),
+				zap.Bool("has_text", rawSummary.HasText),
+				zap.Bool("has_tool_args", rawSummary.HasToolArgs),
+				zap.Bool("has_usage", rawSummary.HasUsage),
+				zap.Int("delta_len", rawSummary.DeltaLen),
+			)
+		}
 
 		switch variant := event.AsAny().(type) {
 		case responses.ResponseTextDeltaEvent:
@@ -183,6 +225,20 @@ func (c *Client) chatWithToolsStreamViaResponses(ctx context.Context, req ChatWi
 	if err := stream.Err(); err != nil {
 		c.logAPIError(err, "responses_stream_chat_with_tools")
 		return nil, errs.Wrap(errs.CodeLLMError, "Responses API 流式调用失败", err)
+	}
+	if rawEventCount > 0 {
+		c.logger.Info("[stream-diag] Responses 原始流结束汇总",
+			zap.String("model", snapModel),
+			zap.Int("raw_events", rawEventCount),
+			zap.Int64("total_ms", time.Since(streamStart).Milliseconds()),
+			zap.Int64("responses_ttfb_ms", firstRawEventAt.Sub(streamStart).Milliseconds()),
+			zap.Int64("responses_stream_span_ms", time.Since(firstRawEventAt).Milliseconds()),
+		)
+	} else {
+		c.logger.Warn("[stream-diag] Responses 原始流未收到任何 event",
+			zap.String("model", snapModel),
+			zap.Int64("total_ms", time.Since(streamStart).Milliseconds()),
+		)
 	}
 
 	c.logger.Debug("Responses API 流式调用完成",

@@ -8,6 +8,7 @@ import (
 
 	"go.uber.org/zap"
 
+	"github.com/chef-guo/agents-hive/internal/auth"
 	"github.com/chef-guo/agents-hive/internal/observability"
 	"github.com/chef-guo/agents-hive/internal/sessiontodo"
 	"github.com/chef-guo/agents-hive/internal/toolctx"
@@ -18,6 +19,7 @@ type PlanToolTraceContext struct {
 	TraceID      string
 	SpanID       string
 	ParentSpanID string
+	TurnID       string
 	ToolCallID   string
 }
 
@@ -52,27 +54,31 @@ type PlanToolGateDecision struct {
 // 子工具真正执行前调用该 callback；被拒绝时返回 tool error，不再执行子工具。
 // 这样避免 tools 包反向 import master，同时保持 plan mode 白名单只有这一处。
 var planControlTools = map[string]bool{
-	"todo_write":      true,
-	"finish_plan":     true,
-	"enter_plan_mode": true,
-	"exit_plan_mode":  true,
+	"todo_write":                 true,
+	"finish_plan":                true,
+	"enter_plan_mode":            true,
+	"exit_plan_mode":             true,
+	"create_handoff_summary":     true,
+	"promote_todos_to_taskboard": true,
 }
 
 var planModeAllowedTools = map[string]bool{
-	"exit_plan_mode": true,
-	"glob":           true,
-	"grep":           true,
-	"ls":             true,
-	"memory":         true,
-	"question":       true,
-	"read_file":      true,
-	"skill":          true,
-	"todo_write":     true,
-	"tool_search":    true,
-	"webfetch":       true,
-	"websearch":      true,
-	"web_fetch":      true,
-	"web_search":     true,
+	"exit_plan_mode":             true,
+	"glob":                       true,
+	"grep":                       true,
+	"ls":                         true,
+	"memory":                     true,
+	"question":                   true,
+	"read_file":                  true,
+	"skill":                      true,
+	"todo_write":                 true,
+	"create_handoff_summary":     true,
+	"promote_todos_to_taskboard": true,
+	"tool_search":                true,
+	"webfetch":                   true,
+	"websearch":                  true,
+	"web_fetch":                  true,
+	"web_search":                 true,
 }
 
 func EvaluatePlanToolGate(ctx context.Context, session *SessionState, toolName string) PlanToolGateDecision {
@@ -125,6 +131,17 @@ func (m *Master) evaluatePlanToolGate(ctx context.Context, session *SessionState
 			zap.String("reason", decision.Reason),
 		)
 	}
+	m.recordPlanModeAudit(planModeAuditEvent{
+		Action:          "tool_blocked",
+		SessionID:       sessionID,
+		FromStatus:      planStatusForAudit(session),
+		ToStatus:        planStatusForAudit(session),
+		BlockedToolName: toolName,
+		TurnID:          toolctx.GetToolContext(ctx).TurnIDOrTraceID(),
+		DecisionSource:  "execution",
+		CallerType:      decision.CallerType,
+		Reason:          decision.Reason,
+	})
 	m.enqueueMetric(observability.Metric{
 		Name:  "hive_plan_mode_gate_denied_total",
 		Value: 1,
@@ -152,7 +169,7 @@ func (m *Master) CheckNestedToolAllowed(ctx context.Context, toolName string) er
 	return nil
 }
 
-func (m *Master) applyPlanToolStateAfterSuccess(session *SessionState, toolName, toolCallID string) {
+func (m *Master) applyPlanToolStateAfterSuccess(session *SessionState, toolName, toolCallID, turnID string) {
 	if session == nil {
 		return
 	}
@@ -160,6 +177,7 @@ func (m *Master) applyPlanToolStateAfterSuccess(session *SessionState, toolName,
 		handled    = true
 		planMode   bool
 		planStatus sessiontodo.PlanStatus
+		fromStatus sessiontodo.PlanStatus
 	)
 	switch toolName {
 	case "enter_plan_mode":
@@ -179,6 +197,7 @@ func (m *Master) applyPlanToolStateAfterSuccess(session *SessionState, toolName,
 	}
 
 	session.mu.Lock()
+	fromStatus = session.PlanStatus
 	session.PlanMode = planMode
 	session.PlanStatus = planStatus
 	session.mu.Unlock()
@@ -192,7 +211,17 @@ func (m *Master) applyPlanToolStateAfterSuccess(session *SessionState, toolName,
 			zap.String("plan_status", string(planStatus)),
 		)
 	}
-	m.recordPlanStatusTransition(session.ID, "", planStatus, "", "", toolCallID, "tool")
+	m.recordPlanModeAudit(planModeAuditEvent{
+		Action:         "mode_changed",
+		SessionID:      session.ID,
+		FromStatus:     fromStatus,
+		ToStatus:       planStatus,
+		ToolName:       toolName,
+		ToolCallID:     toolCallID,
+		TurnID:         turnID,
+		DecisionSource: "tool",
+	})
+	m.recordPlanStatusTransition(session.ID, "", planStatus, "", "", toolCallID, "tool", turnID)
 	if m.eventBus != nil {
 		m.eventBus.BroadcastSessionMessage(session.ID, BroadcastMessage{
 			Type: EventTypePlanModeChanged,
@@ -202,6 +231,7 @@ func (m *Master) applyPlanToolStateAfterSuccess(session *SessionState, toolName,
 				"plan_status":  string(planStatus),
 				"tool_name":    toolName,
 				"tool_call_id": toolCallID,
+				"turn_id":      turnID,
 			},
 		})
 	}
@@ -370,12 +400,16 @@ func (m *Master) RecordPlanTool(ctx context.Context, event tools.PlanToolObserva
 	_ = ctx
 }
 
-func (m *Master) recordPlanStatusTransition(sessionID string, from, to sessiontodo.PlanStatus, traceID, spanID, toolCallID, source string) {
+func (m *Master) recordPlanStatusTransition(sessionID string, from, to sessiontodo.PlanStatus, traceID, spanID, toolCallID, source string, turnIDs ...string) {
 	if m == nil || to == "" {
 		return
 	}
 	if source == "" {
 		source = "runtime"
+	}
+	turnID := firstTurnID(turnIDs...)
+	if turnID == "" {
+		turnID = traceID
 	}
 	m.enqueueMetric(observability.Metric{
 		Name:  "hive_sessiontodo_plan_status_transitions_total",
@@ -397,6 +431,8 @@ func (m *Master) recordPlanStatusTransition(sessionID string, from, to sessionto
 			"plan_status_to":      string(to),
 			"source":              source,
 			"source_tool_call_id": toolCallID,
+			"turn_id":             turnID,
+			"runtime_epoch":       m.runtimeEpochForObs(),
 		},
 		Ts: time.Now(),
 	})
@@ -446,20 +482,24 @@ func NewPlanRuntimeGuard(store sessiontodo.Store, m *Master) *PlanRuntimeGuard {
 	return &PlanRuntimeGuard{store: store, m: m}
 }
 
-func (g *PlanRuntimeGuard) DecideTurnCompletion(ctx context.Context, session *SessionState, llmContent, traceID, parentSpanID string) (CompletionDecision, error) {
+func (g *PlanRuntimeGuard) DecideTurnCompletion(ctx context.Context, session *SessionState, llmContent, traceID, parentSpanID string, turnIDs ...string) (CompletionDecision, error) {
 	if session == nil {
 		return CompletionDecision{Status: TaskStatusCompleted, Completed: true}, nil
 	}
 	start := time.Now()
 	spanID := observability.NewSpanID()
 	sessionID := session.ID
+	turnID := firstTurnID(turnIDs...)
+	if turnID == "" {
+		turnID = traceID
+	}
 
 	snapshot := sessiontodo.Snapshot{SessionID: sessionID, PlanStatus: sessiontodo.PlanStatusNone}
 	var err error
 	if g != nil && g.store != nil {
 		snapshot, err = g.store.Snapshot(ctx, sessionID)
 		if err != nil {
-			g.emitDecisionObs(traceID, spanID, parentSpanID, sessionID, snapshot.PlanStatus, TaskStatusFailed, start, "error", err)
+			g.emitDecisionObs(traceID, spanID, parentSpanID, sessionID, turnID, snapshot, snapshot.PlanStatus, TaskStatusFailed, start, "error", err)
 			return CompletionDecision{}, err
 		}
 	}
@@ -497,22 +537,30 @@ func (g *PlanRuntimeGuard) DecideTurnCompletion(ctx context.Context, session *Se
 	}
 	session.mu.Unlock()
 	if nextPlanStatus != "" && g != nil && g.store != nil && status != nextPlanStatus {
-		updated, setErr := g.store.SetPlanStatus(ctx, sessionID, nextPlanStatus)
+		updated, setErr := g.store.SetPlanStatusWithMeta(ctx, sessionID, nextPlanStatus, sessiontodo.SnapshotMeta{
+			TraceID:      traceID,
+			SpanID:       spanID,
+			TurnID:       turnID,
+			RuntimeEpoch: g.m.runtimeEpochForObs(),
+		})
 		if setErr != nil {
-			g.emitDecisionObs(traceID, spanID, parentSpanID, sessionID, status, TaskStatusFailed, start, "error", setErr)
+			g.emitDecisionObs(traceID, spanID, parentSpanID, sessionID, turnID, snapshot, status, TaskStatusFailed, start, "error", setErr)
 			return CompletionDecision{}, setErr
 		}
 		if g.m != nil {
-			g.m.recordPlanStatusTransition(sessionID, status, nextPlanStatus, traceID, spanID, "", "plan_runtime")
+			g.m.recordPlanStatusTransition(sessionID, status, nextPlanStatus, traceID, spanID, "", "plan_runtime", turnID)
 		}
 		snapshot = updated
 		status = updated.PlanStatus
 		if err := g.broadcastSnapshot(ctx, updated); err != nil {
-			g.emitDecisionObs(traceID, spanID, parentSpanID, sessionID, status, TaskStatusFailed, start, "error", err)
+			g.emitDecisionObs(traceID, spanID, parentSpanID, sessionID, turnID, snapshot, status, TaskStatusFailed, start, "error", err)
 			return CompletionDecision{}, err
 		}
+		if nextPlanStatus == sessiontodo.PlanStatusPaused {
+			g.m.maybeAutoContinuePlan(ctx, updated)
+		}
 	}
-	g.emitDecisionObs(traceID, spanID, parentSpanID, sessionID, status, decision.Status, start, "ok", nil)
+	g.emitDecisionObs(traceID, spanID, parentSpanID, sessionID, turnID, snapshot, status, decision.Status, start, "ok", nil)
 	if g != nil && g.m != nil && g.m.logger != nil {
 		g.m.logger.Info("plan runtime guard decided turn completion",
 			zap.String("session_id", sessionID),
@@ -568,13 +616,19 @@ func todosComplete(todos []sessiontodo.Todo) bool {
 	return true
 }
 
-func (g *PlanRuntimeGuard) emitDecisionObs(traceID, spanID, parentSpanID, sessionID string, planStatus sessiontodo.PlanStatus, decision TaskStatus, start time.Time, spanStatus string, err error) {
+func (g *PlanRuntimeGuard) emitDecisionObs(traceID, spanID, parentSpanID, sessionID, turnID string, snapshot sessiontodo.Snapshot, planStatus sessiontodo.PlanStatus, decision TaskStatus, start time.Time, spanStatus string, err error) {
 	if g == nil || g.m == nil {
 		return
 	}
+	pendingCount, completedCount, cancelledCount := planRuntimeTodoCounts(snapshot.Todos)
 	attrs := map[string]any{
-		"plan_status": string(planStatus),
-		"decision":    string(decision),
+		"plan_status":     string(planStatus),
+		"decision":        string(decision),
+		"turn_id":         turnID,
+		"runtime_epoch":   g.m.runtimeEpochForObs(),
+		"pending_count":   pendingCount,
+		"completed_count": completedCount,
+		"cancelled_count": cancelledCount,
 	}
 	if err != nil {
 		attrs["error"] = err.Error()
@@ -583,7 +637,7 @@ func (g *PlanRuntimeGuard) emitDecisionObs(traceID, spanID, parentSpanID, sessio
 		TraceID:      traceID,
 		SpanID:       spanID,
 		ParentSpanID: parentSpanID,
-		Operation:    "plan_runtime.decide",
+		Operation:    "plan_runtime.decide_turn_completion",
 		Service:      "master",
 		SessionID:    sessionID,
 		DurationMs:   int(time.Since(start).Milliseconds()),
@@ -602,6 +656,29 @@ func (g *PlanRuntimeGuard) emitDecisionObs(traceID, spanID, parentSpanID, sessio
 	})
 }
 
+func planRuntimeTodoCounts(todos []sessiontodo.Todo) (pendingCount, completedCount, cancelledCount int) {
+	for _, todo := range todos {
+		switch todo.Status {
+		case sessiontodo.TodoStatusCompleted:
+			completedCount++
+		case sessiontodo.TodoStatusCancelled:
+			cancelledCount++
+		case sessiontodo.TodoStatusPending, sessiontodo.TodoStatusInProgress:
+			pendingCount++
+		}
+	}
+	return pendingCount, completedCount, cancelledCount
+}
+
+func firstTurnID(turnIDs ...string) string {
+	for _, turnID := range turnIDs {
+		if strings.TrimSpace(turnID) != "" {
+			return strings.TrimSpace(turnID)
+		}
+	}
+	return ""
+}
+
 func (g *PlanRuntimeGuard) broadcastSnapshot(ctx context.Context, snapshot sessiontodo.Snapshot) error {
 	if g == nil || g.m == nil {
 		return nil
@@ -618,6 +695,7 @@ func (m *Master) planRuntimeGuard() *PlanRuntimeGuard {
 
 func (m *Master) SetSessionTodoStore(store sessiontodo.Store) {
 	m.sessionTodoStore = store
+	m.registerSessionTodoMemoryGC(store)
 }
 
 func (m *Master) BroadcastTodoSnapshot(ctx context.Context, snapshot sessiontodo.Snapshot) error {
@@ -663,11 +741,232 @@ func (m *Master) BroadcastTodoSnapshot(ctx context.Context, snapshot sessiontodo
 		SpanID:    snapshot.SpanID,
 		SessionID: snapshot.SessionID,
 		Attributes: map[string]any{
-			"plan_status":  string(snapshot.PlanStatus),
-			"plan_version": snapshot.PlanVersion,
-			"todo_count":   len(snapshot.Todos),
+			"plan_status":   string(snapshot.PlanStatus),
+			"plan_version":  snapshot.PlanVersion,
+			"todo_count":    len(snapshot.Todos),
+			"runtime_epoch": m.runtimeEpochForObs(),
 		},
 		Ts: time.Now(),
 	})
 	return nil
+}
+
+func (m *Master) RuntimeEpoch() string {
+	return m.runtimeEpochForObs()
+}
+
+func (m *Master) runtimeEpochForObs() string {
+	if m == nil || m.runtimeEpoch == "" {
+		return "unknown"
+	}
+	return m.runtimeEpoch
+}
+
+func (m *Master) maybeAutoContinuePlan(ctx context.Context, snapshot sessiontodo.Snapshot) {
+	if m == nil || !m.config.PlanRuntime.AutoContinue || m.sessionTodoStore == nil {
+		return
+	}
+	if len(pendingTodosForResume(snapshot.Todos)) == 0 {
+		return
+	}
+	maxRuns := m.config.PlanRuntime.MaxAutoContinue
+	if maxRuns <= 0 {
+		maxRuns = 3
+	}
+	runKey := autoContinueRunKey(snapshot)
+	m.autoContinueMu.Lock()
+	if m.autoContinueRuns == nil {
+		m.autoContinueRuns = make(map[string]int)
+	}
+	runs := m.autoContinueRuns[runKey]
+	if runs >= maxRuns {
+		m.autoContinueMu.Unlock()
+		m.enqueueLog(observability.LogEntry{
+			Level:     "warn",
+			Message:   "sessiontodo auto_continue budget exhausted",
+			SessionID: snapshot.SessionID,
+			Attributes: map[string]any{
+				"max_auto_continue": maxRuns,
+				"runtime_epoch":     m.runtimeEpochForObs(),
+			},
+			Ts: time.Now(),
+		})
+		return
+	}
+	m.autoContinueMu.Unlock()
+
+	if err := m.checkCostBudget(ctx, snapshot.SessionID); err != nil {
+		m.enqueueLog(observability.LogEntry{
+			Level:     "warn",
+			Message:   "sessiontodo auto_continue blocked by budget",
+			SessionID: snapshot.SessionID,
+			Attributes: map[string]any{
+				"error":         err.Error(),
+				"runtime_epoch": m.runtimeEpochForObs(),
+			},
+			Ts: time.Now(),
+		})
+		return
+	}
+
+	action := sessiontodo.PlanResumeAction(snapshot, sessiontodo.ResumeOptions{
+		Mode:                 sessiontodo.ResumeModeAuto,
+		BudgetOK:             true,
+		RuntimeEpoch:         m.runtimeEpochForObs(),
+		ExpectedRuntimeEpoch: snapshot.RuntimeEpoch,
+		Execute:              true,
+	})
+	if !action.Allowed {
+		m.enqueueLog(observability.LogEntry{
+			Level:     "warn",
+			Message:   "sessiontodo auto_continue rejected",
+			SessionID: snapshot.SessionID,
+			Attributes: map[string]any{
+				"reason":        action.Reason,
+				"runtime_epoch": m.runtimeEpochForObs(),
+			},
+			Ts: time.Now(),
+		})
+		return
+	}
+	turnID := observability.NewTraceID()
+	claimed, err := m.sessionTodoStore.ClaimResume(context.Background(), snapshot.SessionID, snapshot.PlanVersion, snapshot.RuntimeEpoch, m.runtimeEpochForObs(), turnID)
+	if err != nil {
+		m.enqueueLog(observability.LogEntry{
+			Level:     "warn",
+			Message:   "sessiontodo auto_continue claim failed",
+			SessionID: snapshot.SessionID,
+			Attributes: map[string]any{
+				"error":         err.Error(),
+				"plan_version":  snapshot.PlanVersion,
+				"runtime_epoch": snapshot.RuntimeEpoch,
+			},
+			Ts: time.Now(),
+		})
+		return
+	}
+	m.autoContinueMu.Lock()
+	if m.autoContinueRuns == nil {
+		m.autoContinueRuns = make(map[string]int)
+	}
+	m.autoContinueRuns[runKey] = m.autoContinueRuns[runKey] + 1
+	m.autoContinueMu.Unlock()
+	if err := m.BroadcastTodoSnapshot(context.Background(), claimed); err != nil {
+		m.restorePausedAfterResumeFailure(context.Background(), snapshot.SessionID, claimed.PlanVersion, claimed.RuntimeEpoch, claimed.TurnID, "sessiontodo auto_continue snapshot broadcast failed", err)
+		m.enqueueLog(observability.LogEntry{
+			Level:     "warn",
+			Message:   "sessiontodo auto_continue snapshot broadcast failed",
+			SessionID: snapshot.SessionID,
+			Attributes: map[string]any{
+				"error": err.Error(),
+			},
+			Ts: time.Now(),
+		})
+		return
+	}
+
+	bgCtx := context.Background()
+	if user := auth.UserFrom(ctx); user != nil {
+		bgCtx = auth.WithUser(bgCtx, user)
+	}
+	if auth.IsAuthEnabled(ctx) {
+		bgCtx = auth.WithAuthEnabled(bgCtx)
+	}
+	go func() {
+		_, err := m.ProcessMessageWithOptions(bgCtx, snapshot.SessionID, action.Prompt, WithTurnID(turnID))
+		if err != nil {
+			m.restorePausedAfterResumeFailure(context.Background(), snapshot.SessionID, claimed.PlanVersion, claimed.RuntimeEpoch, claimed.TurnID, "sessiontodo auto_continue process failed", err)
+			m.enqueueLog(observability.LogEntry{
+				Level:     "error",
+				Message:   "sessiontodo auto_continue process failed",
+				SessionID: snapshot.SessionID,
+				Attributes: map[string]any{
+					"error":         err.Error(),
+					"turn_id":       turnID,
+					"runtime_epoch": m.runtimeEpochForObs(),
+				},
+				Ts: time.Now(),
+			})
+		}
+	}()
+}
+
+func autoContinueRunKey(snapshot sessiontodo.Snapshot) string {
+	return fmt.Sprintf("%s:%d:%s", snapshot.SessionID, snapshot.PlanVersion, snapshot.RuntimeEpoch)
+}
+
+func (m *Master) restorePausedAfterResumeFailure(ctx context.Context, sessionID string, claimedPlanVersion int64, claimedRuntimeEpoch, claimedTurnID, message string, cause error) {
+	if m == nil || m.sessionTodoStore == nil {
+		return
+	}
+	current, err := m.sessionTodoStore.Snapshot(ctx, sessionID)
+	if err != nil {
+		m.enqueueLog(observability.LogEntry{
+			Level:     "error",
+			Message:   "sessiontodo resume failure restore snapshot read failed",
+			SessionID: sessionID,
+			Attributes: map[string]any{
+				"error": err.Error(),
+			},
+			Ts: time.Now(),
+		})
+		return
+	}
+	if current.PlanStatus != sessiontodo.PlanStatusExecuting ||
+		current.PlanVersion != claimedPlanVersion ||
+		current.RuntimeEpoch != claimedRuntimeEpoch {
+		return
+	}
+	restored, err := m.sessionTodoStore.SetPlanStatusWithMeta(ctx, sessionID, sessiontodo.PlanStatusPaused, sessiontodo.SnapshotMeta{
+		TurnID:       claimedTurnID,
+		RuntimeEpoch: claimedRuntimeEpoch,
+	})
+	if err != nil {
+		m.enqueueLog(observability.LogEntry{
+			Level:     "error",
+			Message:   "sessiontodo resume failure restore paused failed",
+			SessionID: sessionID,
+			Attributes: map[string]any{
+				"error": err.Error(),
+			},
+			Ts: time.Now(),
+		})
+		return
+	}
+	if err := m.BroadcastTodoSnapshot(ctx, restored); err != nil {
+		m.enqueueLog(observability.LogEntry{
+			Level:     "warn",
+			Message:   "sessiontodo resume failure restore broadcast failed",
+			SessionID: sessionID,
+			Attributes: map[string]any{
+				"error": err.Error(),
+			},
+			Ts: time.Now(),
+		})
+	}
+	attrs := map[string]any{
+		"plan_version":  restored.PlanVersion,
+		"runtime_epoch": restored.RuntimeEpoch,
+		"turn_id":       restored.TurnID,
+	}
+	if cause != nil {
+		attrs["error"] = cause.Error()
+	}
+	m.enqueueLog(observability.LogEntry{
+		Level:      "warn",
+		Message:    message,
+		SessionID:  sessionID,
+		Attributes: attrs,
+		Ts:         time.Now(),
+	})
+}
+
+func pendingTodosForResume(todos []sessiontodo.Todo) []sessiontodo.Todo {
+	out := make([]sessiontodo.Todo, 0)
+	for _, todo := range todos {
+		if todo.Status == sessiontodo.TodoStatusPending || todo.Status == sessiontodo.TodoStatusInProgress {
+			out = append(out, todo)
+		}
+	}
+	return out
 }

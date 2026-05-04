@@ -372,6 +372,7 @@ func InitServer(cfg *config.Config, configPath string, logger *zap.Logger) *Serv
 		ToolPolicy:                  cfg.Agent.ToolPolicy,
 		MaxSessionCost:              cfg.Agent.MaxSessionCost,
 		SpecDriven:                  cfg.SpecDriven,
+		PlanRuntime:                 cfg.Agent.PlanRuntime,
 		QualityGuards:               cfg.Agent.QualityGuards,
 		RuntimePolicy:               runtimePolicyFromConfig(cfg.RuntimePolicy),
 	}, cfg.HITL, sc.AgentReg, sc.SkillReg, sc.SessionStore, logger)
@@ -472,7 +473,7 @@ func InitServer(cfg *config.Config, configPath string, logger *zap.Logger) *Serv
 		tools.SetApprovalBridge(NewApprovalBridge(sc.Master.GetHITLBroker()))
 	}
 	tools.RegisterBuiltinTools(sc.MCPHost, logger, cfg, sc.Master, sc.Master,
-		cfg.CustomToolsDir, nil, sc.SkillReg, sc.PluginMgr, nil, sc.MemStore, sc.Master.GetAgentFactory(), sc.SessionTodoStore, sc.Master)
+		cfg.CustomToolsDir, nil, sc.SkillReg, sc.PluginMgr, nil, sc.MemStore, sc.Master.GetAgentFactory(), sc.SessionTodoStore, sc.Master, sc.TaskBoard)
 
 	// 11.1 hive-skill-on-demand：按需注册 skill_install / skill_search。
 	// OnDemandEnabled=false 时完全 skip，对旧部署 byte-identical（§8.4 回归基线配套）。

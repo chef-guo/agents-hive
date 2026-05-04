@@ -1,11 +1,13 @@
 package master
 
 import (
+	"context"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/chef-guo/agents-hive/internal/sessiontodo"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest"
 )
@@ -203,6 +205,30 @@ func TestPruneDeadSubscribers(t *testing.T) {
 
 	// 清理后再广播不应 panic，也不应再看到该订阅者
 	eb.Broadcast(BroadcastMessage{Type: EventTypeMessage})
+}
+
+func TestTodoSnapshotSlowConsumer(t *testing.T) {
+	eb := newTestBus(t)
+	deadID, _ := eb.Subscribe()
+	m := &Master{eventBus: eb, obsCh: make(chan observabilityEntry, 512)}
+
+	for i := int64(0); i < subscriberBufferSize+deadSubscriberThreshold; i++ {
+		err := m.BroadcastTodoSnapshot(context.Background(), sessiontodo.Snapshot{
+			SessionID:   "session-slow",
+			PlanStatus:  sessiontodo.PlanStatusExecuting,
+			PlanVersion: i + 1,
+		})
+		if err != nil {
+			t.Fatalf("broadcast todo_snapshot: %v", err)
+		}
+	}
+
+	eb.mu.RLock()
+	_, exists := eb.subs[deadID]
+	eb.mu.RUnlock()
+	if exists {
+		t.Fatalf("todo_snapshot 慢消费者 %d 达到连续丢弃阈值后应被自动剔除", deadID)
+	}
 }
 
 // TestPruneResetOnSuccess 验证发送成功时连续丢弃计数器归零，不误杀活跃订阅者。

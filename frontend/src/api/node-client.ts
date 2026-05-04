@@ -77,7 +77,7 @@ import type {
   UsageQualityCost,
 } from '../types/api';
 import type { JournalResponse, JournalStatsResponse } from '../types/journal';
-import type { TodoSnapshot } from '../store/todos';
+import type { TodoResumeResponse, TodoSnapshot } from '../store/todos';
 import { apiClient, ApiClient } from './client';
 
 // NodeClient 接口 - Phase 2 扩展为 RemoteNodeClient
@@ -97,6 +97,7 @@ export interface NodeClient {
   sendMessage(sessionId: string, content: string, options?: { attachments?: FileAttachment[]; deepThinking?: boolean }): Promise<SendMessageResponse>;
   getMessages(sessionId: string, limit?: number): Promise<Message[]>;
   getTodoSnapshot(sessionId: string): Promise<TodoSnapshot>;
+  resumeTodos(sessionId: string, expectedPlanVersion: number, expectedRuntimeEpoch: string): Promise<TodoResumeResponse>;
   // HITL
   submitInput(taskId: string, resp: InputResponse): Promise<void>;
   getPendingInput(taskId: string): Promise<unknown[]>;
@@ -284,6 +285,14 @@ export class LocalNodeClient implements NodeClient {
 
   getTodoSnapshot(sessionId: string): Promise<TodoSnapshot> {
     return this.client.get(`/api/v1/sessions/${sessionId}/todos`);
+  }
+
+  resumeTodos(sessionId: string, expectedPlanVersion: number, expectedRuntimeEpoch: string): Promise<TodoResumeResponse> {
+    return this.client.postLong(`/api/v1/sessions/${sessionId}/todos/resume`, {
+      execute: true,
+      expected_plan_version: expectedPlanVersion,
+      expected_runtime_epoch: expectedRuntimeEpoch,
+    });
   }
 
   submitInput(taskId: string, resp: InputResponse): Promise<void> {

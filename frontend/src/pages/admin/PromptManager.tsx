@@ -6,7 +6,7 @@ import type { PromptRecord } from '../../types/api';
 
 // 已知的 prompt key 分组（与 go:embed 目录对应）
 const KNOWN_KEYS = [
-  { group: 'system', keys: ['system/base', 'system/execution', 'system/code_editing', 'system/safety', 'system/reply'] },
+  { group: 'system', keys: ['system/base', 'system/execution', 'system/plan_runtime', 'system/business', 'system/code_editing', 'system/safety', 'system/reply'] },
   { group: 'tools', keys: ['tools/wenyan', 'tools/spawn_agent', 'tools/dynamic_tools'] },
   { group: 'subagents', keys: ['subagents/title', 'subagents/summary', 'subagents/compaction', 'subagents/explore', 'subagents/codereview'] },
 ];

@@ -49,6 +49,12 @@ func TestDefault(t *testing.T) {
 	if cfg.MCP.Timeout != 0 {
 		t.Errorf("MCP.Timeout = %v, want 0 (runtime defaults from DB)", cfg.MCP.Timeout)
 	}
+	if !cfg.Agent.PlanRuntime.Enabled {
+		t.Error("Agent.PlanRuntime.Enabled = false, want true by default")
+	}
+	if cfg.Agent.PlanRuntime.AutoContinue {
+		t.Error("Agent.PlanRuntime.AutoContinue = true, want false by default")
+	}
 
 	// Logging defaults
 	if cfg.Logging.Level != DefaultLogLevel {
@@ -56,6 +62,35 @@ func TestDefault(t *testing.T) {
 	}
 	if cfg.Logging.Format != "json" {
 		t.Errorf("Logging.Format = %q, want %q", cfg.Logging.Format, "json")
+	}
+}
+
+func TestLoad_PlanRuntimeCanBeExplicitlyDisabled(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+
+	raw := map[string]any{
+		"agent": map[string]any{
+			"plan_runtime": map[string]any{
+				"enabled": false,
+			},
+		},
+	}
+
+	data, err := json.Marshal(raw)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load(%q) returned error: %v", path, err)
+	}
+	if cfg.Agent.PlanRuntime.Enabled {
+		t.Fatal("Agent.PlanRuntime.Enabled = true, want explicit false config to disable it")
 	}
 }
 
@@ -879,7 +914,6 @@ func TestNewProviderEnvOverrides_Azure(t *testing.T) {
 	}
 }
 
-
 func TestNewProviderEnvOverrides_PriorityGoogle(t *testing.T) {
 	// GOOGLE_API_KEY 优先级高于 CLAW_GOOGLE_API_KEY
 	t.Setenv("GOOGLE_API_KEY", "google-standard-key")
@@ -909,7 +943,6 @@ func TestNewProviderEnvOverrides_PriorityAzure(t *testing.T) {
 		t.Errorf("AzureAPIKey = %q, want %q (AZURE_OPENAI_API_KEY should take priority)", cfg.LLM.AzureAPIKey, "azure-standard-key")
 	}
 }
-
 
 // TestProviderResolve 测试 Provider 自动推断和配置填充
 func TestProviderResolve_Google(t *testing.T) {

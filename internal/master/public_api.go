@@ -46,6 +46,12 @@ func WithChannelMessageID(id string) MessageOption {
 	}
 }
 
+func WithTurnID(id string) MessageOption {
+	return func(req *SessionRequest) {
+		req.TurnID = id
+	}
+}
+
 func WithAckAlreadyEmitted() MessageOption {
 	return func(req *SessionRequest) {
 		req.AckAlreadyEmitted = true
@@ -142,6 +148,10 @@ func (m *Master) ProcessMessageWithOptions(ctx context.Context, sessionID string
 // ProcessCommand 向 SessionLoop 发送会话命令并等待响应（委托给 SessionManager）
 func (m *Master) ProcessCommand(ctx context.Context, req SessionRequest) (TaskResponse, error) {
 	return m.sessionMgr.ProcessRequestWithResponse(ctx, req)
+}
+
+func (m *Master) RestorePausedAfterResumeFailure(ctx context.Context, sessionID string, claimedPlanVersion int64, claimedRuntimeEpoch, claimedTurnID, message string, cause error) {
+	m.restorePausedAfterResumeFailure(ctx, sessionID, claimedPlanVersion, claimedRuntimeEpoch, claimedTurnID, message, cause)
 }
 
 // SubmitInput 是提交用户响应的外部入口点（委托给 HITLBroker）

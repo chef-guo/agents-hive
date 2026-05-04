@@ -23,6 +23,8 @@ CREATE TABLE IF NOT EXISTS hive_session_todos (
     source           TEXT NOT NULL DEFAULT 'agent',
     trace_id         TEXT,
     span_id          TEXT,
+    turn_id          TEXT,
+    runtime_epoch    TEXT,
     source_change_id TEXT,
     source_revision  BIGINT,
     source_tool_call_id TEXT,
@@ -39,6 +41,9 @@ CREATE INDEX IF NOT EXISTS idx_hive_session_todos_source_change
 
 CREATE INDEX IF NOT EXISTS idx_hive_session_todos_trace
     ON hive_session_todos(trace_id);
+
+ALTER TABLE hive_session_todos ADD COLUMN IF NOT EXISTS turn_id TEXT;
+ALTER TABLE hive_session_todos ADD COLUMN IF NOT EXISTS runtime_epoch TEXT;
 `
 
 var _ Store = (*PGStore)(nil)
@@ -84,7 +89,7 @@ func (s *PGStore) Replace(ctx context.Context, sessionID string, expectedPlanVer
 		return Snapshot{}, err
 	}
 
-	currentVersion, currentStatus, err := loadPGSnapshotHeader(ctx, tx, sessionID)
+	currentVersion, currentStatus, _, err := loadPGSnapshotHeader(ctx, tx, sessionID)
 	if err != nil {
 		return Snapshot{}, err
 	}
@@ -113,6 +118,8 @@ func (s *PGStore) Replace(ctx context.Context, sessionID string, expectedPlanVer
 			Source:           sourceOrDefault(input.Source),
 			TraceID:          input.TraceID,
 			SpanID:           input.SpanID,
+			TurnID:           input.TurnID,
+			RuntimeEpoch:     input.RuntimeEpoch,
 			SourceChangeID:   input.SourceChangeID,
 			SourceRevision:   input.SourceRevision,
 			SourceToolCallID: input.SourceToolCallID,
@@ -122,7 +129,7 @@ func (s *PGStore) Replace(ctx context.Context, sessionID string, expectedPlanVer
 		todos = append(todos, todo)
 	}
 
-	source, traceID, spanID, sourceToolCallID, sourceChangeID, sourceRevision := snapshotSourceFromTodos(todos)
+	source, traceID, spanID, turnID, runtimeEpoch, sourceToolCallID, sourceChangeID, sourceRevision := snapshotSourceFromTodos(todos)
 	if source == "" {
 		source = "agent"
 	}
@@ -137,6 +144,8 @@ func (s *PGStore) Replace(ctx context.Context, sessionID string, expectedPlanVer
 		Source:           source,
 		TraceID:          traceID,
 		SpanID:           spanID,
+		TurnID:           turnID,
+		RuntimeEpoch:     runtimeEpoch,
 		SourceChangeID:   sourceChangeID,
 		SourceRevision:   sourceRevision,
 		SourceToolCallID: sourceToolCallID,
@@ -164,6 +173,8 @@ func (s *PGStore) Replace(ctx context.Context, sessionID string, expectedPlanVer
 		Source:           source,
 		TraceID:          traceID,
 		SpanID:           spanID,
+		TurnID:           turnID,
+		RuntimeEpoch:     runtimeEpoch,
 		SourceToolCallID: sourceToolCallID,
 		SourceChangeID:   sourceChangeID,
 		SourceRevision:   sourceRevision,
@@ -182,6 +193,7 @@ func (s *PGStore) Snapshot(ctx context.Context, sessionID string) (Snapshot, err
 	rows, err := s.pool.Query(ctx, `
 		SELECT todo_id, content, status, order_index, version, plan_version, plan_status,
 		       source, COALESCE(trace_id, ''), COALESCE(span_id, ''),
+		       COALESCE(turn_id, ''), COALESCE(runtime_epoch, ''),
 		       COALESCE(source_change_id, ''), COALESCE(source_revision, 0),
 		       COALESCE(source_tool_call_id, ''), created_at, updated_at
 		FROM hive_session_todos
@@ -211,6 +223,8 @@ func (s *PGStore) Snapshot(ctx context.Context, sessionID string) (Snapshot, err
 			&todo.Source,
 			&todo.TraceID,
 			&todo.SpanID,
+			&todo.TurnID,
+			&todo.RuntimeEpoch,
 			&todo.SourceChangeID,
 			&todo.SourceRevision,
 			&todo.SourceToolCallID,
@@ -225,6 +239,8 @@ func (s *PGStore) Snapshot(ctx context.Context, sessionID string) (Snapshot, err
 			snap.Source = todo.Source
 			snap.TraceID = todo.TraceID
 			snap.SpanID = todo.SpanID
+			snap.TurnID = todo.TurnID
+			snap.RuntimeEpoch = todo.RuntimeEpoch
 			snap.SourceChangeID = todo.SourceChangeID
 			snap.SourceRevision = todo.SourceRevision
 			snap.SourceToolCallID = todo.SourceToolCallID
@@ -254,6 +270,10 @@ func (s *PGStore) Snapshot(ctx context.Context, sessionID string) (Snapshot, err
 }
 
 func (s *PGStore) SetPlanStatus(ctx context.Context, sessionID string, status PlanStatus) (Snapshot, error) {
+	return s.SetPlanStatusWithMeta(ctx, sessionID, status, SnapshotMeta{})
+}
+
+func (s *PGStore) SetPlanStatusWithMeta(ctx context.Context, sessionID string, status PlanStatus, meta SnapshotMeta) (Snapshot, error) {
 	if err := ctx.Err(); err != nil {
 		return Snapshot{}, err
 	}
@@ -276,38 +296,121 @@ func (s *PGStore) SetPlanStatus(ctx context.Context, sessionID string, status Pl
 		return Snapshot{}, err
 	}
 
-	currentVersion, _, err := loadPGSnapshotHeader(ctx, tx, sessionID)
+	currentVersion, currentStatus, currentMeta, err := loadPGSnapshotHeader(ctx, tx, sessionID)
 	if err != nil {
 		return Snapshot{}, err
 	}
+	_ = currentStatus
+	meta = mergeSnapshotMeta(Snapshot{
+		Source:           currentMeta.Source,
+		TraceID:          currentMeta.TraceID,
+		SpanID:           currentMeta.SpanID,
+		TurnID:           currentMeta.TurnID,
+		RuntimeEpoch:     currentMeta.RuntimeEpoch,
+		SourceToolCallID: currentMeta.SourceToolCallID,
+		SourceChangeID:   currentMeta.SourceChangeID,
+		SourceRevision:   currentMeta.SourceRevision,
+	}, meta)
 	nextVersion := currentVersion + 1
 	now := time.Now().UTC()
 	if currentVersion == 0 {
 		if err := insertPGTodoRow(ctx, tx, Todo{
-			ID:        sessionTodosMetaID,
-			SessionID: sessionID,
-			Content:   "",
-			Status:    TodoStatusPending,
-			Order:     -1,
-			Version:   nextVersion,
-			Source:    "runtime",
-			CreatedAt: now,
-			UpdatedAt: now,
+			ID:               sessionTodosMetaID,
+			SessionID:        sessionID,
+			Content:          "",
+			Status:           TodoStatusPending,
+			Order:            -1,
+			Version:          nextVersion,
+			Source:           sourceOrDefault(meta.Source),
+			TraceID:          meta.TraceID,
+			SpanID:           meta.SpanID,
+			TurnID:           meta.TurnID,
+			RuntimeEpoch:     meta.RuntimeEpoch,
+			SourceChangeID:   meta.SourceChangeID,
+			SourceRevision:   meta.SourceRevision,
+			SourceToolCallID: meta.SourceToolCallID,
+			CreatedAt:        now,
+			UpdatedAt:        now,
 		}, nextVersion, status); err != nil {
 			return Snapshot{}, err
 		}
 	} else {
 		if _, err := tx.Exec(ctx, `
 			UPDATE hive_session_todos
-			SET plan_status = $2, plan_version = $3, version = $3, updated_at = $4
-			WHERE session_id = $1
-		`, sessionID, string(status), nextVersion, now); err != nil {
+			SET plan_status = $2, plan_version = $3, version = $3, updated_at = $4,
+			    source = $5, trace_id = NULLIF($6, ''), span_id = NULLIF($7, ''),
+			    turn_id = NULLIF($8, ''), runtime_epoch = NULLIF($9, ''),
+			    source_tool_call_id = NULLIF($10, ''), source_change_id = NULLIF($11, ''),
+			    source_revision = NULLIF($12, 0)
+			WHERE session_id = $1 AND todo_id = $13
+		`, sessionID, string(status), nextVersion, now, sourceOrDefault(meta.Source), meta.TraceID, meta.SpanID,
+			meta.TurnID, meta.RuntimeEpoch, meta.SourceToolCallID, meta.SourceChangeID, meta.SourceRevision, sessionTodosMetaID); err != nil {
+			return Snapshot{}, fmt.Errorf("sessiontodo set status meta: %w", err)
+		}
+		if _, err := tx.Exec(ctx, `
+			UPDATE hive_session_todos
+			SET plan_status = $2, plan_version = $3, version = $3, updated_at = $4,
+			    turn_id = NULLIF($5, ''), runtime_epoch = NULLIF($6, '')
+			WHERE session_id = $1 AND todo_id <> $7
+		`, sessionID, string(status), nextVersion, now, meta.TurnID, meta.RuntimeEpoch, sessionTodosMetaID); err != nil {
 			return Snapshot{}, fmt.Errorf("sessiontodo set status: %w", err)
 		}
 	}
 
 	if err := tx.Commit(ctx); err != nil {
 		return Snapshot{}, fmt.Errorf("sessiontodo set status commit: %w", err)
+	}
+	return s.Snapshot(ctx, sessionID)
+}
+
+func (s *PGStore) ClaimResume(ctx context.Context, sessionID string, expectedPlanVersion int64, expectedRuntimeEpoch, runtimeEpoch, turnID string) (Snapshot, error) {
+	if err := ctx.Err(); err != nil {
+		return Snapshot{}, err
+	}
+	if err := validateSessionID(sessionID); err != nil {
+		return Snapshot{}, err
+	}
+	if expectedPlanVersion < 0 {
+		return Snapshot{}, fmt.Errorf("%w: expectedPlanVersion must be >= 0", ErrInvalidInput)
+	}
+	if expectedRuntimeEpoch == "" {
+		return Snapshot{}, fmt.Errorf("%w: expected runtime epoch is required", ErrInvalidInput)
+	}
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	if err != nil {
+		return Snapshot{}, err
+	}
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
+	if err := lockSessionTodos(ctx, tx, sessionID); err != nil {
+		return Snapshot{}, err
+	}
+	currentVersion, currentStatus, currentMeta, err := loadPGSnapshotHeader(ctx, tx, sessionID)
+	if err != nil {
+		return Snapshot{}, err
+	}
+	if currentVersion != expectedPlanVersion {
+		return Snapshot{}, &PlanVersionConflictError{Expected: expectedPlanVersion, Got: currentVersion}
+	}
+	if currentMeta.RuntimeEpoch != expectedRuntimeEpoch {
+		return Snapshot{}, &RuntimeEpochConflictError{Expected: expectedRuntimeEpoch, Got: currentMeta.RuntimeEpoch}
+	}
+	if currentStatus != PlanStatusPaused {
+		return Snapshot{}, fmt.Errorf("%w: plan status is not paused: %s", ErrResumeConflict, currentStatus)
+	}
+	nextVersion := currentVersion + 1
+	now := time.Now().UTC()
+	if _, err := tx.Exec(ctx, `
+		UPDATE hive_session_todos
+		SET plan_status = $2, plan_version = $3, version = $3, updated_at = $4,
+		    turn_id = NULLIF($5, ''), runtime_epoch = NULLIF($6, '')
+		WHERE session_id = $1
+	`, sessionID, string(PlanStatusExecuting), nextVersion, now, turnID, runtimeEpoch); err != nil {
+		return Snapshot{}, fmt.Errorf("sessiontodo claim resume: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return Snapshot{}, fmt.Errorf("sessiontodo claim resume commit: %w", err)
 	}
 	return s.Snapshot(ctx, sessionID)
 }
@@ -335,23 +438,27 @@ func lockSessionTodos(ctx context.Context, tx pgx.Tx, sessionID string) error {
 	return nil
 }
 
-func loadPGSnapshotHeader(ctx context.Context, tx pgx.Tx, sessionID string) (int64, PlanStatus, error) {
+func loadPGSnapshotHeader(ctx context.Context, tx pgx.Tx, sessionID string) (int64, PlanStatus, SnapshotMeta, error) {
 	var planVersion int64
 	var planStatus string
+	var meta SnapshotMeta
 	err := tx.QueryRow(ctx, `
-		SELECT plan_version, plan_status
+		SELECT plan_version, plan_status, source, COALESCE(trace_id, ''), COALESCE(span_id, ''),
+		       COALESCE(turn_id, ''), COALESCE(runtime_epoch, ''), COALESCE(source_tool_call_id, ''),
+		       COALESCE(source_change_id, ''), COALESCE(source_revision, 0)
 		FROM hive_session_todos
 		WHERE session_id = $1
-		ORDER BY plan_version DESC, updated_at DESC
+		ORDER BY CASE WHEN todo_id = $2 THEN 0 ELSE 1 END, plan_version DESC, updated_at DESC
 		LIMIT 1
-	`, sessionID).Scan(&planVersion, &planStatus)
+	`, sessionID, sessionTodosMetaID).Scan(&planVersion, &planStatus, &meta.Source, &meta.TraceID, &meta.SpanID,
+		&meta.TurnID, &meta.RuntimeEpoch, &meta.SourceToolCallID, &meta.SourceChangeID, &meta.SourceRevision)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return 0, PlanStatusNone, nil
+		return 0, PlanStatusNone, SnapshotMeta{}, nil
 	}
 	if err != nil {
-		return 0, "", fmt.Errorf("sessiontodo load header: %w", err)
+		return 0, "", SnapshotMeta{}, fmt.Errorf("sessiontodo load header: %w", err)
 	}
-	return planVersion, PlanStatus(planStatus), nil
+	return planVersion, PlanStatus(planStatus), meta, nil
 }
 
 func insertPGTodoRow(ctx context.Context, tx pgx.Tx, todo Todo, planVersion int64, planStatus PlanStatus) error {
@@ -359,12 +466,13 @@ func insertPGTodoRow(ctx context.Context, tx pgx.Tx, todo Todo, planVersion int6
 		INSERT INTO hive_session_todos (
 			session_id, todo_id, content, status, order_index, version,
 			plan_version, plan_status, source, trace_id, span_id,
-			source_change_id, source_revision, source_tool_call_id,
+			turn_id, runtime_epoch, source_change_id, source_revision, source_tool_call_id,
 			created_at, updated_at
 		)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9,
 		        NULLIF($10, ''), NULLIF($11, ''), NULLIF($12, ''),
-		        NULLIF($13, 0), NULLIF($14, ''), $15, $16)
+		        NULLIF($13, ''), NULLIF($14, ''), NULLIF($15, 0),
+		        NULLIF($16, ''), $17, $18)
 		ON CONFLICT (session_id, todo_id) DO UPDATE SET
 			content             = EXCLUDED.content,
 			status              = EXCLUDED.status,
@@ -375,13 +483,15 @@ func insertPGTodoRow(ctx context.Context, tx pgx.Tx, todo Todo, planVersion int6
 			source              = EXCLUDED.source,
 			trace_id            = EXCLUDED.trace_id,
 			span_id             = EXCLUDED.span_id,
+			turn_id             = EXCLUDED.turn_id,
+			runtime_epoch       = EXCLUDED.runtime_epoch,
 			source_change_id    = EXCLUDED.source_change_id,
 			source_revision     = EXCLUDED.source_revision,
 			source_tool_call_id = EXCLUDED.source_tool_call_id,
 			updated_at          = EXCLUDED.updated_at
 	`, todo.SessionID, todo.ID, todo.Content, string(todo.Status), todo.Order, todo.Version,
 		planVersion, string(planStatus), sourceOrDefault(todo.Source), todo.TraceID, todo.SpanID,
-		todo.SourceChangeID, todo.SourceRevision, todo.SourceToolCallID, todo.CreatedAt, todo.UpdatedAt)
+		todo.TurnID, todo.RuntimeEpoch, todo.SourceChangeID, todo.SourceRevision, todo.SourceToolCallID, todo.CreatedAt, todo.UpdatedAt)
 	if err != nil {
 		return fmt.Errorf("sessiontodo insert row: %w", err)
 	}

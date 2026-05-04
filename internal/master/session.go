@@ -132,6 +132,7 @@ type SessionRequest struct {
 	ReasoningEffort   string                  `json:"reasoning_effort,omitempty"`   // 推理努力级别: "low"/"medium"/"high"
 	ModelOverride     string                  `json:"model_override,omitempty"`     // 模型覆盖（由 skill/command 设置）
 	ChannelMessageID  string                  `json:"channel_message_id,omitempty"` // IM 平台原消息 ID（供 input_received 事件透传，renderer 基于此做 ack 表情）
+	TurnID            string                  `json:"-"`                            // 当前请求的稳定 turn_id；为空时由 session loop 生成
 	AckAlreadyEmitted bool                    `json:"-"`                            // Router renderer 路径已提前广播 input_received，避免重复 ack
 	IMContext         *imctx.IMMessageContext `json:"-"`                            // IM 消息上下文（transient，不持久化）
 	SkipUserMessage   bool                    `json:"-"`                            // 跳过追加用户消息（regenerate 专用，避免重复写入）

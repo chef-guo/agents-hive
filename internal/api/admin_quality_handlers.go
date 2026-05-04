@@ -24,6 +24,7 @@ var promptSmokeKnownKeys = map[string]struct{}{
 	"system/main":          {},
 	"system/base":          {},
 	"system/execution":     {},
+	"system/plan_runtime":  {},
 	"system/business":      {},
 	"system/code_editing":  {},
 	"system/safety":        {},

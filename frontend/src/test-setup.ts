@@ -1,7 +1,7 @@
 import '@testing-library/jest-dom'
 
 function createMemoryStorage(): Storage {
-  let data = new Map<string, string>()
+  const data = new Map<string, string>()
   return {
     get length() {
       return data.size

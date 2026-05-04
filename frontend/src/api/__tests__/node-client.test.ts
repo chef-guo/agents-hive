@@ -14,17 +14,33 @@ function createApiClientMock() {
   return {
     get: vi.fn(),
     post: vi.fn(),
+    postLong: vi.fn(),
     put: vi.fn(),
     delete: vi.fn(),
   } as unknown as ApiClient & {
     get: ReturnType<typeof vi.fn>;
     post: ReturnType<typeof vi.fn>;
+    postLong: ReturnType<typeof vi.fn>;
     put: ReturnType<typeof vi.fn>;
     delete: ReturnType<typeof vi.fn>;
   };
 }
 
 describe('LocalNodeClient admin capability endpoints', () => {
+  it('calls session todo resume endpoint with version and runtime epoch guards', async () => {
+    const api = createApiClientMock();
+    api.postLong.mockResolvedValue({});
+    const client = new LocalNodeClient(api);
+
+    await client.resumeTodos('sess-1', 7, 'epoch-1');
+
+    expect(api.postLong).toHaveBeenCalledWith('/api/v1/sessions/sess-1/todos/resume', {
+      execute: true,
+      expected_plan_version: 7,
+      expected_runtime_epoch: 'epoch-1',
+    });
+  });
+
   it('calls quality workbench preview, replay fanout, and version diff endpoints', async () => {
     const api = createApiClientMock();
     api.post.mockResolvedValue({});

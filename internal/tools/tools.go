@@ -25,6 +25,7 @@ import (
 	"github.com/chef-guo/agents-hive/internal/plugin"
 	"github.com/chef-guo/agents-hive/internal/sandbox"
 	"github.com/chef-guo/agents-hive/internal/search"
+	"github.com/chef-guo/agents-hive/internal/taskboard"
 )
 
 var (
@@ -173,6 +174,7 @@ func RegisterBuiltinTools(host *mcphost.Host, logger *zap.Logger, cfg *config.Co
 	var todoBroadcaster TodoSnapshotBroadcaster
 	var nestedToolGate NestedToolGate
 	var planRuntimeObserver PlanRuntimeObserver
+	var board taskboard.TaskBoard
 	for _, optional := range agentSpawnerI {
 		if optional == nil {
 			continue
@@ -191,6 +193,9 @@ func RegisterBuiltinTools(host *mcphost.Host, logger *zap.Logger, cfg *config.Co
 		}
 		if observer, ok := optional.(PlanRuntimeObserver); ok && planRuntimeObserver == nil {
 			planRuntimeObserver = observer
+		}
+		if taskBoard, ok := optional.(taskboard.TaskBoard); ok && board == nil {
+			board = taskBoard
 		}
 	}
 
@@ -288,7 +293,12 @@ func RegisterBuiltinTools(host *mcphost.Host, logger *zap.Logger, cfg *config.Co
 	if todoStore != nil {
 		registerTodoWrite(host, logger, todoStore, todoBroadcaster, planRuntimeObserver)
 		registerPlanModeTools(host, logger, todoStore, todoBroadcaster, planRuntimeObserver)
-		count += 4
+		registerHandoffSummary(host, logger, todoStore)
+		count += 5
+		if board != nil {
+			registerPromoteTodosToTaskboard(host, logger, todoStore, todoBroadcaster, board)
+			count++
+		}
 	}
 
 	// 如果提供了 router，注册 send_im_message 工具

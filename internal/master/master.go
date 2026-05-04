@@ -72,6 +72,7 @@ type Config struct {
 	ToolPolicy                  config.ToolPolicyConfig    // 工具过滤策略配置
 	MaxSessionCost              float64                    // P0-3: per-session 成本预算上限（USD），<=0 表示不限制（需要 PostgreSQL 成本追踪启用）
 	SpecDriven                  config.SpecDrivenConfig    // Spec-driven Phase 2 总开关（默认 mode=legacy，零成本短路 session_loop intake hook）
+	PlanRuntime                 config.PlanRuntimeConfig   // session 级 plan/todos runtime 配置
 	QualityGuards               config.QualityGuardsConfig // P0 质量护栏灰度开关（见 docs/计划与路线/Agent-质量护栏治理计划.md）
 	RuntimePolicy               runtimepolicy.Policy       // 运行期 timeout、容量和成本策略
 }
@@ -161,6 +162,7 @@ type AgentProgressEvent struct {
 type ToolCallEvent struct {
 	ToolCallID string `json:"tool_call_id"` // 对应 LLM 工具调用 ID
 	ToolName   string `json:"tool_name"`
+	TurnID     string `json:"turn_id,omitempty"`
 	Status     string `json:"status"`               // "start", "success", "error"
 	Duration   int64  `json:"duration,omitempty"`   // 执行耗时（毫秒）
 	Error      string `json:"error,omitempty"`      // 错误信息（仅 error 状态）
@@ -289,6 +291,9 @@ type Master struct {
 	middlewarePipeline MiddlewarePipeline
 
 	sessionTodoStore sessiontodo.Store
+	runtimeEpoch     string
+	autoContinueMu   sync.Mutex
+	autoContinueRuns map[string]int
 }
 
 // NewMaster 创建一个新的 Master agent
@@ -359,6 +364,8 @@ func NewMaster(cfg Config, hitlCfg config.HITLConfig, registry *subagent.Registr
 		compactionTracker:  NewCompactionTracker(),
 		cronJobs:           make(map[string]*cronJobState),
 		middlewarePipeline: buildMiddlewarePipeline(cfg.QualityGuards),
+		runtimeEpoch:       observability.NewTraceID(),
+		autoContinueRuns:   make(map[string]int),
 	}
 
 	// 加载自定义 Agent 定义和指令文件

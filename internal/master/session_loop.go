@@ -308,7 +308,10 @@ func (m *Master) executeSessionTask(ctx context.Context, task sessionTask) {
 		zap.Int("content_len", len(task.req.Input)),
 	)
 	taskStart := time.Now()
-	sessionTraceID := observability.NewTraceID()
+	sessionTraceID := task.req.TurnID
+	if sessionTraceID == "" {
+		sessionTraceID = observability.NewTraceID()
+	}
 	sessionSpanID := observability.NewSpanID()
 	taskRoute := routeFromSession(session)
 	m.enqueueMetric(observability.Metric{

@@ -153,6 +153,40 @@ func TestPGStoreSetPlanStatusBeforeTodosCanRepeat(t *testing.T) {
 	}
 }
 
+func TestPGStoreClaimResumeUsesMetaRowRuntimeEpoch(t *testing.T) {
+	ctx := context.Background()
+	st, cleanup := setupPGStore(t, ctx)
+	defer cleanup()
+
+	sessionID := "sessiontodo-pg-resume-" + time.Now().UTC().Format("20060102150405.000000000")
+	createPGSession(t, ctx, st.pool, sessionID)
+
+	first, err := st.Replace(ctx, sessionID, 0, []TodoInput{
+		{ID: "todo-a", Content: "继续实现", Status: TodoStatusPending, RuntimeEpoch: "todo-epoch", TurnID: "todo-turn"},
+	})
+	if err != nil {
+		t.Fatalf("replace: %v", err)
+	}
+	paused, err := st.SetPlanStatusWithMeta(ctx, sessionID, PlanStatusPaused, SnapshotMeta{RuntimeEpoch: "meta-epoch", TurnID: "meta-turn"})
+	if err != nil {
+		t.Fatalf("set paused: %v", err)
+	}
+	if paused.PlanVersion != first.PlanVersion+1 || paused.RuntimeEpoch != "meta-epoch" {
+		t.Fatalf("paused snapshot = %+v", paused)
+	}
+
+	if _, err := st.ClaimResume(ctx, sessionID, paused.PlanVersion, "todo-epoch", "epoch-new", "turn-new"); !errors.Is(err, ErrRuntimeEpochConflict) {
+		t.Fatalf("claim with todo row epoch error = %v, want ErrRuntimeEpochConflict", err)
+	}
+	claimed, err := st.ClaimResume(ctx, sessionID, paused.PlanVersion, "meta-epoch", "epoch-new", "turn-new")
+	if err != nil {
+		t.Fatalf("claim with meta row epoch: %v", err)
+	}
+	if claimed.PlanStatus != PlanStatusExecuting || claimed.RuntimeEpoch != "epoch-new" || claimed.TurnID != "turn-new" {
+		t.Fatalf("claimed snapshot = %+v", claimed)
+	}
+}
+
 func setupPGStore(t *testing.T, ctx context.Context) (*PGStore, func()) {
 	t.Helper()
 

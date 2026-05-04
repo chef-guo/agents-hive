@@ -143,6 +143,8 @@
     "title": "Todos",
     "ariaLabel": "Session todos",
     "pausedHint": "Send a message to continue",
+    "resume": "Resume",
+    "resumeRunning": "Resuming",
     "emptyActivePlan": "Plan is active; todos will appear here.",
     "source": {
       "specProjected": "Projected from spec",

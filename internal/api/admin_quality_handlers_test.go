@@ -73,6 +73,27 @@ func TestAdminQualityPromptSmoke_NormalReturns200(t *testing.T) {
 	require.Empty(t, got.Warnings)
 }
 
+func TestAdminQualityPromptSmoke_PlanRuntimeKeyIsKnown(t *testing.T) {
+	srv := newQualityAdminTestServer()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/quality/prompt-smoke", strings.NewReader(`{
+		"key": "system/plan_runtime",
+		"language": "zh",
+		"content": "复杂任务需要自动进入计划模式，并使用工具维护 todo 状态。"
+	}`))
+	rec := httptest.NewRecorder()
+
+	srv.handleAdminQualityPromptSmoke(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var got struct {
+		OK       bool     `json:"ok"`
+		Warnings []string `json:"warnings"`
+	}
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&got))
+	require.True(t, got.OK)
+	require.NotContains(t, strings.Join(got.Warnings, "\n"), "未知 prompt key")
+}
+
 func TestAdminQualityPromptSmoke_WarningReturns200(t *testing.T) {
 	srv := newQualityAdminTestServer()
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/quality/prompt-smoke", strings.NewReader(`{

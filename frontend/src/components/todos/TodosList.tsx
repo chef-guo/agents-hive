@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ChevronDown, ClipboardList } from 'lucide-react';
+import { ChevronDown, ClipboardList, Play } from 'lucide-react';
+import { useNodeClient } from '../../hooks/useNodeClient';
 import { shouldShowTodosPanel, useTodosStore, type PlanStatus } from '../../store/todos';
 import { TodoItem } from './TodoItem';
 
@@ -8,7 +9,11 @@ type TodosListVariant = 'desktop' | 'mobile';
 
 export function TodosList({ variant = 'desktop' }: { variant?: TodosListVariant }) {
   const { t } = useTranslation();
+  const client = useNodeClient();
   const snapshot = useTodosStore((s) => s.snapshot);
+  const resuming = useTodosStore((s) => s.resuming);
+  const error = useTodosStore((s) => s.error);
+  const resumePlan = useTodosStore((s) => s.resumePlan);
   const [mobileOpen, setMobileOpen] = useState(false);
 
   const orderedTodos = useMemo(
@@ -50,6 +55,9 @@ export function TodosList({ variant = 'desktop' }: { variant?: TodosListVariant 
                 source={visibleSnapshot.source}
                 sourceChangeId={visibleSnapshot.source_change_id}
                 sourceRevision={visibleSnapshot.source_revision}
+                resuming={resuming}
+                error={error}
+                onResume={() => resumePlan(client)}
                 className="max-h-[calc(80vh-3rem)]"
               />
             </div>
@@ -80,6 +88,9 @@ export function TodosList({ variant = 'desktop' }: { variant?: TodosListVariant 
         source={visibleSnapshot.source}
         sourceChangeId={visibleSnapshot.source_change_id}
         sourceRevision={visibleSnapshot.source_revision}
+        resuming={resuming}
+        error={error}
+        onResume={() => resumePlan(client)}
         className="max-h-72"
       />
     </section>
@@ -92,6 +103,9 @@ function TodosPanelBody({
   source,
   sourceChangeId,
   sourceRevision,
+  resuming,
+  error,
+  onResume,
   className,
 }: {
   orderedTodos: NonNullable<ReturnType<typeof useTodosStore.getState>['snapshot']>['todos'];
@@ -99,6 +113,9 @@ function TodosPanelBody({
   source?: string;
   sourceChangeId?: string;
   sourceRevision?: number;
+  resuming: boolean;
+  error: string | null;
+  onResume: () => void;
   className: string;
 }) {
   const { t } = useTranslation();
@@ -107,7 +124,19 @@ function TodosPanelBody({
     <div className="px-3 pb-3 pt-2">
       {planStatus === 'paused' && (
         <div className="mb-3 rounded-md border border-amber-300/60 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-400/30 dark:bg-amber-400/10 dark:text-amber-200">
-          {t('todos.pausedHint')}
+          <div className="flex items-center gap-2">
+            <span className="min-w-0 flex-1">{t('todos.pausedHint')}</span>
+            <button
+              type="button"
+              onClick={onResume}
+              disabled={resuming}
+              className="inline-flex shrink-0 items-center gap-1 rounded-md border border-amber-400/50 bg-white/80 px-2 py-1 text-[11px] font-semibold text-amber-900 transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-60 dark:border-amber-300/30 dark:bg-amber-300/10 dark:text-amber-100 dark:hover:bg-amber-300/20"
+            >
+              <Play className="h-3 w-3" />
+              {resuming ? t('todos.resumeRunning') : t('todos.resume')}
+            </button>
+          </div>
+          {error && <div className="mt-2 text-[11px] text-red-700 dark:text-red-300">{error}</div>}
         </div>
       )}
 

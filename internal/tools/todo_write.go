@@ -55,6 +55,7 @@ type SessionTodoSource struct {
 	TraceID          string `json:"trace_id,omitempty"`
 	SpanID           string `json:"span_id,omitempty"`
 	ParentSpanID     string `json:"parent_span_id,omitempty"`
+	TurnID           string `json:"turn_id,omitempty"`
 	SourceToolCallID string `json:"source_tool_call_id,omitempty"`
 }
 
@@ -319,6 +320,7 @@ func normalizeTodoWriteInputs(inputs []todoWriteTodoInput, source SessionTodoSou
 			Source:  source.Source,
 			TraceID: source.TraceID,
 			SpanID:  source.SpanID,
+			TurnID:  source.TurnID,
 
 			SourceToolCallID: source.SourceToolCallID,
 		})
@@ -349,12 +351,14 @@ func requireMasterCaller(ctx context.Context, toolName string, logger *zap.Logge
 }
 
 func sourceFromToolContext(ctx context.Context) SessionTodoSource {
-	traceID, spanID, parentSpanID, toolCallID := toolctx.GetToolContext(ctx).TraceFields()
+	tc := toolctx.GetToolContext(ctx)
+	traceID, spanID, parentSpanID, toolCallID := tc.TraceFields()
 	return SessionTodoSource{
 		Source:           "agent",
 		TraceID:          traceID,
 		SpanID:           spanID,
 		ParentSpanID:     parentSpanID,
+		TurnID:           tc.TurnIDOrTraceID(),
 		SourceToolCallID: toolCallID,
 	}
 }

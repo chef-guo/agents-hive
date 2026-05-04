@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/chef-guo/agents-hive/internal/config"
+	"github.com/chef-guo/agents-hive/internal/i18n"
 	"github.com/chef-guo/agents-hive/internal/mcphost"
 	"github.com/chef-guo/agents-hive/internal/skills"
 	"github.com/chef-guo/agents-hive/internal/store"
@@ -91,15 +92,79 @@ func TestMasterPrompt_ContainsKeyGuidance(t *testing.T) {
 		{"回复规范", "直接回答问题"},
 		{"anti-hallucination-来源", "标注来源"},
 		{"anti-hallucination-不确定性", "标记不确定性"},
-		{"research-thoroughness", "多角度发现"},
 		{"spawn_agent 使用规范", "最多同时 3 个子代理"},
-		{"explore 调用方式", "task 工具委派给 explore Agent"},
 		{"可用工具", "bash"},
 	}
 	for _, r := range required {
 		assert.True(t, strings.Contains(prompt, r.keyword),
 			"prompt 应包含 %s 的关键指导: %q", r.section, r.keyword)
 	}
+}
+
+func TestBuildSystemPrompt_DefaultIncludesPlanRuntime(t *testing.T) {
+	m, _ := newTestMaster(t)
+	m.config.PlanRuntime.Enabled = true
+
+	build := m.buildSystemPromptWithMeta(nil)
+
+	assert.Contains(t, build.Content, "Plan Runtime")
+	assert.Contains(t, build.Content, "enter_plan_mode")
+	assert.Contains(t, build.Content, "todo_write")
+	assert.Contains(t, build.Content, "finish_plan")
+	assert.Contains(t, strings.Join(build.Versions(), "\n"), "system/plan_runtime@embedded@")
+}
+
+func TestBuildSystemPrompt_PlanRuntimeCanBeDisabled(t *testing.T) {
+	m, _ := newTestMaster(t)
+	m.config.PlanRuntime.Enabled = false
+
+	build := m.buildSystemPromptWithMeta(nil)
+
+	assert.NotContains(t, build.Content, "Plan Runtime")
+	assert.NotContains(t, build.Content, "enter_plan_mode")
+	assert.NotContains(t, build.Content, "todo_write")
+	assert.NotContains(t, build.Content, "finish_plan")
+	assert.NotContains(t, strings.Join(build.Versions(), "\n"), "system/plan_runtime@")
+}
+
+func TestBuildSystemPrompt_RemovesStaleBusinessAndExploreRules(t *testing.T) {
+	m, _ := newTestMaster(t)
+
+	prompt := m.buildSystemPrompt(nil)
+
+	forbidden := []string{
+		"xiaohongshu-writing",
+		"video-script",
+		"meeting-minutes",
+		"brand-guide",
+		"代码库探索任务通过 task 工具委派给 explore Agent，不要自己逐文件读取",
+	}
+	for _, s := range forbidden {
+		assert.NotContains(t, prompt, s)
+	}
+}
+
+func TestEmbeddedSystemPromptFilesExist(t *testing.T) {
+	for _, key := range systemPromptKeys(true) {
+		content := i18n.LoadEmbeddedPrompt(key)
+		assert.NotEmpty(t, content, "embedded prompt %s should exist", key)
+	}
+}
+
+func TestBuildSystemPrompt_EmbeddedFallbackMatchesPromptLoader(t *testing.T) {
+	m, _ := newTestMaster(t)
+	m.config.PlanRuntime.Enabled = true
+
+	fallback := m.buildSystemPromptWithMeta(nil)
+	fallbackSystem := systemPromptContentFromEmbedded(true)
+
+	m.SetPromptLoader(i18n.NewPromptLoader(nil, "", "zh-CN", zaptest.NewLogger(t)))
+	loaded := m.buildSystemPromptWithMeta(nil)
+	loadedSystem := strings.TrimSuffix(loaded.Content, m.buildToolPrompt(nil))
+
+	assert.Contains(t, fallback.Content, fallbackSystem)
+	assert.Equal(t, fallbackSystem, loadedSystem)
+	assert.Equal(t, loaded.Versions(), fallback.Versions())
 }
 
 func TestBuildSystemPromptWithMeta_ReportsPromptVersions(t *testing.T) {
@@ -109,7 +174,7 @@ func TestBuildSystemPromptWithMeta_ReportsPromptVersions(t *testing.T) {
 	assert.NotEmpty(t, build.Content)
 	versions := build.Versions()
 	assert.NotEmpty(t, versions)
-	assert.Contains(t, versions[0], "@hardcoded@sha256:")
+	assert.Contains(t, versions[0], "system/base@embedded@sha256:")
 	assert.True(t, strings.Contains(build.Content, "你是 Hive"))
 }
 
@@ -126,4 +191,13 @@ func TestBuildToolPrompt_UsesToolSearchForDeferredDiscovery(t *testing.T) {
 	assert.Contains(t, prompt, "按需发现")
 	assert.NotContains(t, prompt, "直接调用任何已注册的工具")
 	assert.NotContains(t, prompt, "**custom_ext**")
+}
+
+func systemPromptContentFromEmbedded(planRuntimeEnabled bool) string {
+	var b strings.Builder
+	for _, key := range systemPromptKeys(planRuntimeEnabled) {
+		b.WriteString(i18n.LoadEmbeddedPrompt(key))
+	}
+	b.WriteString("\n")
+	return b.String()
 }

@@ -269,7 +269,6 @@ CREATE TABLE IF NOT EXISTS usage_records (
 CREATE INDEX IF NOT EXISTS idx_usage_records_session ON usage_records(session_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_usage_records_model ON usage_records(model, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_usage_records_created ON usage_records(created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_usage_records_quality_case ON usage_records(quality_case_id, created_at DESC) WHERE quality_case_id != '';
 
 -- 可观测性：Traces 表（P2-6）
 CREATE TABLE IF NOT EXISTS hive_traces (
@@ -356,9 +355,6 @@ CREATE INDEX IF NOT EXISTS idx_agentquality_candidates_status_created
 CREATE INDEX IF NOT EXISTS idx_agentquality_candidates_session
 	ON agentquality_candidates(session_id, created_at DESC)
 	WHERE session_id != '';
-CREATE INDEX IF NOT EXISTS idx_agentquality_candidates_cluster
-	ON agentquality_candidates(cluster_id, created_at DESC)
-	WHERE cluster_id != '';
 
 -- Agent Quality 自动优化建议表。建议只做人工审批记录，不自动改生产 prompt/tool/skill。
 CREATE TABLE IF NOT EXISTS agentquality_optimization_suggestions (
@@ -392,9 +388,6 @@ CREATE INDEX IF NOT EXISTS idx_agentquality_opt_suggestions_status_created
 CREATE INDEX IF NOT EXISTS idx_agentquality_opt_suggestions_source_candidate
 	ON agentquality_optimization_suggestions(source_candidate_id, created_at DESC)
 	WHERE source_candidate_id != '';
-CREATE INDEX IF NOT EXISTS idx_agentquality_opt_suggestions_source_eval_diff
-	ON agentquality_optimization_suggestions(source_eval_diff_id, created_at DESC)
-	WHERE source_eval_diff_id != '';
 CREATE INDEX IF NOT EXISTS idx_agentquality_opt_suggestions_target
 	ON agentquality_optimization_suggestions(target, created_at DESC);
 
@@ -760,6 +753,9 @@ INSERT INTO configs (key, value) VALUES
   ('agent.script_timeout',        '30s'),
   ('agent.ws_ping_interval',      '30s'),
   ('agent.sync_interval',         '5m'),
+  ('agent.plan_runtime.enabled',  'true'),
+  ('agent.plan_runtime.auto_continue', 'false'),
+  ('agent.plan_runtime.max_auto_continue', '0'),
   -- Context Compression
   ('agent.context_compression.enabled',         'true'),
   ('agent.context_compression.strategy',        'llm_summary'),

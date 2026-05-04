@@ -37,6 +37,15 @@ type fakeSubmitter struct {
 	calls []master.InputResponse
 }
 
+type fakeConfigStore struct {
+	store.Store
+	cfg map[string]string
+}
+
+func (f fakeConfigStore) GetAllConfig(context.Context) (map[string]string, error) {
+	return f.cfg, nil
+}
+
 func (f *fakeSubmitter) SubmitInput(resp master.InputResponse) error {
 	f.calls = append(f.calls, resp)
 	return nil
@@ -59,6 +68,21 @@ func TestBuildLLMExtraConfig_Empty(t *testing.T) {
 	}
 	if len(extra) != 0 {
 		t.Errorf("expected empty map for zero-value config, got %d entries: %v", len(extra), extra)
+	}
+}
+
+func TestLoadAllConfigFromDB_PlanRuntimeEnabledDefaultsTrueAndCanBeDisabled(t *testing.T) {
+	cfg := config.Default()
+	if !cfg.Agent.PlanRuntime.Enabled {
+		t.Fatal("test precondition: Plan Runtime should default enabled")
+	}
+
+	LoadAllConfigFromDB(fakeConfigStore{cfg: map[string]string{
+		"agent.plan_runtime.enabled": "false",
+	}}, cfg, zap.NewNop())
+
+	if cfg.Agent.PlanRuntime.Enabled {
+		t.Fatal("Agent.PlanRuntime.Enabled = true, want DB config false to disable it")
 	}
 }
 

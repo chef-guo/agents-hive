@@ -11,6 +11,8 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/chef-guo/agents-hive/internal/mcphost"
+	"github.com/chef-guo/agents-hive/internal/sessiontodo"
+	"github.com/chef-guo/agents-hive/internal/taskboard"
 	"github.com/chef-guo/agents-hive/internal/toolctx"
 )
 
@@ -39,6 +41,14 @@ func (s *fakeSessionTodoStore) SetPlanStatus(ctx context.Context, sessionID stri
 		return SessionTodoSnapshot{}, errors.New("set plan status not implemented")
 	}
 	return s.setPlanStatusFunc(ctx, sessionID, status)
+}
+
+func (s *fakeSessionTodoStore) SetPlanStatusWithMeta(ctx context.Context, sessionID string, status PlanStatus, meta sessiontodo.SnapshotMeta) (SessionTodoSnapshot, error) {
+	return s.SetPlanStatus(ctx, sessionID, status)
+}
+
+func (s *fakeSessionTodoStore) ClaimResume(ctx context.Context, sessionID string, expectedPlanVersion int64, expectedRuntimeEpoch, runtimeEpoch, turnID string) (SessionTodoSnapshot, error) {
+	return SessionTodoSnapshot{}, errors.New("claim resume not implemented")
 }
 
 type fakeTodoBroadcaster struct {
@@ -198,6 +208,7 @@ func TestTodoWritePassesTraceFieldsAndBroadcastsSnapshot(t *testing.T) {
 		Source:           "agent",
 		TraceID:          "trace-1",
 		SpanID:           "span-1",
+		TurnID:           "trace-1",
 		SourceToolCallID: "call-1",
 		UpdatedAt:        time.Unix(100, 0),
 	}
@@ -233,8 +244,8 @@ func TestTodoWritePassesTraceFieldsAndBroadcastsSnapshot(t *testing.T) {
 	require.Equal(t, "sess-ctx", capturedSessionID)
 	require.Equal(t, int64(7), capturedExpected)
 	require.Equal(t, []SessionTodoInput{
-		{ID: "read", Content: "阅读上下文", Status: TodoStatusCompleted, Order: 0, Source: "agent", TraceID: "trace-1", SpanID: "span-1", SourceToolCallID: "call-1"},
-		{ID: "write", Content: "写工具测试", Status: TodoStatusInProgress, Order: 1, Source: "agent", TraceID: "trace-1", SpanID: "span-1", SourceToolCallID: "call-1"},
+		{ID: "read", Content: "阅读上下文", Status: TodoStatusCompleted, Order: 0, Source: "agent", TraceID: "trace-1", SpanID: "span-1", TurnID: "trace-1", SourceToolCallID: "call-1"},
+		{ID: "write", Content: "写工具测试", Status: TodoStatusInProgress, Order: 1, Source: "agent", TraceID: "trace-1", SpanID: "span-1", TurnID: "trace-1", SourceToolCallID: "call-1"},
 	}, capturedTodos)
 	require.Len(t, broadcaster.snapshots, 1)
 	require.Equal(t, snapshot, broadcaster.snapshots[0])
@@ -267,9 +278,22 @@ func TestRegisterBuiltinToolsRegistersPlanRuntimeToolsWhenStoreProvided(t *testi
 
 	RegisterBuiltinTools(host, zap.NewNop(), nil, nil, nil, "", nil, nil, nil, nil, nil, store)
 
-	for _, name := range []string{"todo_write", "enter_plan_mode", "exit_plan_mode", "finish_plan"} {
+	for _, name := range []string{"todo_write", "enter_plan_mode", "exit_plan_mode", "finish_plan", "create_handoff_summary"} {
 		def, err := host.GetTool(name)
 		require.NoError(t, err, "expected %s to be registered", name)
 		require.True(t, def.Core, "expected %s to be model-visible core tool", name)
 	}
+	_, err := host.GetTool("promote_todos_to_taskboard")
+	require.Error(t, err, "promote_todos_to_taskboard 必须等 taskboard 注入后才注册")
+}
+
+func TestRegisterBuiltinToolsRegistersPromoteTodosWhenTaskboardProvided(t *testing.T) {
+	host := mcphost.NewHost(zap.NewNop())
+	store := &fakeSessionTodoStore{}
+
+	RegisterBuiltinTools(host, zap.NewNop(), nil, nil, nil, "", nil, nil, nil, nil, nil, store, taskboard.NewInMemoryTaskBoard())
+
+	def, err := host.GetTool("promote_todos_to_taskboard")
+	require.NoError(t, err)
+	require.True(t, def.Core)
 }

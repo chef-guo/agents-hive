@@ -42,6 +42,8 @@ type Todo struct {
 	Source           string     `json:"source,omitempty"`
 	TraceID          string     `json:"trace_id,omitempty"`
 	SpanID           string     `json:"span_id,omitempty"`
+	TurnID           string     `json:"turn_id,omitempty"`
+	RuntimeEpoch     string     `json:"runtime_epoch,omitempty"`
 	SourceChangeID   string     `json:"source_change_id,omitempty"`
 	SourceRevision   int64      `json:"source_revision,omitempty"`
 	SourceToolCallID string     `json:"source_tool_call_id,omitempty"`
@@ -61,6 +63,8 @@ type TodoInput struct {
 	Source           string     `json:"source,omitempty"`
 	TraceID          string     `json:"trace_id,omitempty"`
 	SpanID           string     `json:"span_id,omitempty"`
+	TurnID           string     `json:"turn_id,omitempty"`
+	RuntimeEpoch     string     `json:"runtime_epoch,omitempty"`
 	SourceChangeID   string     `json:"source_change_id,omitempty"`
 	SourceRevision   int64      `json:"source_revision,omitempty"`
 	SourceToolCallID string     `json:"source_tool_call_id,omitempty"`
@@ -75,10 +79,24 @@ type Snapshot struct {
 	Source           string     `json:"source,omitempty"`
 	TraceID          string     `json:"trace_id,omitempty"`
 	SpanID           string     `json:"span_id,omitempty"`
+	TurnID           string     `json:"turn_id,omitempty"`
+	RuntimeEpoch     string     `json:"runtime_epoch,omitempty"`
 	SourceToolCallID string     `json:"source_tool_call_id,omitempty"`
 	SourceChangeID   string     `json:"source_change_id,omitempty"`
 	SourceRevision   int64      `json:"source_revision,omitempty"`
 	UpdatedAt        time.Time  `json:"updated_at"`
+}
+
+// SnapshotMeta 是状态迁移时附加到 snapshot header 的运行元数据。
+type SnapshotMeta struct {
+	Source           string
+	TraceID          string
+	SpanID           string
+	TurnID           string
+	RuntimeEpoch     string
+	SourceToolCallID string
+	SourceChangeID   string
+	SourceRevision   int64
 }
 
 // Store 定义 session todo snapshot 存储接口。
@@ -86,6 +104,8 @@ type Store interface {
 	Replace(ctx context.Context, sessionID string, expectedPlanVersion int64, todos []TodoInput) (Snapshot, error)
 	Snapshot(ctx context.Context, sessionID string) (Snapshot, error)
 	SetPlanStatus(ctx context.Context, sessionID string, status PlanStatus) (Snapshot, error)
+	SetPlanStatusWithMeta(ctx context.Context, sessionID string, status PlanStatus, meta SnapshotMeta) (Snapshot, error)
+	ClaimResume(ctx context.Context, sessionID string, expectedPlanVersion int64, expectedRuntimeEpoch, runtimeEpoch, turnID string) (Snapshot, error)
 	Clear(ctx context.Context, sessionID string) error
 }
 
@@ -97,6 +117,12 @@ var (
 
 	// ErrInvalidInput 表示 Store 输入不合法。
 	ErrInvalidInput = errors.New("sessiontodo invalid input")
+
+	// ErrRuntimeEpochConflict 用于识别恢复世代冲突。
+	ErrRuntimeEpochConflict = errors.New("sessiontodo runtime epoch conflict")
+
+	// ErrResumeConflict 表示当前 snapshot 不允许 resume claim。
+	ErrResumeConflict = errors.New("sessiontodo resume conflict")
 )
 
 // PlanVersionConflictError 携带 CAS 冲突的期望版本和当前版本。
@@ -111,6 +137,20 @@ func (e *PlanVersionConflictError) Error() string {
 
 func (e *PlanVersionConflictError) Unwrap() error {
 	return ErrPlanVersionConflict
+}
+
+// RuntimeEpochConflictError 携带 runtime epoch 冲突的新旧值。
+type RuntimeEpochConflictError struct {
+	Expected string
+	Got      string
+}
+
+func (e *RuntimeEpochConflictError) Error() string {
+	return fmt.Sprintf("%v: expected %q, got %q", ErrRuntimeEpochConflict, e.Expected, e.Got)
+}
+
+func (e *RuntimeEpochConflictError) Unwrap() error {
+	return ErrRuntimeEpochConflict
 }
 
 func validateTodoStatus(status TodoStatus) error {
@@ -191,10 +231,64 @@ func todoIDForInput(input TodoInput, index int) string {
 	return generatedTodoID(index)
 }
 
-func snapshotSourceFromTodos(todos []Todo) (source, traceID, spanID, sourceToolCallID, sourceChangeID string, sourceRevision int64) {
+func snapshotSourceFromTodos(todos []Todo) (source, traceID, spanID, turnID, runtimeEpoch, sourceToolCallID, sourceChangeID string, sourceRevision int64) {
 	if len(todos) == 0 {
-		return "", "", "", "", "", 0
+		return "", "", "", "", "", "", "", 0
 	}
-	last := todos[len(todos)-1]
-	return last.Source, last.TraceID, last.SpanID, last.SourceToolCallID, last.SourceChangeID, last.SourceRevision
+	for i := len(todos) - 1; i >= 0; i-- {
+		todo := todos[i]
+		if source == "" {
+			source = todo.Source
+		}
+		if traceID == "" {
+			traceID = todo.TraceID
+		}
+		if spanID == "" {
+			spanID = todo.SpanID
+		}
+		if turnID == "" {
+			turnID = todo.TurnID
+		}
+		if runtimeEpoch == "" {
+			runtimeEpoch = todo.RuntimeEpoch
+		}
+		if sourceToolCallID == "" {
+			sourceToolCallID = todo.SourceToolCallID
+		}
+		if sourceChangeID == "" {
+			sourceChangeID = todo.SourceChangeID
+		}
+		if sourceRevision == 0 {
+			sourceRevision = todo.SourceRevision
+		}
+	}
+	return source, traceID, spanID, turnID, runtimeEpoch, sourceToolCallID, sourceChangeID, sourceRevision
+}
+
+func mergeSnapshotMeta(current Snapshot, meta SnapshotMeta) SnapshotMeta {
+	if meta.Source == "" {
+		meta.Source = current.Source
+	}
+	if meta.TraceID == "" {
+		meta.TraceID = current.TraceID
+	}
+	if meta.SpanID == "" {
+		meta.SpanID = current.SpanID
+	}
+	if meta.TurnID == "" {
+		meta.TurnID = current.TurnID
+	}
+	if meta.RuntimeEpoch == "" {
+		meta.RuntimeEpoch = current.RuntimeEpoch
+	}
+	if meta.SourceToolCallID == "" {
+		meta.SourceToolCallID = current.SourceToolCallID
+	}
+	if meta.SourceChangeID == "" {
+		meta.SourceChangeID = current.SourceChangeID
+	}
+	if meta.SourceRevision == 0 {
+		meta.SourceRevision = current.SourceRevision
+	}
+	return meta
 }

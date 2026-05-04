@@ -687,6 +687,9 @@ func LoadAllConfigFromDB(db store.Store, cfg *config.Config, logger *zap.Logger)
 	cfgParseDuration(allCfg, "agent.script_timeout", &cfg.Agent.ScriptTimeout)
 	cfgParseDuration(allCfg, "agent.ws_ping_interval", &cfg.Agent.WSPingInterval)
 	cfgParseDuration(allCfg, "agent.sync_interval", &cfg.Agent.SyncInterval)
+	cfgParseBool(allCfg, "agent.plan_runtime.enabled", &cfg.Agent.PlanRuntime.Enabled)
+	cfgParseBool(allCfg, "agent.plan_runtime.auto_continue", &cfg.Agent.PlanRuntime.AutoContinue)
+	cfgParseInt(allCfg, "agent.plan_runtime.max_auto_continue", &cfg.Agent.PlanRuntime.MaxAutoContinue)
 
 	// Context Compression
 	cfgParseBool(allCfg, "agent.context_compression.enabled", &cfg.Agent.ContextCompression.Enabled)

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sync"
 	"testing"
+	"time"
 )
 
 func TestMemoryStoreReplaceSnapshotAndCAS(t *testing.T) {
@@ -24,6 +25,8 @@ func TestMemoryStoreReplaceSnapshotAndCAS(t *testing.T) {
 			Source:           "agent",
 			TraceID:          "trace-1",
 			SpanID:           "span-1",
+			TurnID:           "turn-1",
+			RuntimeEpoch:     "epoch-1",
 			SourceChangeID:   "change-1",
 			SourceRevision:   7,
 			SourceToolCallID: "call-1",
@@ -66,6 +69,9 @@ func TestMemoryStoreReplaceSnapshotAndCAS(t *testing.T) {
 	}
 	if first.Todos[0].TraceID != "trace-1" || first.Todos[0].SpanID != "span-1" || first.Todos[0].SourceToolCallID != "call-1" {
 		t.Fatalf("source metadata not preserved: %+v", first.Todos[0])
+	}
+	if first.TurnID != "turn-1" || first.RuntimeEpoch != "epoch-1" || first.Todos[0].TurnID != "turn-1" || first.Todos[0].RuntimeEpoch != "epoch-1" {
+		t.Fatalf("turn/runtime metadata not preserved: %+v", first)
 	}
 
 	got, err := st.Snapshot(ctx, "session-a")
@@ -114,6 +120,56 @@ func TestMemoryStoreReplaceSnapshotAndCAS(t *testing.T) {
 	}
 	if other.PlanVersion != 1 {
 		t.Fatalf("other PlanVersion = %d, want per-session version 1", other.PlanVersion)
+	}
+}
+
+func TestMemoryStoreClaimResumeUsesPlanVersionAndRuntimeEpochCAS(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	st := NewMemoryStore()
+
+	snap, err := st.SetPlanStatusWithMeta(ctx, "session-resume", PlanStatusPaused, SnapshotMeta{
+		TurnID:       "turn-paused",
+		RuntimeEpoch: "epoch-old",
+	})
+	if err != nil {
+		t.Fatalf("set paused: %v", err)
+	}
+	snap, err = st.Replace(ctx, "session-resume", snap.PlanVersion, []TodoInput{
+		{ID: "next", Content: "继续实现", Status: TodoStatusPending, TurnID: "turn-paused", RuntimeEpoch: "epoch-old"},
+	})
+	if err != nil {
+		t.Fatalf("replace pending: %v", err)
+	}
+	snap, err = st.SetPlanStatusWithMeta(ctx, "session-resume", PlanStatusPaused, SnapshotMeta{
+		TurnID:       "turn-paused",
+		RuntimeEpoch: "epoch-old",
+	})
+	if err != nil {
+		t.Fatalf("reset paused: %v", err)
+	}
+
+	if _, err := st.ClaimResume(ctx, "session-resume", snap.PlanVersion-1, "epoch-old", "epoch-new", "turn-resume"); !errors.Is(err, ErrPlanVersionConflict) {
+		t.Fatalf("stale plan version error = %v, want ErrPlanVersionConflict", err)
+	}
+	if _, err := st.ClaimResume(ctx, "session-resume", snap.PlanVersion, "epoch-stale", "epoch-new", "turn-resume"); !errors.Is(err, ErrRuntimeEpochConflict) {
+		t.Fatalf("stale runtime epoch error = %v, want ErrRuntimeEpochConflict", err)
+	}
+
+	claimed, err := st.ClaimResume(ctx, "session-resume", snap.PlanVersion, "epoch-old", "epoch-new", "turn-resume")
+	if err != nil {
+		t.Fatalf("claim resume: %v", err)
+	}
+	if claimed.PlanStatus != PlanStatusExecuting || claimed.PlanVersion != snap.PlanVersion+1 {
+		t.Fatalf("claimed snapshot = %+v, want executing at next version", claimed)
+	}
+	if claimed.RuntimeEpoch != "epoch-new" || claimed.TurnID != "turn-resume" {
+		t.Fatalf("claim metadata = turn %q epoch %q, want turn-resume/epoch-new", claimed.TurnID, claimed.RuntimeEpoch)
+	}
+
+	if _, err := st.ClaimResume(ctx, "session-resume", claimed.PlanVersion, "epoch-new", "epoch-next", "turn-again"); !errors.Is(err, ErrResumeConflict) {
+		t.Fatalf("non-paused claim error = %v, want ErrResumeConflict", err)
 	}
 }
 
@@ -167,6 +223,125 @@ func TestMemoryStoreSetPlanStatusAndClear(t *testing.T) {
 	}
 	if cleared.PlanVersion != 0 || cleared.PlanStatus != PlanStatusNone || len(cleared.Todos) != 0 {
 		t.Fatalf("cleared snapshot = %+v, want empty", cleared)
+	}
+}
+
+func TestMemoryStoreSetPlanStatusWithMetaPreservesPerTodoSourceMetadata(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	st := NewMemoryStore()
+
+	_, err := st.Replace(ctx, "session-source-meta", 0, []TodoInput{
+		{
+			ID:               "spec:a:1.1",
+			Content:          "spec step",
+			Status:           TodoStatusPending,
+			Source:           SourceSpecProjected,
+			SourceChangeID:   "change-a",
+			SourceRevision:   1,
+			SourceToolCallID: "spec-call",
+			TurnID:           "turn-old",
+			RuntimeEpoch:     "epoch-old",
+		},
+		{
+			ID:               "manual",
+			Content:          "manual todo",
+			Status:           TodoStatusPending,
+			Source:           "agent",
+			SourceToolCallID: "agent-call",
+			TurnID:           "turn-old",
+			RuntimeEpoch:     "epoch-old",
+		},
+	})
+	if err != nil {
+		t.Fatalf("replace: %v", err)
+	}
+
+	snap, err := st.SetPlanStatusWithMeta(ctx, "session-source-meta", PlanStatusPaused, SnapshotMeta{
+		Source:       "runtime",
+		TraceID:      "trace-runtime",
+		SpanID:       "span-runtime",
+		TurnID:       "turn-runtime",
+		RuntimeEpoch: "epoch-runtime",
+	})
+	if err != nil {
+		t.Fatalf("set status: %v", err)
+	}
+	if snap.Source != "runtime" || snap.TurnID != "turn-runtime" || snap.RuntimeEpoch != "epoch-runtime" {
+		t.Fatalf("snapshot meta = %+v, want runtime header", snap)
+	}
+	if snap.Todos[0].Source != SourceSpecProjected || snap.Todos[0].SourceChangeID != "change-a" || snap.Todos[0].SourceRevision != 1 || snap.Todos[0].SourceToolCallID != "spec-call" {
+		t.Fatalf("spec todo source metadata overwritten: %+v", snap.Todos[0])
+	}
+	if snap.Todos[1].Source != "agent" || snap.Todos[1].SourceToolCallID != "agent-call" {
+		t.Fatalf("manual todo source metadata overwritten: %+v", snap.Todos[1])
+	}
+	if snap.Todos[0].TurnID != "turn-runtime" || snap.Todos[0].RuntimeEpoch != "epoch-runtime" {
+		t.Fatalf("runtime metadata not applied to todo: %+v", snap.Todos[0])
+	}
+}
+
+func TestMemoryStoreGCIdleSessions(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	st := NewMemoryStore()
+
+	oldSnap, err := st.Replace(ctx, "session-old", 0, []TodoInput{
+		{ID: "old", Content: "旧 session", Status: TodoStatusPending},
+	})
+	if err != nil {
+		t.Fatalf("replace old: %v", err)
+	}
+	recentSnap, err := st.Replace(ctx, "session-recent", 0, []TodoInput{
+		{ID: "recent", Content: "新 session", Status: TodoStatusPending},
+	})
+	if err != nil {
+		t.Fatalf("replace recent: %v", err)
+	}
+
+	st.setLastTouchedForTest("session-old", time.Now().Add(-25*time.Hour))
+	st.setLastTouchedForTest("session-recent", time.Now())
+
+	removed := st.GCIdleSessions(ctx, 24*time.Hour)
+	if removed != 1 {
+		t.Fatalf("removed = %d, want 1", removed)
+	}
+
+	oldAfter, err := st.Snapshot(ctx, "session-old")
+	if err != nil {
+		t.Fatalf("snapshot old: %v", err)
+	}
+	if oldAfter.PlanVersion != 0 || len(oldAfter.Todos) != 0 {
+		t.Fatalf("old snapshot = %+v, want empty after GC; before=%+v", oldAfter, oldSnap)
+	}
+	recentAfter, err := st.Snapshot(ctx, "session-recent")
+	if err != nil {
+		t.Fatalf("snapshot recent: %v", err)
+	}
+	if recentAfter.PlanVersion != recentSnap.PlanVersion || len(recentAfter.Todos) != 1 {
+		t.Fatalf("recent snapshot = %+v, want preserved", recentAfter)
+	}
+}
+
+func TestMemoryStoreSnapshotRefreshesLastTouched(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	st := NewMemoryStore()
+	if _, err := st.Replace(ctx, "session-read-active", 0, []TodoInput{
+		{ID: "todo", Content: "仍在读取的 session", Status: TodoStatusPending},
+	}); err != nil {
+		t.Fatalf("replace: %v", err)
+	}
+	st.setLastTouchedForTest("session-read-active", time.Now().Add(-25*time.Hour))
+
+	if _, err := st.Snapshot(ctx, "session-read-active"); err != nil {
+		t.Fatalf("snapshot: %v", err)
+	}
+	if removed := st.GCIdleSessions(ctx, 24*time.Hour); removed != 0 {
+		t.Fatalf("removed = %d, want 0 after active Snapshot read", removed)
 	}
 }
 
@@ -251,4 +426,12 @@ func TestMemoryStoreConcurrentReplaceUsesCAS(t *testing.T) {
 	if snap.PlanVersion != 1 || len(snap.Todos) != 1 {
 		t.Fatalf("snapshot = %+v, want one successful replacement", snap)
 	}
+}
+
+func (s *MemoryStore) setLastTouchedForTest(sessionID string, t time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	state := s.sessions[sessionID]
+	state.lastTouched = t.UTC()
+	s.sessions[sessionID] = state
 }

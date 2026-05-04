@@ -1,18 +1,18 @@
-export interface AgentTraceEdge {
+interface AgentTraceEdge {
   parent_trace_id?: string;
   child_trace_id?: string;
   agent_id?: string;
   agent_type?: string;
 }
 
-export interface AgentTreeNode {
+interface AgentTreeNode {
   trace_id: string;
   agent_id?: string;
   agent_type?: string;
   children: AgentTreeNode[];
 }
 
-export function buildAgentTree(edges: AgentTraceEdge[]): AgentTreeNode[] {
+function buildAgentTree(edges: AgentTraceEdge[]): AgentTreeNode[] {
   const nodes = new Map<string, AgentTreeNode>();
   const childTraceIds = new Set<string>();
 

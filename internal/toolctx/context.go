@@ -21,6 +21,7 @@ type ToolContext struct {
 	TraceID      string     // 当前 trace ID
 	SpanID       string     // 当前工具 span ID
 	ParentSpanID string     // 父 span ID
+	TurnID       string     // 当前 master task/turn 的稳定 ID
 	ToolCallID   string     // LLM tool call ID
 }
 
@@ -59,6 +60,9 @@ func WithTraceContext(ctx context.Context, traceID, spanID, parentSpanID, toolCa
 	next.TraceID = traceID
 	next.SpanID = spanID
 	next.ParentSpanID = parentSpanID
+	if next.TurnID == "" {
+		next.TurnID = traceID
+	}
 	next.ToolCallID = toolCallID
 	return WithToolContext(ctx, &next)
 }
@@ -95,4 +99,14 @@ func (tc *ToolContext) TraceFields() (traceID, spanID, parentSpanID, toolCallID 
 		return "", "", "", ""
 	}
 	return tc.TraceID, tc.SpanID, tc.ParentSpanID, tc.ToolCallID
+}
+
+func (tc *ToolContext) TurnIDOrTraceID() string {
+	if tc == nil {
+		return ""
+	}
+	if tc.TurnID != "" {
+		return tc.TurnID
+	}
+	return tc.TraceID
 }

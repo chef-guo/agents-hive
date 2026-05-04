@@ -1,6 +1,7 @@
 import { useTranslation } from 'react-i18next';
 import { CheckCircle2, Circle, Clock3, MinusCircle } from 'lucide-react';
 import type { Todo, TodoStatus } from '../../store/todos';
+import { specChangeHref } from './specLink';
 
 const statusStyles: Record<TodoStatus, string> = {
   pending: 'text-[var(--text-secondary)]',
@@ -38,11 +39,14 @@ export function TodoItem({
   const isMuted = todo.status === 'completed' || todo.status === 'cancelled';
   const effectiveSource = todo.source || source;
   const hasProjectedSource = !!effectiveSource && effectiveSource === 'spec_projected';
+  const projectedChangeId = todo.source_change_id || sourceChangeId;
+  const projectedRevision = todo.source_revision || sourceRevision;
+  const projectedHref = hasProjectedSource ? specChangeHref(projectedChangeId, projectedRevision) : null;
   const statusLabel = t(`todos.status.${todo.status}`);
   const sourceTitle = hasProjectedSource
     ? t('todos.source.specProjectedDetails', {
-        changeId: todo.source_change_id || sourceChangeId || '-',
-        revision: todo.source_revision || sourceRevision || '-',
+        changeId: projectedChangeId || '-',
+        revision: projectedRevision || '-',
       })
     : undefined;
 
@@ -60,6 +64,15 @@ export function TodoItem({
       </span>
       <span className={`${isMuted ? 'text-[var(--text-secondary)]' : 'text-[var(--text-primary)]'} break-words`}>
         {todo.content}
+        {projectedHref && (
+          <a
+            className="ml-2 text-[10px] font-medium uppercase tracking-normal text-[var(--accent-600)] underline-offset-2 hover:underline"
+            href={projectedHref}
+            title={sourceTitle}
+          >
+            spec
+          </a>
+        )}
       </span>
       <span className="text-[10px] uppercase tracking-normal text-[var(--text-secondary)] whitespace-nowrap">
         {statusLabel}

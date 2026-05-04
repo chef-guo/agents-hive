@@ -19,3 +19,9 @@ func loadEmbedded(relPath string) string {
 	}
 	return string(data)
 }
+
+// LoadEmbeddedPrompt 从 go:embed 内置 prompts 目录加载 prompt。
+// 用于 Master 在 PromptLoader 未注入时复用同一份 .md 文件作为 fallback。
+func LoadEmbeddedPrompt(relPath string) string {
+	return loadEmbedded(relPath)
+}

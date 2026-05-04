@@ -21,6 +21,7 @@ import (
 	"github.com/chef-guo/agents-hive/internal/master"
 	"github.com/chef-guo/agents-hive/internal/memory"
 	"github.com/chef-guo/agents-hive/internal/qualityworkbench"
+	"github.com/chef-guo/agents-hive/internal/sessiontodo"
 	"github.com/chef-guo/agents-hive/internal/skills"
 	"github.com/chef-guo/agents-hive/internal/store"
 	"github.com/chef-guo/agents-hive/internal/streaming"
@@ -105,6 +106,11 @@ type Server struct {
 	pushService                 *push.Service
 	feishuAuditSink             feishu.AuditSink
 	sessionTodoStore            sessionTodoSnapshotStore
+	sessionTodoOpsReader        sessionTodoOpsReader
+}
+
+type sessionTodoOpsReader interface {
+	LoadOps(ctx context.Context, since, until time.Time) (sessiontodo.OpsDashboardInput, error)
 }
 
 type pushScheduleStore interface {
@@ -190,6 +196,7 @@ func NewServer(
 		s.optimizationApprovalStore = agentquality.NewPGApprovalStore(pgStore.Pool())
 		s.optimizationRollbackStore = agentquality.NewPGRollbackStore(pgStore.Pool())
 		s.optimizationEvalDiffStore = agentquality.NewPGEvalDiffStore(pgStore.Pool())
+		s.sessionTodoOpsReader = sessiontodo.NewPGOpsReader(pgStore.Pool())
 	}
 	if fullCfg != nil && fullCfg.Channel.Feishu.Push.Enabled {
 		s.pushService = push.NewService(channelRouter, push.Config{
