@@ -45,9 +45,10 @@ type toolsListResult struct {
 }
 
 type remoteTool struct {
-	Name        string          `json:"name"`
-	Description string          `json:"description"`
-	InputSchema json.RawMessage `json:"inputSchema"`
+	Name         string          `json:"name"`
+	Description  string          `json:"description"`
+	InputSchema  json.RawMessage `json:"inputSchema"`
+	OutputSchema json.RawMessage `json:"outputSchema,omitempty"`
 }
 
 // RemoteMCPClient 远程 MCP 服务端客户端
@@ -187,9 +188,10 @@ func (c *RemoteMCPClient) discoverTools(ctx context.Context) error {
 	for _, tool := range result.Tools {
 		toolName := fmt.Sprintf("%s__%s", c.serverName, tool.Name)
 		def := ToolDefinition{
-			Name:        toolName,
-			Description: fmt.Sprintf("[%s] %s", c.serverName, tool.Description),
-			InputSchema: tool.InputSchema,
+			Name:         toolName,
+			Description:  fmt.Sprintf("[%s] %s", c.serverName, tool.Description),
+			InputSchema:  tool.InputSchema,
+			OutputSchema: tool.OutputSchema,
 		}
 
 		// 创建远程执行器闭包

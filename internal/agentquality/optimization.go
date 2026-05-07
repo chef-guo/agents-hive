@@ -24,6 +24,9 @@ type OptimizationSuggestion struct {
 }
 
 func BuildOptimizationSuggestions(rec CandidateRecord) []OptimizationSuggestion {
+	if rec.SourceEvent.Name == EventReflection && isReflectionOptimizationFailure(rec.FailureType) {
+		return buildReflectionFailureSuggestions(rec)
+	}
 	switch rec.FailureType {
 	case FailureTool:
 		return buildToolFailureSuggestions(rec)
@@ -96,6 +99,39 @@ func buildToolFailureSuggestions(rec CandidateRecord) []OptimizationSuggestion {
 		})
 	}
 	return out
+}
+
+func buildReflectionFailureSuggestions(rec CandidateRecord) []OptimizationSuggestion {
+	reflection := rec.SourceEvent.Reflection
+	trigger := firstNonEmpty(reflection.Trigger, "unknown")
+	severity := firstNonEmpty(reflection.Severity, "unknown")
+	var detail []string
+	if reflection.Summary != "" {
+		detail = append(detail, reflection.Summary)
+	}
+	if reflection.ToolName != "" {
+		detail = append(detail, "tool="+reflection.ToolName)
+	}
+	if len(reflection.Recommended) > 0 {
+		detail = append(detail, "recommended="+strings.Join(reflection.Recommended, "；"))
+	}
+	return []OptimizationSuggestion{{
+		Kind:           SuggestionPromptDiff,
+		Title:          "反思纠偏 Prompt 建议",
+		Target:         promptTarget(rec),
+		Rationale:      fmt.Sprintf("source event 是 quality.reflection，trigger=%s，severity=%s；该建议只能作为人工 review 草稿，不能自动 apply。", trigger, severity),
+		Proposed:       fmt.Sprintf("review 草稿：当运行时反思触发 %s 时，先总结失败证据和连续失败次数，再要求模型改用更小、更可验证的下一步；参考线索：%s", trigger, firstNonEmpty(strings.Join(detail, "；"), strings.TrimSpace(rec.Input))),
+		ReviewRequired: true,
+	}}
+}
+
+func isReflectionOptimizationFailure(ft FailureType) bool {
+	switch ft {
+	case FailureRuntime, FailureTool, FailureModel:
+		return true
+	default:
+		return false
+	}
 }
 
 func buildPromptDiffSuggestion(rec CandidateRecord) OptimizationSuggestion {

@@ -263,3 +263,59 @@ func TestToolSearchFindsToolsByNaturalLanguageQueryAndSchemaTerms(t *testing.T) 
 		t.Fatalf("expected schema_only_send as top hit, got %q content=%s", out.Results[0].Name, result.DecodeContent())
 	}
 }
+
+func TestToolSearchPrefersFeishuAPIForFeishuDomainTasks(t *testing.T) {
+	logger := zap.NewNop()
+	cases := []struct {
+		name  string
+		query string
+	}{
+		{name: "send message", query: "发送给飞书用户:郭松"},
+		{name: "contact", query: "查一下飞书联系人郭松"},
+		{name: "document", query: "搜索飞书文档里的预算方案"},
+		{name: "task", query: "在飞书创建一个任务"},
+		{name: "sheet", query: "读取飞书电子表格 A1:C10"},
+		{name: "approval", query: "查一下飞书审批状态"},
+		{name: "wiki", query: "读取飞书 wiki 节点内容"},
+		{name: "bitable", query: "查询飞书多维表格记录"},
+		{name: "resource", query: "下载飞书消息里的图片文件"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			host := mcphost.NewHost(logger)
+			RegisterSendIMMessage(host, logger, &MockIMRouter{})
+			RegisterFeishuTools(host, logger, &mockFeishuProvider{}, nil)
+			registerToolSearch(host, logger)
+
+			input, _ := json.Marshal(map[string]any{
+				"query": tc.query,
+				"limit": 3,
+			})
+			result, err := host.ExecuteTool(context.Background(), "tool_search", input)
+			if err != nil {
+				t.Fatalf("ExecuteTool(tool_search): %v", err)
+			}
+			if result.IsError {
+				t.Fatalf("unexpected tool_search error: %s", result.DecodeContent())
+			}
+
+			var out struct {
+				Count   int `json:"count"`
+				Results []struct {
+					Name  string  `json:"name"`
+					Score float64 `json:"score"`
+				} `json:"results"`
+			}
+			if err := json.Unmarshal([]byte(result.DecodeContent()), &out); err != nil {
+				t.Fatalf("decode tool_search output: %v; content=%s", err, result.DecodeContent())
+			}
+			if out.Count == 0 || len(out.Results) == 0 {
+				t.Fatalf("expected feishu_api hit for %q, got content=%s", tc.query, result.DecodeContent())
+			}
+			if out.Results[0].Name != "feishu_api" {
+				t.Fatalf("expected feishu_api as top hit for %q, got %q content=%s", tc.query, out.Results[0].Name, result.DecodeContent())
+			}
+		})
+	}
+}

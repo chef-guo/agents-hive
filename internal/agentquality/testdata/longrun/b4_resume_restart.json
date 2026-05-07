@@ -1,0 +1,18 @@
+{
+  "id": "b4_resume_restart",
+  "name": "B4 resume restart workflow",
+  "route": "web",
+  "goal": "Verify budget graceful yield, reload, and resume preserves pending work and constraints.",
+  "constraints": [
+    "budget yield must pause, not complete",
+    "handoff summary must preserve pending todos",
+    "resume must preserve constraints"
+  ],
+  "seed": 404,
+  "steps": [
+    { "turn": 1, "kind": "tool_success", "tool": "read_file", "action": "start task with pending todos" },
+    { "turn": 35, "kind": "budget", "action": "write handoff summary before budget exit", "budget_exit_mode": "graceful_yield", "final_status": "paused" },
+    { "turn": 36, "kind": "resume", "action": "reload session snapshot with todos and constraints" },
+    { "turn": 60, "kind": "tool_success", "tool": "go test", "action": "continue and validate remaining todos", "final_status": "completed" }
+  ]
+}

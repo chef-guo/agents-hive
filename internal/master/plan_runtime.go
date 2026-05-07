@@ -8,7 +8,9 @@ import (
 
 	"go.uber.org/zap"
 
+	"github.com/chef-guo/agents-hive/internal/agentquality"
 	"github.com/chef-guo/agents-hive/internal/auth"
+	"github.com/chef-guo/agents-hive/internal/errs"
 	"github.com/chef-guo/agents-hive/internal/observability"
 	"github.com/chef-guo/agents-hive/internal/sessiontodo"
 	"github.com/chef-guo/agents-hive/internal/toolctx"
@@ -614,6 +616,89 @@ func todosComplete(todos []sessiontodo.Todo) bool {
 		}
 	}
 	return true
+}
+
+func (m *Master) pausePlanForBudgetYield(ctx context.Context, session *SessionState, snapshot sessiontodo.Snapshot, traceID, parentSpanID string) (sessiontodo.Snapshot, error) {
+	if m == nil || session == nil || m.sessionTodoStore == nil {
+		return sessiontodo.Snapshot{}, errs.New(errs.CodePlanExecFailed, "session todo store not configured")
+	}
+	spanID := observability.NewSpanID()
+	turnID := traceID
+	if snapshot.TurnID != "" {
+		turnID = snapshot.TurnID
+	}
+	updated, err := m.sessionTodoStore.SetPlanStatusWithMeta(ctx, session.ID, sessiontodo.PlanStatusPaused, sessiontodo.SnapshotMeta{
+		Source:       "budget_graceful_yield",
+		TraceID:      traceID,
+		SpanID:       spanID,
+		TurnID:       turnID,
+		RuntimeEpoch: m.runtimeEpochForObs(),
+	})
+	if err != nil {
+		return sessiontodo.Snapshot{}, err
+	}
+
+	session.mu.Lock()
+	session.PlanStatus = sessiontodo.PlanStatusPaused
+	session.PlanMode = true
+	session.mu.Unlock()
+
+	if snapshot.PlanStatus != updated.PlanStatus {
+		m.recordPlanStatusTransition(session.ID, snapshot.PlanStatus, updated.PlanStatus, traceID, spanID, "", "budget_graceful_yield", turnID)
+	}
+	if err := m.BroadcastTodoSnapshot(ctx, updated); err != nil {
+		return sessiontodo.Snapshot{}, err
+	}
+	m.enqueueSpan(observability.Span{
+		TraceID:      traceID,
+		SpanID:       spanID,
+		ParentSpanID: parentSpanID,
+		Operation:    "plan_runtime.budget_graceful_yield",
+		Service:      "master",
+		SessionID:    session.ID,
+		Status:       "ok",
+		Attributes: map[string]any{
+			"plan_status":      string(updated.PlanStatus),
+			"budget_exit_mode": "graceful_yield",
+			"open_todo_count":  len(pendingTodosForResume(updated.Todos)),
+			"runtime_epoch":    m.runtimeEpochForObs(),
+		},
+		Ts: time.Now(),
+	})
+	return updated, nil
+}
+
+func (m *Master) recordBudgetExit(ctx context.Context, session *SessionState, mode string, cause error, traceID, spanID string) {
+	if m == nil {
+		return
+	}
+	status := agentquality.StatusFail
+	if mode == "graceful_yield" {
+		status = agentquality.StatusNeedsUser
+	}
+	attrs := map[string]any{
+		"budget_exit_mode": mode,
+		"graceful_yield":   mode == "graceful_yield",
+		"hard_stop":        mode == "hard_stop",
+		"runtime_epoch":    m.runtimeEpochForObs(),
+	}
+	if cause != nil {
+		attrs["error"] = cause.Error()
+	}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		attrs["context_error"] = ctxErr.Error()
+	}
+	sessionID := ""
+	if session != nil {
+		sessionID = session.ID
+	}
+	m.emitQualityEvent(traceID, spanID, sessionID, agentquality.Event{
+		Name:        agentquality.EventBudgetExit,
+		Route:       routeFromSession(session),
+		FailureType: agentquality.FailureRuntime,
+		FinalStatus: status,
+		Attributes:  attrs,
+	})
 }
 
 func (g *PlanRuntimeGuard) emitDecisionObs(traceID, spanID, parentSpanID, sessionID, turnID string, snapshot sessiontodo.Snapshot, planStatus sessiontodo.PlanStatus, decision TaskStatus, start time.Time, spanStatus string, err error) {

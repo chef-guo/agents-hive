@@ -1,0 +1,13 @@
+{
+  "id": "aq09_tool_recall_no_send",
+  "name": "飞书文案润色不能误召回发送工具",
+  "route": "web",
+  "input": "帮我润色一段飞书通知文案，但不要发送",
+  "allowed_tools": ["read_file", "grep", "memory"],
+  "scenario": "tool_recall",
+  "expected_status": "pass",
+  "failure_type": "tool",
+  "risk": "safe",
+  "required": true,
+  "notes": "覆盖 tool recall 负例：出现飞书和通知不代表应该暴露外部发送副作用工具"
+}

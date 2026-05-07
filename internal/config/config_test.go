@@ -94,6 +94,129 @@ func TestLoad_PlanRuntimeCanBeExplicitlyDisabled(t *testing.T) {
 	}
 }
 
+func TestReflectionConfigDefaults(t *testing.T) {
+	cfg := Default()
+	assertReflectionDefaults(t, cfg.Agent.Reflection, "Default()")
+
+	cli := Default()
+	cli.CLIDefaults()
+	assertReflectionDefaults(t, cli.Agent.Reflection, "CLIDefaults()")
+}
+
+func TestReasoningEffortAutoDefaults(t *testing.T) {
+	cfg := Default()
+	assertReasoningEffortAutoDefaults(t, cfg.Agent.ReasoningEffortAuto, "Default()")
+
+	cli := Default()
+	cli.CLIDefaults()
+	assertReasoningEffortAutoDefaults(t, cli.Agent.ReasoningEffortAuto, "CLIDefaults()")
+}
+
+func TestToolRecallDefaultsAndNormalize(t *testing.T) {
+	cfg := Default()
+	cfg.Resolve()
+	assertToolRecallDefaults(t, cfg.Agent.ToolRecall, "Default().Resolve()")
+
+	cli := Default()
+	cli.CLIDefaults()
+	cli.Resolve()
+	assertToolRecallDefaults(t, cli.Agent.ToolRecall, "CLIDefaults().Resolve()")
+
+	normalized := NormalizeToolRecallConfig(ToolRecallConfig{
+		Mode:               "bogus",
+		Limit:              -1,
+		MinScore:           2,
+		SideEffectMinScore: 0.1,
+	})
+	if normalized.Mode != "off" {
+		t.Fatalf("invalid mode normalized to %q, want off", normalized.Mode)
+	}
+	if normalized.Limit != DefaultToolRecallLimit {
+		t.Fatalf("negative limit normalized to %d, want %d", normalized.Limit, DefaultToolRecallLimit)
+	}
+	if normalized.MinScore != 1 {
+		t.Fatalf("min score normalized to %v, want 1", normalized.MinScore)
+	}
+	if normalized.SideEffectMinScore != 1 {
+		t.Fatalf("side effect min score normalized to %v, want 1", normalized.SideEffectMinScore)
+	}
+}
+
+func TestLoad_ReasoningEffortAutoCanBeDisabled(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+
+	raw := map[string]any{
+		"agent": map[string]any{
+			"reasoning_effort_auto": map[string]any{
+				"enabled":       false,
+				"default_level": "low",
+			},
+		},
+	}
+
+	data, err := json.Marshal(raw)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load(%q) returned error: %v", path, err)
+	}
+	if cfg.Agent.ReasoningEffortAuto.Enabled {
+		t.Fatal("Agent.ReasoningEffortAuto.Enabled = true, want explicit false config to disable it")
+	}
+	if cfg.Agent.ReasoningEffortAuto.DefaultLevel != "low" {
+		t.Fatalf("Agent.ReasoningEffortAuto.DefaultLevel = %q, want low", cfg.Agent.ReasoningEffortAuto.DefaultLevel)
+	}
+}
+
+func assertReflectionDefaults(t *testing.T, cfg ReflectionConfig, source string) {
+	t.Helper()
+	if !cfg.Enabled {
+		t.Fatalf("%s Agent.Reflection.Enabled = false, want true", source)
+	}
+	if cfg.TestDrivenShadow.Enabled {
+		t.Fatalf("%s Agent.Reflection.TestDrivenShadow.Enabled = true, want false", source)
+	}
+	if cfg.EvaluatorShadow.Enabled {
+		t.Fatalf("%s Agent.Reflection.EvaluatorShadow.Enabled = true, want false", source)
+	}
+}
+
+func assertReasoningEffortAutoDefaults(t *testing.T, cfg ReasoningEffortAutoConfig, source string) {
+	t.Helper()
+	if !cfg.Enabled {
+		t.Fatalf("%s Agent.ReasoningEffortAuto.Enabled = false, want true", source)
+	}
+	if cfg.DefaultLevel != "low" {
+		t.Fatalf("%s Agent.ReasoningEffortAuto.DefaultLevel = %q, want low", source, cfg.DefaultLevel)
+	}
+}
+
+func assertToolRecallDefaults(t *testing.T, cfg ToolRecallConfig, source string) {
+	t.Helper()
+	if cfg.Mode != "inject" {
+		t.Fatalf("%s Agent.ToolRecall.Mode = %q, want inject", source, cfg.Mode)
+	}
+	if cfg.Limit != 5 {
+		t.Fatalf("%s Agent.ToolRecall.Limit = %d, want 5", source, cfg.Limit)
+	}
+	if cfg.MinScore != 0.35 {
+		t.Fatalf("%s Agent.ToolRecall.MinScore = %v, want 0.35", source, cfg.MinScore)
+	}
+	if cfg.SideEffectMinScore != 0.65 {
+		t.Fatalf("%s Agent.ToolRecall.SideEffectMinScore = %v, want 0.65", source, cfg.SideEffectMinScore)
+	}
+	if !cfg.LogCandidates {
+		t.Fatalf("%s Agent.ToolRecall.LogCandidates = false, want true", source)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // TestLoad
 // ---------------------------------------------------------------------------

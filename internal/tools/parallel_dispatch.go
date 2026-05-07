@@ -256,13 +256,15 @@ func registerParallelDispatch(host *mcphost.Host, executor TaskExecutor, broadca
 						)
 						if observer != nil {
 							observer.RecordDelegation(ctx, DelegationEvent{
-								AgentID:     t.AgentID,
-								AgentType:   "subagent",
-								GroupID:     groupID,
-								SpawnDepth:  toolCtx.Depth + 1,
-								Status:      "failed",
-								FailureType: "runtime",
-								Error:       err.Error(),
+								ParentTraceID: toolCtx.TraceID,
+								ChildTraceID:  DeriveChildTraceID(toolCtx.TraceID, t.AgentID),
+								AgentID:       t.AgentID,
+								AgentType:     "subagent",
+								GroupID:       groupID,
+								SpawnDepth:    toolCtx.Depth + 1,
+								Status:        "failed",
+								FailureType:   "runtime",
+								Error:         err.Error(),
 							})
 						}
 						results[idx] = parallelTaskResult{
@@ -286,11 +288,13 @@ func registerParallelDispatch(host *mcphost.Host, executor TaskExecutor, broadca
 					}
 					if observer != nil {
 						observer.RecordDelegation(ctx, DelegationEvent{
-							AgentID:    t.AgentID,
-							AgentType:  "subagent",
-							GroupID:    groupID,
-							SpawnDepth: toolCtx.Depth + 1,
-							Status:     "completed",
+							ParentTraceID: toolCtx.TraceID,
+							ChildTraceID:  DeriveChildTraceID(toolCtx.TraceID, t.AgentID),
+							AgentID:       t.AgentID,
+							AgentType:     "subagent",
+							GroupID:       groupID,
+							SpawnDepth:    toolCtx.Depth + 1,
+							Status:        "completed",
 						})
 					}
 					// 广播任务完成
@@ -337,12 +341,14 @@ func registerParallelDispatch(host *mcphost.Host, executor TaskExecutor, broadca
 					failureType = "runtime"
 				}
 				observer.RecordDelegation(ctx, DelegationEvent{
-					AgentType:   "subagent_group",
-					GroupID:     groupID,
-					SpawnDepth:  toolCtx.Depth + 1,
-					Status:      status,
-					FailureType: failureType,
-					StopReason:  fmt.Sprintf("completed=%d failed=%d", completedCount, failedCount),
+					ParentTraceID: toolCtx.TraceID,
+					ChildTraceID:  DeriveChildTraceID(toolCtx.TraceID, groupID),
+					AgentType:     "subagent_group",
+					GroupID:       groupID,
+					SpawnDepth:    toolCtx.Depth + 1,
+					Status:        status,
+					FailureType:   failureType,
+					StopReason:    fmt.Sprintf("completed=%d failed=%d", completedCount, failedCount),
 				})
 			}
 

@@ -23,3 +23,14 @@ type DelegationEvent struct {
 	StopReason    string
 	Error         string
 }
+
+// DeriveChildTraceID 稳定派生子 agent trace，避免各委派入口拼接规则漂移。
+func DeriveChildTraceID(parentTraceID, agentID string) string {
+	if parentTraceID == "" {
+		return agentID
+	}
+	if agentID == "" {
+		return parentTraceID + ":unknown-agent"
+	}
+	return parentTraceID + ":" + agentID
+}

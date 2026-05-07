@@ -11,9 +11,11 @@ import (
 
 	"github.com/chef-guo/agents-hive/internal/accounting"
 	"github.com/chef-guo/agents-hive/internal/config"
+	"github.com/chef-guo/agents-hive/internal/errs"
 	"github.com/chef-guo/agents-hive/internal/llm"
 	"github.com/chef-guo/agents-hive/internal/mcphost"
 	"github.com/chef-guo/agents-hive/internal/runtimepolicy"
+	"github.com/chef-guo/agents-hive/internal/sessiontodo"
 	"github.com/chef-guo/agents-hive/internal/skills"
 	"github.com/chef-guo/agents-hive/internal/store"
 	"github.com/chef-guo/agents-hive/internal/subagent"
@@ -111,6 +113,18 @@ func (m *mockCostTracker) SetSessionCost(sessionID string, cost float64) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.sessionCost[sessionID] = cost
+}
+
+type failingSetStatusTodoStore struct {
+	*sessiontodo.MemoryStore
+	err error
+}
+
+func (s failingSetStatusTodoStore) SetPlanStatusWithMeta(ctx context.Context, sessionID string, status sessiontodo.PlanStatus, meta sessiontodo.SnapshotMeta) (sessiontodo.Snapshot, error) {
+	if s.err != nil {
+		return sessiontodo.Snapshot{}, s.err
+	}
+	return s.MemoryStore.SetPlanStatusWithMeta(ctx, sessionID, status, meta)
 }
 
 // --- Phase 6 Tests ---
@@ -318,6 +332,146 @@ func TestCostBudget_SessionLimit(t *testing.T) {
 	m.config.MaxSessionCost = 0
 	err = m.checkCostBudget(ctx, "test-cost")
 	assert.NoError(t, err)
+}
+
+func TestCostBudget_GracefulYieldPausesOpenTodos(t *testing.T) {
+	m := newPhase6Master(t)
+	m.obsCh = make(chan observabilityEntry, 8)
+	todoStore := sessiontodo.NewMemoryStore()
+	m.SetSessionTodoStore(todoStore)
+
+	session := newTestSession("budget-graceful")
+	session.PlanMode = true
+	session.PlanStatus = sessiontodo.PlanStatusExecuting
+	session.Messages = append(session.Messages,
+		llm.MessageWithTools{Role: "user", Content: llm.NewTextContent("实现长任务预算 graceful yield")},
+		llm.MessageWithTools{Role: "tool", ToolName: "go_test", Content: llm.NewTextContent("单测失败: missing paused response"), IsError: true},
+	)
+	respCh := make(chan TaskResponse, 1)
+	m.sessionMgr.responseMu.Lock()
+	m.sessionMgr.pendingResponses[42] = respCh
+	m.sessionMgr.responseMu.Unlock()
+
+	snap, err := todoStore.SetPlanStatus(context.Background(), session.ID, sessiontodo.PlanStatusExecuting)
+	require.NoError(t, err)
+	_, err = todoStore.Replace(context.Background(), session.ID, snap.PlanVersion, []sessiontodo.TodoInput{
+		{ID: "read", Content: "阅读现有预算检查路径", Status: sessiontodo.TodoStatusCompleted},
+		{ID: "yield", Content: "实现预算触顶交接暂停", Status: sessiontodo.TodoStatusInProgress},
+		{ID: "test", Content: "补 graceful yield 回归测试", Status: sessiontodo.TodoStatusPending},
+	})
+	require.NoError(t, err)
+
+	budgetErr := errs.New(errs.CodePlanExecFailed, "session cost budget exceeded: 1.50 USD > 1.00 USD")
+	decision := m.handleCostBudgetExceeded(context.Background(), session, 42, budgetErr, "trace-budget", "span-budget")
+
+	require.True(t, decision.Graceful)
+	require.NoError(t, decision.Err)
+	resp := <-respCh
+	assert.Equal(t, string(TaskStatusPaused), resp.Status)
+	assert.False(t, resp.Completed)
+	for _, title := range []string{"目标", "已完成", "未完成", "最近失败", "下一步建议"} {
+		assert.Contains(t, resp.Content, title)
+	}
+	assert.Contains(t, resp.Content, "实现长任务预算 graceful yield")
+	assert.Contains(t, resp.Content, "阅读现有预算检查路径")
+	assert.Contains(t, resp.Content, "实现预算触顶交接暂停")
+	assert.Contains(t, resp.Content, "单测失败")
+
+	paused, err := todoStore.Snapshot(context.Background(), session.ID)
+	require.NoError(t, err)
+	assert.Equal(t, sessiontodo.PlanStatusPaused, paused.PlanStatus)
+	assert.Equal(t, sessiontodo.PlanStatusPaused, session.PlanStatus)
+	require.NotEmpty(t, session.Messages)
+	handoff := session.Messages[len(session.Messages)-1]
+	assert.Equal(t, "system", handoff.Role)
+	assert.Equal(t, "graceful_yield", handoff.Metadata["budget_exit_mode"])
+
+	raw := requireQualityEventRaw(t, m, "quality.budget_exit")
+	assert.Contains(t, string(raw), `"name":"quality.budget_exit"`)
+	assert.Contains(t, string(raw), `"budget_exit_mode":"graceful_yield"`)
+	assert.Contains(t, string(raw), `"final_status":"needs_user"`)
+}
+
+func TestCostBudget_GracefulYieldDoesNotWriteHandoffOnPauseFailure(t *testing.T) {
+	m := newPhase6Master(t)
+	m.obsCh = make(chan observabilityEntry, 8)
+	backingStore := sessiontodo.NewMemoryStore()
+	m.sessionTodoStore = failingSetStatusTodoStore{
+		MemoryStore: backingStore,
+		err:         errs.New(errs.CodePlanExecFailed, "pause failed"),
+	}
+
+	session := newTestSession("budget-graceful-fail")
+	session.PlanMode = true
+	session.PlanStatus = sessiontodo.PlanStatusExecuting
+	session.Messages = append(session.Messages, llm.MessageWithTools{Role: "user", Content: llm.NewTextContent("预算触顶时不能留下误导性 handoff")})
+	snap, err := backingStore.SetPlanStatus(context.Background(), session.ID, sessiontodo.PlanStatusExecuting)
+	require.NoError(t, err)
+	_, err = backingStore.Replace(context.Background(), session.ID, snap.PlanVersion, []sessiontodo.TodoInput{
+		{ID: "next", Content: "触发 pause 失败", Status: sessiontodo.TodoStatusPending},
+	})
+	require.NoError(t, err)
+
+	budgetErr := errs.New(errs.CodePlanExecFailed, "session cost budget exceeded: 3.00 USD > 1.00 USD")
+	decision := m.handleCostBudgetExceeded(context.Background(), session, 0, budgetErr, "trace-fail", "span-fail")
+
+	require.False(t, decision.Graceful)
+	require.Error(t, decision.Err)
+	assert.Contains(t, decision.Err.Error(), "pause failed")
+	require.NotEmpty(t, session.Messages)
+	last := session.Messages[len(session.Messages)-1]
+	assert.NotContains(t, last.Content.Text(), "Budget Graceful Yield Handoff")
+	assert.Equal(t, "hard_stop", last.Metadata["budget_exit_mode"])
+	assert.Equal(t, sessiontodo.PlanStatusPaused, session.PlanStatus)
+
+	raw := requireQualityEventRaw(t, m, "quality.budget_exit")
+	assert.Contains(t, string(raw), `"budget_exit_mode":"hard_stop"`)
+	assert.Contains(t, string(raw), `"final_status":"fail"`)
+}
+
+func TestCostBudget_HardStopKeepsReasonAndPausedState(t *testing.T) {
+	m := newPhase6Master(t)
+	m.obsCh = make(chan observabilityEntry, 8)
+	session := newTestSession("budget-hard-stop")
+	session.PlanMode = true
+	session.PlanStatus = sessiontodo.PlanStatusExecuting
+	budgetErr := errs.New(errs.CodePlanExecFailed, "session cost budget exceeded: 2.00 USD > 1.00 USD")
+
+	decision := m.handleCostBudgetExceeded(context.Background(), session, 0, budgetErr, "trace-hard", "span-hard")
+
+	require.False(t, decision.Graceful)
+	require.Error(t, decision.Err)
+	assert.Contains(t, decision.Err.Error(), "session cost budget exceeded")
+	assert.Equal(t, sessiontodo.PlanStatusPaused, session.PlanStatus)
+	require.NotEmpty(t, session.Messages)
+	last := session.Messages[len(session.Messages)-1]
+	assert.Contains(t, last.Content.Text(), "session cost budget exceeded")
+	assert.Equal(t, "hard_stop", last.Metadata["budget_exit_mode"])
+
+	raw := requireQualityEventRaw(t, m, "quality.budget_exit")
+	assert.Contains(t, string(raw), `"budget_exit_mode":"hard_stop"`)
+	assert.Contains(t, string(raw), `session cost budget exceeded`)
+}
+
+func requireQualityEventRaw(t *testing.T, m *Master, eventName string) json.RawMessage {
+	t.Helper()
+	deadline := time.After(200 * time.Millisecond)
+	for {
+		select {
+		case entry := <-m.obsCh:
+			if entry.log == nil || entry.log.Attributes == nil {
+				continue
+			}
+			raw, ok := entry.log.Attributes["quality_event"].(json.RawMessage)
+			if !ok || !strings.Contains(string(raw), fmt.Sprintf(`"name":"%s"`, eventName)) {
+				continue
+			}
+			return raw
+		case <-deadline:
+			t.Fatalf("quality event %s not found", eventName)
+			return nil
+		}
+	}
 }
 
 // TestExecuteTool_SessionIDInjection 验证 executeTool 注入 sessionID 到 ctx

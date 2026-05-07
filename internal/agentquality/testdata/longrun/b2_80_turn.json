@@ -1,0 +1,19 @@
+{
+  "id": "b2_80_turn",
+  "name": "B2 80 turn compaction workflow",
+  "route": "web",
+  "goal": "Verify compaction keeps user goal, constraints, and unfinished items across an 80 turn run.",
+  "constraints": [
+    "do not edit generated files",
+    "do not expand scope",
+    "do not mark completed items pending again"
+  ],
+  "seed": 202,
+  "steps": [
+    { "turn": 1, "kind": "tool_success", "tool": "read_file", "action": "inspect module one" },
+    { "turn": 2, "kind": "tool_success", "tool": "read_file", "action": "inspect module two" },
+    { "turn": 20, "kind": "large_tool_output", "tool": "rg", "action": "large search output triggers tool budget", "compaction": true, "tokens_before_compaction": 92000, "tokens_after_compaction": 41000, "compaction_stage_names": ["tool_budget", "session_memory", "truncate"], "compaction_elapsed_ms": 180 },
+    { "turn": 40, "kind": "compaction", "action": "lazy compaction skip keeps pinned state", "lazy_compaction_skip": true },
+    { "turn": 80, "kind": "final", "action": "finish after verifying constraints remain pinned", "budget_exit_mode": "none", "final_status": "completed" }
+  ]
+}

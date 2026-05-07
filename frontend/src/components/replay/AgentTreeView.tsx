@@ -1,66 +1,23 @@
-interface AgentTraceEdge {
-  parent_trace_id?: string;
-  child_trace_id?: string;
-  agent_id?: string;
-  agent_type?: string;
-}
-
-interface AgentTreeNode {
-  trace_id: string;
-  agent_id?: string;
-  agent_type?: string;
-  children: AgentTreeNode[];
-}
-
-function buildAgentTree(edges: AgentTraceEdge[]): AgentTreeNode[] {
-  const nodes = new Map<string, AgentTreeNode>();
-  const childTraceIds = new Set<string>();
-
-  const nodeFor = (traceId: string): AgentTreeNode => {
-    const existing = nodes.get(traceId);
-    if (existing) {
-      return existing;
-    }
-    const node: AgentTreeNode = { trace_id: traceId, children: [] };
-    nodes.set(traceId, node);
-    return node;
-  };
-
-  for (const edge of edges) {
-    if (!edge.parent_trace_id || !edge.child_trace_id) {
-      continue;
-    }
-    const parent = nodeFor(edge.parent_trace_id);
-    const child = nodeFor(edge.child_trace_id);
-    child.agent_id = edge.agent_id;
-    child.agent_type = edge.agent_type;
-    parent.children.push(child);
-    childTraceIds.add(edge.child_trace_id);
-  }
-
-  const sortNode = (node: AgentTreeNode): AgentTreeNode => {
-    node.children.sort((a, b) => a.trace_id.localeCompare(b.trace_id));
-    node.children.forEach(sortNode);
-    return node;
-  };
-
-  return Array.from(nodes.values())
-    .filter((node) => !childTraceIds.has(node.trace_id))
-    .sort((a, b) => a.trace_id.localeCompare(b.trace_id))
-    .map(sortNode);
-}
+import type { AgentTraceNode } from '../../types/api';
 
 interface AgentTreeViewProps {
-  edges: AgentTraceEdge[];
+  nodes?: AgentTraceNode[];
 }
 
-export function AgentTreeView({ edges }: AgentTreeViewProps) {
-  const roots = buildAgentTree(edges);
+export function AgentTreeView({ nodes = [] }: AgentTreeViewProps) {
+  const roots = sortAgentNodes(nodes);
   if (roots.length === 0) {
-    return <div className="text-sm text-muted-foreground">No agent trace tree</div>;
+    return (
+      <div style={{ padding: 12, color: 'var(--text-secondary, #6C6C70)', fontSize: 12, fontFamily: 'DM Sans, sans-serif' }}>
+        暂无 agent trace tree
+      </div>
+    );
   }
   return (
-    <div className="space-y-2">
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: 12, fontFamily: 'DM Sans, sans-serif' }}>
+      <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary, #1C1C1E)' }}>
+        Agent Tree
+      </div>
       {roots.map((node) => (
         <AgentTreeBranch key={node.trace_id} node={node} />
       ))}
@@ -68,21 +25,60 @@ export function AgentTreeView({ edges }: AgentTreeViewProps) {
   );
 }
 
-function AgentTreeBranch({ node }: { node: AgentTreeNode }) {
+function AgentTreeBranch({ node }: { node: AgentTraceNode }) {
+  const children = sortAgentNodes(node.children || []);
   return (
-    <div className="rounded-md border border-border/70 p-2">
-      <div className="text-sm font-medium">{node.agent_id || node.trace_id}</div>
-      <div className="text-xs text-muted-foreground">
-        {node.agent_type ? `${node.agent_type} · ` : ''}
+    <div style={{
+      border: '1px solid var(--border, rgba(0,0,0,0.08))',
+      borderRadius: 8,
+      padding: 8,
+      background: 'var(--bg-card, #fff)',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary, #1C1C1E)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {node.agent_id || node.trace_id}
+        </div>
+        {node.status && (
+          <span style={{
+            marginLeft: 'auto',
+            fontSize: 11,
+            color: statusColor(node.status),
+            background: statusBg(node.status),
+            borderRadius: 999,
+            padding: '1px 6px',
+            flexShrink: 0,
+          }}>
+            {node.status}
+          </span>
+        )}
+      </div>
+      <div style={{ marginTop: 2, fontFamily: 'JetBrains Mono, monospace', fontSize: 11, color: 'var(--text-secondary, #6C6C70)', wordBreak: 'break-all' }}>
+        {node.type ? `${node.type} · ` : ''}
         {node.trace_id}
       </div>
-      {node.children.length > 0 && (
-        <div className="mt-2 space-y-2 border-l border-border/70 pl-3">
-          {node.children.map((child) => (
+      {children.length > 0 && (
+        <div style={{ marginTop: 8, paddingLeft: 10, borderLeft: '1px solid var(--border, rgba(0,0,0,0.08))', display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {children.map((child) => (
             <AgentTreeBranch key={child.trace_id} node={child} />
           ))}
         </div>
       )}
     </div>
   );
+}
+
+function sortAgentNodes(nodes: AgentTraceNode[]): AgentTraceNode[] {
+  return [...nodes].sort((a, b) => a.trace_id.localeCompare(b.trace_id));
+}
+
+function statusColor(status: string): string {
+  if (status === 'fail' || status === 'failed' || status === 'error') return '#DC2626';
+  if (status === 'blocked' || status === 'warn') return '#D97706';
+  return '#059669';
+}
+
+function statusBg(status: string): string {
+  if (status === 'fail' || status === 'failed' || status === 'error') return '#FEF2F2';
+  if (status === 'blocked' || status === 'warn') return '#FFFBEB';
+  return '#ECFDF5';
 }

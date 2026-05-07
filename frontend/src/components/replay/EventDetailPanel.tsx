@@ -1,13 +1,20 @@
+import type { CSSProperties } from 'react';
 import type { JournalEvent } from '../../types/journal';
+import type { TraceQualityEvent, TraceTimelineItem } from '../../types/api';
 
 interface Props {
   event: JournalEvent | null;
+  traceItem?: TraceTimelineItem | null;
   onCreateCandidate?: () => void;
   canCreateCandidate?: boolean;
   candidateBusy?: boolean;
 }
 
-export function EventDetailPanel({ event, onCreateCandidate, canCreateCandidate = false, candidateBusy = false }: Props) {
+export function EventDetailPanel({ event, traceItem, onCreateCandidate, canCreateCandidate = false, candidateBusy = false }: Props) {
+  if (traceItem) {
+    return <TraceDetailPanel item={traceItem} />;
+  }
+
   if (!event) {
     return (
       <div style={{ padding: 16, color: 'var(--text-secondary, #6C6C70)', fontSize: 13, fontFamily: 'DM Sans, sans-serif' }}>
@@ -156,6 +163,81 @@ export function EventDetailPanel({ event, onCreateCandidate, canCreateCandidate 
   );
 }
 
+function TraceDetailPanel({ item }: { item: TraceTimelineItem }) {
+  const qualityEvent = parseTraceQualityEvent(item);
+  const reflection = qualityEvent?.reflection;
+
+  return (
+    <div style={{ padding: 16, fontFamily: 'DM Sans, sans-serif', fontSize: 13, overflowY: 'auto' }}>
+      <div style={{ marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <span style={{ color: 'var(--text-secondary, #6C6C70)', fontSize: 12 }}>Trace 事件</span>
+        <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 13, color: 'var(--accent-600, #2563EB)' }}>
+          {item.operation || item.kind}
+        </span>
+        <span style={{
+          fontSize: 11,
+          color: statusColor(item.status),
+          background: statusBg(item.status),
+          borderRadius: 999,
+          padding: '2px 7px',
+        }}>
+          {item.status || item.kind}
+        </span>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 10, marginBottom: 12 }}>
+        <TraceMeta label="Trace" value={item.trace_id} />
+        <TraceMeta label="Span" value={item.span_id} />
+        <TraceMeta label="Parent" value={item.parent_span_id} />
+        <TraceMeta label="耗时" value={item.duration_ms != null ? `${item.duration_ms}ms` : undefined} />
+      </div>
+
+      {reflection && (
+        <div style={{
+          marginBottom: 12,
+          padding: 12,
+          border: '1px solid rgba(217,119,6,0.25)',
+          borderRadius: 10,
+          background: '#FFFBEB',
+        }}>
+          <div style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ color: '#D97706', fontSize: 12, fontWeight: 700 }}>质量反思</span>
+            {reflection.severity && (
+              <span style={{ fontSize: 11, color: '#D97706', border: '1px solid rgba(217,119,6,0.25)', borderRadius: 999, padding: '1px 6px' }}>
+                {reflection.severity}
+              </span>
+            )}
+          </div>
+          <QualityField label="触发器" value={reflection.trigger} />
+          <QualityField label="工具" value={reflection.tool_name} />
+          <QualityField label="连续次数" value={reflection.consecutive} />
+          <QualityField label="摘要" value={reflection.summary} />
+          <QualityField label="建议" value={reflection.recommended} />
+          <QualityField label="已注入" value={reflection.injected} />
+        </div>
+      )}
+
+      {qualityEvent && !reflection && (
+        <div style={{ marginBottom: 12 }}>
+          <span style={{ color: 'var(--text-secondary, #6C6C70)', fontSize: 12 }}>质量事件</span>
+          <pre style={preStyle}>{JSON.stringify(qualityEvent, null, 2)}</pre>
+        </div>
+      )}
+
+      {item.attributes && Object.keys(item.attributes).length > 0 && (
+        <div>
+          <span style={{ color: 'var(--text-secondary, #6C6C70)', fontSize: 12 }}>Attributes</span>
+          <pre style={preStyle}>{JSON.stringify(item.attributes, null, 2)}</pre>
+        </div>
+      )}
+
+      <div style={{ marginTop: 12, fontSize: 11, color: 'var(--text-secondary, #6C6C70)' }}>
+        {new Date(item.timestamp).toLocaleTimeString()}
+      </div>
+    </div>
+  );
+}
+
 function formatJSON(s: string): string {
   try {
     return JSON.stringify(JSON.parse(s), null, 2);
@@ -186,6 +268,57 @@ function QualityField({ label, value }: { label: string; value: unknown }) {
       </pre>
     </div>
   );
+}
+
+function TraceMeta({ label, value }: { label: string; value?: string }) {
+  if (!value) return null;
+  return (
+    <div style={{ minWidth: 0 }}>
+      <span style={{ color: 'var(--text-secondary, #6C6C70)', fontSize: 12 }}>{label}</span>
+      <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 12, color: 'var(--text-primary, #1C1C1E)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function parseTraceQualityEvent(item: TraceTimelineItem): TraceQualityEvent | null {
+  const raw = item.attributes?.quality_event;
+  if (!raw) return null;
+  if (typeof raw === 'string') {
+    try {
+      return JSON.parse(raw) as TraceQualityEvent;
+    } catch {
+      return null;
+    }
+  }
+  if (typeof raw === 'object') return raw as TraceQualityEvent;
+  return null;
+}
+
+const preStyle = {
+  margin: '4px 0 0',
+  fontFamily: 'JetBrains Mono, monospace',
+  fontSize: 12,
+  background: 'var(--bg-secondary, #E8E8ED)',
+  padding: 10,
+  borderRadius: 8,
+  overflowX: 'auto',
+  whiteSpace: 'pre-wrap',
+  wordBreak: 'break-word',
+  maxHeight: 220,
+} satisfies CSSProperties;
+
+function statusColor(status?: string): string {
+  if (status === 'error' || status === 'fail' || status === 'failed') return '#DC2626';
+  if (status === 'warn' || status === 'blocked') return '#D97706';
+  return '#059669';
+}
+
+function statusBg(status?: string): string {
+  if (status === 'error' || status === 'fail' || status === 'failed') return '#FEF2F2';
+  if (status === 'warn' || status === 'blocked') return '#FFFBEB';
+  return '#ECFDF5';
 }
 
 function isCandidateWorthy(event: JournalEvent): boolean {

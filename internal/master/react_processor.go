@@ -25,9 +25,11 @@ import (
 	"github.com/chef-guo/agents-hive/internal/memory"
 	"github.com/chef-guo/agents-hive/internal/observability"
 	"github.com/chef-guo/agents-hive/internal/plugin"
+	"github.com/chef-guo/agents-hive/internal/sessiontodo"
 	"github.com/chef-guo/agents-hive/internal/skills"
 	"github.com/chef-guo/agents-hive/internal/toolctx"
 	"github.com/chef-guo/agents-hive/internal/tools"
+	"github.com/chef-guo/agents-hive/internal/trajectory"
 )
 
 // directExecParams 直接执行路径的前置准备参数
@@ -278,18 +280,11 @@ func (m *Master) runReActLoop(
 	for i := 0; ; i++ {
 		// P0-3 Phase 5.3: per-session 成本预算检查（每轮检查，防止 fan-out turn 耗尽预算后无感知）
 		if costErr := m.checkCostBudget(ctx, session.ID); costErr != nil {
-			m.logger.Warn("会话成本已达上限",
-				zap.String("session_id", session.ID),
-				zap.Error(costErr),
-			)
-			m.appendSessionMessage(session, llm.MessageWithTools{
-				Role:      "system",
-				Content:   llm.NewTextContent(costErr.Error()),
-				CreatedAt: time.Now().Format(time.RFC3339),
-				Metadata:  map[string]string{"agent_id": "master"},
-			})
-			// error 终态由 processTask defer 统一广播
-			return costErr
+			decision := m.handleCostBudgetExceeded(ctx, session, responseID, costErr, sessionTraceID, sessionSpanID)
+			if decision.Graceful {
+				return nil
+			}
+			return decision.Err
 		}
 
 		// 广播当前轮次进度，用于前端活动面板的 Turn 进度条
@@ -367,7 +362,7 @@ func (m *Master) runReActLoop(
 			},
 		})
 
-		modelVisibleTools := modelVisibleToolsForPreparedMessages(session, availableTools, preparedMessages)
+		modelVisibleTools, toolRecallObs := modelVisibleToolsForPreparedMessagesWithRecallObservation(session, availableTools, preparedMessages, m.config.ToolRecall)
 		m.logger.Info("发起 LLM 调用",
 			zap.String("session_id", session.ID),
 			zap.String("model", sessionLLM.Model()),
@@ -412,7 +407,7 @@ func (m *Master) runReActLoop(
 			Tools:           modelVisibleTools,
 			Temperature:     temperature,
 			MaxTokens:       maxTokens,
-			ReasoningEffort: reasoningEffort,
+			ReasoningEffort: m.resolveModelReasoningEffort(reasoningEffort, extractLatestUserQuery(preparedMessages), sessionLLM.Model()),
 			ToolChoice:      toolChoice,
 		}
 		agentState := &AgentState{
@@ -609,6 +604,23 @@ func (m *Master) runReActLoop(
 			llmDurationMs += retryDuration
 		}
 		agentState.Response = resp
+		m.emitQualityEvent(sessionTraceID, sessionSpanID, session.ID, agentquality.Event{
+			Name:        agentquality.EventAgentTurn,
+			Route:       routeFromSession(session),
+			FailureType: agentquality.FailureNone,
+			FinalStatus: agentquality.StatusPass,
+			Attributes: agentTurnAttributes(
+				sessionTraceID,
+				i+1,
+				i+1,
+				len(resp.ToolCalls),
+				len(preparedMessages),
+				len(modelVisibleTools),
+				len(preparedMessages) < len(msgsCopy),
+			),
+		})
+		selectedRecallTool, usedRecallTool := selectedRecalledTool(resp.ToolCalls, toolRecallObs.RecalledToolNames)
+		m.recordToolRecall(sessionTraceID, sessionSpanID, session, toolRecallObs.toEvent(sessionTraceID, sessionTraceID, selectedRecallTool, usedRecallTool))
 
 		// LLM 调用成功：写入 trace + metrics
 		m.enqueueSpan(observability.Span{
@@ -717,6 +729,10 @@ func (m *Master) runReActLoop(
 					zap.String("finish_reason", resp.FinishReason),
 					zap.Int("dropped_content_len", len(resp.Content)),
 				)
+				m.recordReflection(sessionTraceID, sessionSpanID, session, reflectionNoteInput{
+					Trigger:  "guard_failure",
+					Severity: "hard_stop",
+				})
 				return errs.New(errs.CodePlanExecFailed,
 					"tool_choice=required 但 LLM 连续两轮未产出工具调用，疑似 provider 吞字段或模型硬抗")
 			case requiredGuardRetry:
@@ -726,11 +742,9 @@ func (m *Master) runReActLoop(
 					zap.String("finish_reason", resp.FinishReason),
 					zap.Int("dropped_content_len", len(resp.Content)),
 				)
-				m.appendSessionMessage(session, llm.MessageWithTools{
-					Role:      "system",
-					Content:   llm.NewTextContent(buildRequiredToolRetryMessage(refs)),
-					CreatedAt: time.Now().Format(time.RFC3339),
-					Metadata:  map[string]string{"agent_id": "master", "guard": "P0-A-required-breach"},
+				m.recordReflection(sessionTraceID, sessionSpanID, session, reflectionNoteInput{
+					Trigger:  "guard_failure",
+					Severity: "warn",
 				})
 				continue
 			}
@@ -750,6 +764,11 @@ func (m *Master) runReActLoop(
 				zap.Int("iteration", i+1),
 				zap.Error(err),
 			)
+			m.recordReflection(sessionTraceID, sessionSpanID, session, reflectionNoteInput{
+				Trigger:  "validation_failure",
+				Severity: "hard_stop",
+				Detail:   err.Error(),
+			})
 			return errs.Wrap(errs.CodePlanExecFailed, "post validation failed", err)
 		}
 
@@ -857,6 +876,8 @@ func (m *Master) runReActLoop(
 		if len(resp.ToolCalls) == 0 && shouldExitTask(resp.FinishReason) {
 			// completed 终态由 processTask defer 统一广播
 			m.logDecisionIfFinal(ctx, session)
+			m.saveTrajectorySnapshot(ctx, session, sessionTraceID, sessionSpanID, i+1)
+			m.recordLongArtifactEvaluation(ctx, session.ID, sessionTraceID, sessionSpanID, resp.Content)
 			if !session.IsTerminated() {
 				decision := CompletionDecision{Status: TaskStatusCompleted, Completed: true}
 				if guard := m.planRuntimeGuard(); guard != nil {
@@ -899,11 +920,10 @@ func (m *Master) runReActLoop(
 					zap.Strings("tools", toolNames),
 					zap.Int("consecutive_same", detector.consecutiveSame),
 				)
-				m.appendSessionMessage(session, llm.MessageWithTools{
-					Role:      "system",
-					Content:   llm.NewTextContent("检测到重复操作循环，已自动终止。请换一种方式描述你的需求，或提供更多上下文。"),
-					CreatedAt: time.Now().Format(time.RFC3339),
-					Metadata:  map[string]string{"agent_id": "master"},
+				m.recordReflection(sessionTraceID, sessionSpanID, session, reflectionNoteInput{
+					Trigger:     "batch_loop",
+					Severity:    "hard_stop",
+					Consecutive: detector.consecutiveSame,
 				})
 				// error 终态由 processTask defer 统一广播
 				return errs.New(errs.CodePlanExecFailed, "loop detected: same tool combination repeated 5 times")
@@ -945,12 +965,13 @@ func (m *Master) runReActLoop(
 
 			// 按原始顺序遍历，保持 tool result 消息顺序与 assistant tool_calls 一致
 			var terminalFailures []string // 收集本轮终端错误的工具名
+			var callFailureReflections []reflectionNoteInput
 
 			if m.EnableStreamingExecutor {
 				// 并发路径：safe 工具并发执行，unsafe 工具串行
 				m.executeToolsConcurrent(ctx, session, userID, resp.ToolCalls,
 					rejectedIDs, terminalCache, approvedCalls, &terminalFailures,
-					&imRefsRead, sessionTraceID, sessionSpanID)
+					&callFailureReflections, &imRefsRead, sessionTraceID, sessionSpanID, detector)
 			} else {
 				for _, toolCall := range resp.ToolCalls {
 					if rejectedIDs[toolCall.ID] {
@@ -1041,6 +1062,12 @@ func (m *Master) runReActLoop(
 						if detector.recordCallResult(callFP, true) {
 							terminalCache[callFP] = tr.Content
 							terminalFailures = append(terminalFailures, toolCall.Name)
+							callFailureReflections = append(callFailureReflections, reflectionNoteInput{
+								Trigger:     "call_failure",
+								Severity:    "warn",
+								ToolName:    toolCall.Name,
+								Consecutive: 2,
+							})
 							m.logger.Warn("同一工具+参数连续失败 2 次，标记为终端失败",
 								zap.String("tool", toolCall.Name),
 								zap.String("session_id", session.ID),
@@ -1055,12 +1082,14 @@ func (m *Master) runReActLoop(
 			// P0-3 Phase 5.1: 循环检测 warn 消息延迟注入
 			// 必须在所有 tool results 写入之后，避免破坏 assistant(tool_calls) → tool(results) 消息顺序
 			if loopWarned {
-				m.appendSessionMessage(session, llm.MessageWithTools{
-					Role:      "system",
-					Content:   llm.NewTextContent("[系统警告] 检测到你在重复调用相同的工具组合。请检查是否陷入循环，尝试不同的方法或直接回复用户。"),
-					CreatedAt: time.Now().Format(time.RFC3339),
-					Metadata:  map[string]string{"agent_id": "master"},
+				m.recordReflection(sessionTraceID, sessionSpanID, session, reflectionNoteInput{
+					Trigger:     "batch_loop",
+					Severity:    "warn",
+					Consecutive: detector.consecutiveSame,
 				})
+			}
+			for _, reflection := range callFailureReflections {
+				m.recordReflection(sessionTraceID, sessionSpanID, session, reflection)
 			}
 
 			// 终端错误强制提示：当本轮有工具返回不可重试错误时，注入明确指令让 LLM 停止重试
@@ -1080,9 +1109,60 @@ func (m *Master) runReActLoop(
 			// 让 LLM 基于工具结果生成最终回复。
 			// 之前的实现会直接 return nil，导致 ls/bash 等信息收集类工具执行后
 			// LLM 没机会看到结果，用户收到空回复。
+			m.saveTrajectorySnapshot(ctx, session, sessionTraceID, sessionSpanID, i+1)
 		}
 	}
 
+}
+
+func (m *Master) saveTrajectorySnapshot(ctx context.Context, session *SessionState, traceID, spanID string, iteration int) {
+	if m == nil || m.trajectoryStore == nil || session == nil {
+		return
+	}
+	session.mu.RLock()
+	messages := make([]llm.MessageWithTools, len(session.Messages))
+	copy(messages, session.Messages)
+	sessionID := session.ID
+	session.mu.RUnlock()
+	messagesJSON, err := json.Marshal(messages)
+	if err != nil {
+		m.logger.Warn("trajectory snapshot 序列化失败", zap.String("session_id", sessionID), zap.Error(err))
+		return
+	}
+	if err := m.trajectoryStore.Save(ctx, trajectory.Snapshot{
+		SessionID:    sessionID,
+		TraceID:      traceID,
+		SpanID:       spanID,
+		Iteration:    iteration,
+		MessageCount: len(messages),
+		Messages:     messagesJSON,
+	}); err != nil {
+		m.logger.Warn("trajectory snapshot 保存失败", zap.String("session_id", sessionID), zap.Error(err))
+	}
+}
+
+func selectedRecalledTool(toolCalls []llm.ToolCall, recalled map[string]bool) (string, bool) {
+	if len(toolCalls) == 0 || len(recalled) == 0 {
+		return "", false
+	}
+	for _, toolCall := range toolCalls {
+		if recalled[toolCall.Name] {
+			return toolCall.Name, true
+		}
+	}
+	return "", false
+}
+
+func agentTurnAttributes(turnID string, turnIndex, llmCallCount, toolCallCount, preparedMessageCount, visibleToolCount int, compactionTriggered bool) map[string]any {
+	return map[string]any{
+		"turn_id":                turnID,
+		"turn_index":             turnIndex,
+		"llm_call_count":         llmCallCount,
+		"tool_call_count":        toolCallCount,
+		"prepared_message_count": preparedMessageCount,
+		"visible_tool_count":     visibleToolCount,
+		"compaction_triggered":   compactionTriggered,
+	}
 }
 
 // toolResult 工具执行结果
@@ -1460,10 +1540,166 @@ func (m *Master) executeTool(ctx context.Context, session *SessionState, userID 
 	})
 	m.logToolCall(ctx, sessionID, executedToolCall, string(executedArgs), content, false, duration)
 	m.logFileChangeIfNeeded(ctx, sessionID, executedToolCall.Name, executedArgs, content)
+	m.runTestDrivenShadowForToolChange(ctx, sessionID, sessionTraceID, toolSpanID, executedToolCall.Name, executedArgs)
 	recordToolDiscoveryFromResult(session, executedToolCall, content, false)
 	m.applyPlanToolStateAfterSuccess(session, executedToolCall.Name, toolCall.ID, sessionTraceID)
+	m.recordToolOutputSchemaDiagnostic(sessionTraceID, toolSpanID, session, executedToolCall.Name, result)
 
 	return toolResult{Content: content}
+}
+
+func (m *Master) recordToolOutputSchemaDiagnostic(traceID, spanID string, session *SessionState, toolName string, result *mcphost.ToolResult) {
+	def, ok := m.lookupToolDefinition(toolName)
+	if !ok || len(def.OutputSchema) == 0 {
+		return
+	}
+	diagnostic, err := mcphost.ValidateToolResult(def, result)
+	if err != nil {
+		m.emitQualityEvent(traceID, spanID, session.ID, agentquality.Event{
+			Name:        agentquality.EventReflection,
+			Route:       routeFromSession(session),
+			FailureType: agentquality.FailureRuntime,
+			FinalStatus: agentquality.StatusNeedsUser,
+			Reflection: agentquality.Reflection{
+				Trigger:  "tool_output_schema",
+				Severity: "warn",
+				ToolName: toolName,
+				Summary:  "工具 outputSchema 配置无效",
+			},
+			Attributes: map[string]any{"error": err.Error()},
+		})
+		return
+	}
+	if diagnostic == nil {
+		return
+	}
+	m.emitQualityEvent(traceID, spanID, session.ID, agentquality.Event{
+		Name:        agentquality.EventReflection,
+		Route:       routeFromSession(session),
+		FailureType: agentquality.FailureTool,
+		FinalStatus: agentquality.StatusNeedsUser,
+		Reflection: agentquality.Reflection{
+			Trigger:  "tool_output_schema",
+			Severity: "warn",
+			ToolName: toolName,
+			Summary:  diagnostic.Message,
+		},
+		Attributes: map[string]any{
+			"schema_keyword": diagnostic.Keyword,
+		},
+	})
+}
+
+func (m *Master) runTestDrivenShadowForToolChange(ctx context.Context, sessionID, traceID, spanID, toolName string, args json.RawMessage) {
+	if m == nil || !m.config.Reflection.TestDrivenShadow.Enabled || m.validationExec == nil {
+		return
+	}
+	changed := changedFilesFromToolCall(toolName, args)
+	if len(changed) == 0 {
+		return
+	}
+	commands := agentquality.BuildValidationCommands(agentquality.ChangedFileSet{Files: changed})
+	if len(commands) == 0 {
+		return
+	}
+	runner := validationFeedbackRunner{
+		enabled:  true,
+		executor: m.validationExec,
+		record: func(ev agentquality.Event) {
+			m.emitQualityEvent(traceID, spanID, sessionID, ev)
+			if ev.Reflection.Severity == "warn" {
+				m.recordReflectionEvaluationShadow(ctx, sessionID, traceID, spanID, agentquality.EvaluationInput{
+					Trigger:          "test_failed",
+					ValidationOutput: fmt.Sprint(ev.Attributes["stderr"]),
+				})
+			}
+		},
+	}
+	runner.Run(ctx, sessionID, traceID, commands)
+}
+
+func changedFilesFromToolCall(toolName string, args json.RawMessage) []string {
+	paths := map[string]struct{}{}
+	addPath := func(path string) {
+		path = strings.TrimSpace(path)
+		if path != "" && path != "/dev/null" {
+			paths[path] = struct{}{}
+		}
+	}
+	switch toolName {
+	case "write_file", "edit":
+		var p struct {
+			Path string `json:"path"`
+		}
+		if err := json.Unmarshal(args, &p); err == nil {
+			addPath(p.Path)
+		}
+	case "multiedit", "multi_edit":
+		var p struct {
+			Path  string `json:"path"`
+			Edits []struct {
+				Path string `json:"path"`
+			} `json:"edits"`
+		}
+		if err := json.Unmarshal(args, &p); err == nil {
+			addPath(p.Path)
+			for _, edit := range p.Edits {
+				addPath(edit.Path)
+			}
+		}
+	case "apply_patch":
+		var p struct {
+			Patch string `json:"patch"`
+		}
+		if err := json.Unmarshal(args, &p); err == nil && p.Patch != "" {
+			if parsed, parseErr := tools.ParsePatch(p.Patch); parseErr == nil {
+				for _, fp := range parsed.Files {
+					addPath(fp.NewPath)
+					if fp.NewPath == "" {
+						addPath(fp.OldPath)
+					}
+				}
+			}
+		}
+	default:
+		return nil
+	}
+	out := make([]string, 0, len(paths))
+	for path := range paths {
+		out = append(out, path)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func (m *Master) recordLongArtifactEvaluation(ctx context.Context, sessionID, traceID, spanID, content string) {
+	if len(content) <= 1200 || !strings.Contains(content, "```") {
+		return
+	}
+	m.recordReflectionEvaluationShadow(ctx, sessionID, traceID, spanID, agentquality.EvaluationInput{
+		Trigger:         "long_artifact",
+		AssistantOutput: content,
+	})
+}
+
+func (m *Master) lookupToolDefinition(toolName string) (mcphost.ToolDefinition, bool) {
+	if m == nil {
+		return mcphost.ToolDefinition{}, false
+	}
+	if m.toolBridge != nil {
+		for _, def := range m.toolBridge.AvailableTools(nil) {
+			if def.Name == toolName {
+				return def, true
+			}
+		}
+	}
+	if m.mcpHost != nil {
+		def, err := m.mcpHost.GetTool(toolName)
+		if err == nil && def != nil {
+			return *def, true
+		}
+	}
+	return mcphost.ToolDefinition{}, false
 }
 
 // logToolCall 将工具调用异步记录到 Journal（nil 安全，非阻塞）
@@ -1817,6 +2053,205 @@ func (m *Master) checkCostBudget(ctx context.Context, sessionID string) error {
 	return nil
 }
 
+type costBudgetDecision struct {
+	Graceful bool
+	Err      error
+}
+
+// handleCostBudgetExceeded 在预算触顶时优先给未完成 plan 生成交接摘要并暂停。
+// 交接失败才硬停，避免仍有 open todos 时被外层兜底误广播 completed。
+func (m *Master) handleCostBudgetExceeded(ctx context.Context, session *SessionState, responseID uint64, budgetErr error, traceID, spanID string) costBudgetDecision {
+	sessionID := ""
+	if session != nil {
+		sessionID = session.ID
+	}
+	if m != nil && m.logger != nil {
+		m.logger.Warn("会话成本已达上限",
+			zap.String("session_id", sessionID),
+			zap.Error(budgetErr),
+		)
+	}
+
+	if paused, handoff, err := m.tryGracefulBudgetYield(ctx, session, budgetErr, traceID, spanID); err == nil && paused {
+		if m != nil && m.sessionMgr != nil {
+			m.sessionMgr.SendResponse(responseID, NewTaskResponse(handoff, TaskStatusPaused))
+		}
+		return costBudgetDecision{Graceful: true}
+	} else if err != nil {
+		hardErr := errs.Wrap(errs.CodePlanExecFailed, "budget graceful yield failed", err)
+		m.markSessionBudgetPaused(session)
+		m.recordBudgetExit(ctx, session, "hard_stop", hardErr, traceID, spanID)
+		m.appendBudgetHardStopMessage(session, fmt.Sprintf("%v; original budget error: %v", hardErr, budgetErr))
+		return costBudgetDecision{Err: hardErr}
+	}
+
+	m.markSessionBudgetPaused(session)
+	m.recordBudgetExit(ctx, session, "hard_stop", budgetErr, traceID, spanID)
+	m.appendBudgetHardStopMessage(session, budgetErr.Error())
+	return costBudgetDecision{Err: budgetErr}
+}
+
+func (m *Master) markSessionBudgetPaused(session *SessionState) {
+	if session == nil {
+		return
+	}
+	session.mu.Lock()
+	session.PlanStatus = sessiontodo.PlanStatusPaused
+	session.PlanMode = true
+	session.mu.Unlock()
+}
+
+func (m *Master) tryGracefulBudgetYield(ctx context.Context, session *SessionState, budgetErr error, traceID, spanID string) (bool, string, error) {
+	if m == nil || session == nil {
+		return false, "", nil
+	}
+	if m.sessionTodoStore == nil {
+		return false, "", nil
+	}
+	snapshot, err := m.sessionTodoStore.Snapshot(ctx, session.ID)
+	if err != nil {
+		return false, "", err
+	}
+	if len(pendingTodosForResume(snapshot.Todos)) == 0 {
+		return false, "", nil
+	}
+
+	handoff := buildBudgetHandoffSummary(session, snapshot, budgetErr)
+	if _, err := m.pausePlanForBudgetYield(ctx, session, snapshot, traceID, spanID); err != nil {
+		return false, "", err
+	}
+	m.appendSessionMessage(session, llm.MessageWithTools{
+		Role:      "system",
+		Content:   llm.NewTextContent(handoff),
+		CreatedAt: time.Now().Format(time.RFC3339),
+		Metadata: map[string]string{
+			"agent_id":         "master",
+			"handoff":          "budget_graceful_yield",
+			"budget_exit_mode": "graceful_yield",
+		},
+	})
+	m.recordBudgetExit(ctx, session, "graceful_yield", budgetErr, traceID, spanID)
+	return true, handoff, nil
+}
+
+func (m *Master) appendBudgetHardStopMessage(session *SessionState, reason string) {
+	if m == nil || session == nil {
+		return
+	}
+	m.appendSessionMessage(session, llm.MessageWithTools{
+		Role:      "system",
+		Content:   llm.NewTextContent(reason),
+		CreatedAt: time.Now().Format(time.RFC3339),
+		Metadata: map[string]string{
+			"agent_id":         "master",
+			"budget_exit_mode": "hard_stop",
+		},
+	})
+}
+
+func buildBudgetHandoffSummary(session *SessionState, snapshot sessiontodo.Snapshot, budgetErr error) string {
+	goal := latestUserGoal(session)
+	completed := todosByOpenState(snapshot.Todos, false)
+	open := todosByOpenState(snapshot.Todos, true)
+	recentFailure := latestFailureSummary(session)
+	if recentFailure == "" && budgetErr != nil {
+		recentFailure = budgetErr.Error()
+	}
+
+	var b strings.Builder
+	b.WriteString("# Budget Graceful Yield Handoff\n\n")
+	writeHandoffField(&b, "目标", goal, "未记录明确目标")
+	writeHandoffList(&b, "已完成", completed, "暂无已完成事项")
+	writeHandoffList(&b, "未完成", open, "暂无未完成事项")
+	writeHandoffField(&b, "最近失败", recentFailure, "未记录最近失败")
+	writeHandoffList(&b, "下一步建议", []string{
+		"补充预算或切换更低成本模型后继续执行未完成 todos",
+		"从 in_progress todo 开始恢复，必要时先验证最近一次失败的前置条件",
+	}, "")
+	return strings.TrimRight(b.String(), "\n")
+}
+
+func writeHandoffField(b *strings.Builder, title, value, fallback string) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		value = fallback
+	}
+	fmt.Fprintf(b, "## %s\n%s\n\n", title, value)
+}
+
+func writeHandoffList(b *strings.Builder, title string, items []string, fallback string) {
+	fmt.Fprintf(b, "## %s\n", title)
+	if len(items) == 0 {
+		if fallback != "" {
+			fmt.Fprintf(b, "- %s\n", fallback)
+		}
+		b.WriteString("\n")
+		return
+	}
+	for _, item := range items {
+		fmt.Fprintf(b, "- %s\n", item)
+	}
+	b.WriteString("\n")
+}
+
+func latestUserGoal(session *SessionState) string {
+	if session == nil {
+		return ""
+	}
+	session.mu.RLock()
+	defer session.mu.RUnlock()
+	for i := len(session.Messages) - 1; i >= 0; i-- {
+		if session.Messages[i].Role == "user" {
+			return truncateForLog(strings.TrimSpace(session.Messages[i].Content.Text()), 240)
+		}
+	}
+	return ""
+}
+
+func todosByOpenState(todos []sessiontodo.Todo, wantOpen bool) []string {
+	out := make([]string, 0)
+	for _, todo := range todos {
+		open := todo.Status == sessiontodo.TodoStatusPending || todo.Status == sessiontodo.TodoStatusInProgress
+		if open != wantOpen {
+			continue
+		}
+		status := string(todo.Status)
+		content := strings.TrimSpace(todo.Content)
+		if content == "" {
+			content = todo.ID
+		}
+		if todo.ID != "" {
+			out = append(out, fmt.Sprintf("[%s] %s: %s", status, todo.ID, content))
+		} else {
+			out = append(out, fmt.Sprintf("[%s] %s", status, content))
+		}
+	}
+	return out
+}
+
+func latestFailureSummary(session *SessionState) string {
+	if session == nil {
+		return ""
+	}
+	session.mu.RLock()
+	defer session.mu.RUnlock()
+	for i := len(session.Messages) - 1; i >= 0; i-- {
+		msg := session.Messages[i]
+		if !msg.IsError && msg.Metadata["reflection_severity"] != "hard_stop" {
+			continue
+		}
+		content := strings.TrimSpace(msg.Content.Text())
+		if content == "" {
+			continue
+		}
+		if msg.ToolName != "" {
+			return truncateForLog(fmt.Sprintf("%s: %s", msg.ToolName, content), 240)
+		}
+		return truncateForLog(content, 240)
+	}
+	return ""
+}
+
 // validateLLMResponse 检查 LLM 响应是否为 nil（防御性处理）。
 // 返回 non-nil error 表示 LLM 返回了 nil response。
 func validateLLMResponse(resp *llm.ChatWithToolsResponse) error {
@@ -2152,7 +2587,6 @@ func ensureWenyanTitle(args json.RawMessage, logger *zap.Logger) json.RawMessage
 // executeToolsConcurrent 使用 StreamingExecutor 并发执行工具。
 // safe 工具（IsConcurrencySafe=true）并发执行，unsafe 工具按原始顺序串行。
 // 维护与串行路径相同的状态：terminalCache, approvedCalls, terminalFailures。
-// 注意：调用级循环检测（detector.recordCallResult）在此路径中不执行，属于已知的初始版本限制。
 func (m *Master) executeToolsConcurrent(
 	ctx context.Context,
 	session *SessionState,
@@ -2162,8 +2596,10 @@ func (m *Master) executeToolsConcurrent(
 	terminalCache map[string]string,
 	approvedCalls map[string]bool,
 	terminalFailures *[]string,
+	callFailureReflections *[]reflectionNoteInput,
 	imRefsRead *bool,
 	sessionTraceID, sessionSpanID string,
+	detector *loopDetector,
 ) {
 	// 1. 过滤 rejected 和 terminalCache，与串行路径逻辑一致
 	type pendingCall struct {
@@ -2320,8 +2756,20 @@ func (m *Master) executeToolsConcurrent(
 			if isTerminalError(contentStr) {
 				terminalCache[callFP] = contentStr
 				*terminalFailures = append(*terminalFailures, toolCall.Name)
+			} else if detector != nil && detector.recordCallResult(callFP, true) {
+				terminalCache[callFP] = contentStr
+				*terminalFailures = append(*terminalFailures, toolCall.Name)
+				*callFailureReflections = append(*callFailureReflections, reflectionNoteInput{
+					Trigger:     "call_failure",
+					Severity:    "warn",
+					ToolName:    toolCall.Name,
+					Consecutive: 2,
+				})
 			}
 		} else {
+			if detector != nil {
+				detector.recordCallResult(callFP, false)
+			}
 			recordToolDiscoveryFromResult(session, toolCall, contentStr, false)
 			approvedCalls[callFP] = true
 			if imRefsRead != nil && isSuccessfulIMReferenceRead(toolCall, false) {

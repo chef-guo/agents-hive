@@ -99,6 +99,40 @@ func TestConnectRemoteMCP(t *testing.T) {
 	if tools[0].Description != expectedDesc {
 		t.Errorf("工具描述期望 %q，实际 %q", expectedDesc, tools[0].Description)
 	}
+	if len(tools[0].OutputSchema) != 0 {
+		t.Errorf("未提供 outputSchema 时应为空，实际 %s", tools[0].OutputSchema)
+	}
+}
+
+func TestConnectRemoteMCPPreservesOutputSchema(t *testing.T) {
+	logger := zap.NewNop()
+	host := NewHost(logger)
+
+	transport := &mockTransport{
+		recvQueue: []json.RawMessage{
+			json.RawMessage(`{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":"2024-11-05","serverInfo":{"name":"test-server","version":"1.0"},"capabilities":{"tools":{}}}}`),
+			json.RawMessage(`{"jsonrpc":"2.0","id":1,"result":{"tools":[{"name":"echo","description":"回显输入","inputSchema":{"type":"object","properties":{"text":{"type":"string"}}},"outputSchema":{"type":"object","required":["content"]}}]}}`),
+			json.RawMessage(`{"jsonrpc":"2.0","id":2,"error":{"code":-32601,"message":"Method not found"}}`),
+			json.RawMessage(`{"jsonrpc":"2.0","id":3,"error":{"code":-32601,"message":"Method not found"}}`),
+		},
+	}
+
+	client, err := ConnectRemoteMCP(context.Background(), transport, host, "test-server", logger)
+	if err != nil {
+		t.Fatalf("ConnectRemoteMCP 失败: %v", err)
+	}
+	defer client.Close()
+
+	def, err := host.GetTool("test-server__echo")
+	if err != nil {
+		t.Fatalf("GetTool 失败: %v", err)
+	}
+	if string(def.InputSchema) != `{"type":"object","properties":{"text":{"type":"string"}}}` {
+		t.Fatalf("inputSchema 期望保留，实际 %s", def.InputSchema)
+	}
+	if string(def.OutputSchema) != `{"type":"object","required":["content"]}` {
+		t.Fatalf("outputSchema 期望保留，实际 %s", def.OutputSchema)
+	}
 }
 
 func TestRemoteToolExecution(t *testing.T) {

@@ -15,11 +15,12 @@ import (
 
 // ToolDefinition defines an MCP tool.
 type ToolDefinition struct {
-	Name                 string          `json:"name"`
-	Description         string          `json:"description"`
-	InputSchema         json.RawMessage `json:"inputSchema"`
-	Core                bool            `json:"core,omitempty"`                       // Core tools are shown in system prompt; all tools remain callable
-	IsConcurrencySafe    bool            `json:"is_concurrency_safe,omitempty"`         // true = 可并发执行（只读无副作用工具）
+	Name              string          `json:"name"`
+	Description       string          `json:"description"`
+	InputSchema       json.RawMessage `json:"inputSchema"`
+	OutputSchema      json.RawMessage `json:"outputSchema,omitempty"`
+	Core              bool            `json:"core,omitempty"`                // Core tools are shown in system prompt; all tools remain callable
+	IsConcurrencySafe bool            `json:"is_concurrency_safe,omitempty"` // true = 可并发执行（只读无副作用工具）
 }
 
 // ToolResult is the result of a tool execution.

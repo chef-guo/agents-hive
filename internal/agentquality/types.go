@@ -10,6 +10,9 @@ const (
 	EventContextBuild       EventName = "quality.context_build"
 	EventPermissionDecision EventName = "quality.permission_decision"
 	EventDelegation         EventName = "quality.delegation"
+	EventReflection         EventName = "quality.reflection"
+	EventToolRecall         EventName = "quality.tool_recall"
+	EventBudgetExit         EventName = "quality.budget_exit"
 )
 
 type FailureType string
@@ -58,6 +61,22 @@ type ToolDecision struct {
 	ArgsHash string   `json:"args_hash,omitempty"`
 }
 
+type ToolRecall struct {
+	Mode                     string             `json:"mode,omitempty"`
+	TurnID                   string             `json:"turn_id,omitempty"`
+	TraceID                  string             `json:"trace_id,omitempty"`
+	QueryPreview             string             `json:"query_preview,omitempty"`
+	CandidateCount           int                `json:"candidate_count,omitempty"`
+	CandidateNames           []string           `json:"candidate_names,omitempty"`
+	CandidateScores          map[string]float64 `json:"candidate_scores,omitempty"`
+	VisibleBeforeCount       int                `json:"visible_before_count,omitempty"`
+	VisibleAfterCount        int                `json:"visible_after_count,omitempty"`
+	SelectedTool             string             `json:"selected_tool,omitempty"`
+	ModelUsedRecalledTool    bool               `json:"model_used_recalled_tool,omitempty"`
+	BlockedByPlanGate        bool               `json:"blocked_by_plan_gate,omitempty"`
+	SideEffectCandidateCount int                `json:"side_effect_candidate_count,omitempty"`
+}
+
 type Delegation struct {
 	ParentTraceID string   `json:"parent_trace_id,omitempty"`
 	ChildTraceID  string   `json:"child_trace_id,omitempty"`
@@ -68,6 +87,16 @@ type Delegation struct {
 	MaxTurns      int      `json:"max_turns,omitempty"`
 	ToolWhitelist []string `json:"tool_whitelist,omitempty"`
 	StopReason    string   `json:"stop_reason,omitempty"`
+}
+
+type Reflection struct {
+	Trigger     string   `json:"trigger,omitempty"`  // batch_loop | call_failure | guard_failure | validation_failure
+	Severity    string   `json:"severity,omitempty"` // info | warn | hard_stop
+	ToolName    string   `json:"tool_name,omitempty"`
+	Consecutive int      `json:"consecutive,omitempty"`
+	Summary     string   `json:"summary,omitempty"`
+	Recommended []string `json:"recommended,omitempty"`
+	Injected    bool     `json:"injected,omitempty"`
 }
 
 type ContextBuild struct {
@@ -94,8 +123,10 @@ type Event struct {
 	Route         string         `json:"route,omitempty"`
 	Prompt        PromptRef      `json:"prompt,omitempty"`
 	ToolDecision  ToolDecision   `json:"tool_decision,omitempty"`
+	ToolRecall    ToolRecall     `json:"tool_recall,omitempty"`
 	ContextBuild  ContextBuild   `json:"context_build,omitempty"`
 	Delegation    Delegation     `json:"delegation,omitempty"`
+	Reflection    Reflection     `json:"reflection,omitempty"`
 	FailureType   FailureType    `json:"failure_type,omitempty"`
 	RetryReason   string         `json:"retry_reason,omitempty"`
 	FinalStatus   FinalStatus    `json:"final_status,omitempty"`
@@ -118,6 +149,14 @@ func MetricLabels(ev Event) map[string]any {
 	}
 	if ev.RetryReason != "" {
 		labels["retry_reason"] = ev.RetryReason
+	}
+	if ev.Name == EventReflection {
+		if ev.Reflection.Trigger != "" {
+			labels["reflection_trigger"] = ev.Reflection.Trigger
+		}
+		if ev.Reflection.Severity != "" {
+			labels["severity"] = ev.Reflection.Severity
+		}
 	}
 	return labels
 }

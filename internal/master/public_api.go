@@ -6,9 +6,14 @@ import (
 	"errors"
 	"time"
 
+	"github.com/google/uuid"
+
+	"github.com/chef-guo/agents-hive/internal/auth"
 	"github.com/chef-guo/agents-hive/internal/errs"
 	"github.com/chef-guo/agents-hive/internal/imctx"
+	"github.com/chef-guo/agents-hive/internal/llm"
 	"github.com/chef-guo/agents-hive/internal/mcphost"
+	"github.com/chef-guo/agents-hive/internal/store"
 	"github.com/chef-guo/agents-hive/internal/toolctx"
 )
 
@@ -126,6 +131,9 @@ func (m *Master) ProcessMessageWithOptions(ctx context.Context, sessionID string
 	for _, opt := range opts {
 		opt(&req)
 	}
+	if req.ReasoningEffort == "" {
+		req.ReasoningEffort = m.resolveRequestReasoningEffort(req.Input)
+	}
 
 	// 权限检查通过后、进入 SessionManager 之前广播 input_received：
 	// renderer 据此在 IM 侧做 ack 表情（飞书 GET/KEYBOARD 等），
@@ -148,6 +156,179 @@ func (m *Master) ProcessMessageWithOptions(ctx context.Context, sessionID string
 // ProcessCommand 向 SessionLoop 发送会话命令并等待响应（委托给 SessionManager）
 func (m *Master) ProcessCommand(ctx context.Context, req SessionRequest) (TaskResponse, error) {
 	return m.sessionMgr.ProcessRequestWithResponse(ctx, req)
+}
+
+// CreateSession 创建并持久化一个会话，供 API 和测试直接走 CRUD 路径。
+func (m *Master) CreateSession(ctx context.Context, name, mode string) (string, error) {
+	if m.store == nil {
+		return "", errs.New(errs.CodeInternal, "存储未初始化")
+	}
+	if name == "" {
+		name = "新会话"
+	}
+	now := time.Now()
+	sessionID := uuid.NewString()
+	record := &store.SessionRecord{
+		ID:             sessionID,
+		Name:           name,
+		CreatedAt:      now.Format(time.RFC3339),
+		UpdatedAt:      now.Format(time.RFC3339),
+		LastAccessedAt: now.Format(time.RFC3339),
+		Tags:           []string{},
+		UserID:         auth.UserIDFrom(ctx),
+	}
+	if err := m.store.CreateSession(ctx, record); err != nil {
+		return "", err
+	}
+	session := &SessionState{
+		ID:           sessionID,
+		Name:         name,
+		Messages:     []llm.MessageWithTools{},
+		Metadata:     map[string]any{},
+		Tags:         []string{},
+		UserID:       record.UserID,
+		Created:      now,
+		LastAccessed: now,
+	}
+	m.sessionMgr.SetSession(session)
+	m.sessionMgr.SetActiveSessionID(sessionID)
+	return sessionID, nil
+}
+
+// ForkSessionFromSnapshotMessages 从 trajectory snapshot 中的消息创建诊断分支。
+func (m *Master) ForkSessionFromSnapshotMessages(ctx context.Context, source *store.SessionRecord, forkName string, snapshotSeq int, messagesJSON json.RawMessage, prompt string) (string, string, int, error) {
+	if source == nil {
+		return "", "", 0, errs.New(errs.CodeBadRequest, "源会话不能为空")
+	}
+	if m.store == nil {
+		return "", "", 0, errs.New(errs.CodeInternal, "存储未初始化")
+	}
+	var messages []llm.MessageWithTools
+	if len(messagesJSON) > 0 {
+		if err := json.Unmarshal(messagesJSON, &messages); err != nil {
+			return "", "", 0, errs.Wrap(errs.CodeBadRequest, "snapshot messages 无效", err)
+		}
+	}
+	if prompt != "" {
+		messages = append(messages, llm.MessageWithTools{
+			Role:      "user",
+			Content:   llm.NewTextContent(prompt),
+			CreatedAt: time.Now().Format(time.RFC3339),
+		})
+	}
+	if forkName == "" {
+		forkName = source.Name + "-step-fork"
+	}
+	now := time.Now()
+	forkID := uuid.NewString()
+	userID := auth.UserIDFrom(ctx)
+	if userID == "" {
+		userID = source.UserID
+	}
+	record := &store.SessionRecord{
+		ID:             forkID,
+		Name:           forkName,
+		CreatedAt:      now.Format(time.RFC3339),
+		UpdatedAt:      now.Format(time.RFC3339),
+		LastAccessedAt: now.Format(time.RFC3339),
+		MessageCount:   len(messages),
+		Tags:           append([]string{}, source.Tags...),
+		ParentID:       source.ID,
+		ForkPoint:      snapshotSeq,
+		UserID:         userID,
+	}
+	if err := m.store.CreateSession(ctx, record); err != nil {
+		return "", "", 0, err
+	}
+	for _, msg := range messages {
+		if err := m.store.AddMessage(ctx, forkID, msg.Role, msg.Content.Text(), snapshotMessageMeta(msg)); err != nil {
+			return "", "", 0, err
+		}
+	}
+	sessionMessages := make([]llm.MessageWithTools, len(messages))
+	copy(sessionMessages, messages)
+	session := &SessionState{
+		ID:           forkID,
+		Name:         forkName,
+		Messages:     sessionMessages,
+		Metadata:     map[string]any{},
+		Tags:         append([]string{}, source.Tags...),
+		UserID:       userID,
+		Created:      now,
+		LastAccessed: now,
+		Stats:        SessionStats{MessageCount: len(messages)},
+	}
+	m.sessionMgr.SetSession(session)
+	m.sessionMgr.SetActiveSessionID(forkID)
+	return forkID, forkName, len(messages), nil
+}
+
+func snapshotMessageMeta(msg llm.MessageWithTools) map[string]any {
+	meta := map[string]any{}
+	if len(msg.ToolCalls) > 0 {
+		if raw, err := json.Marshal(msg.ToolCalls); err == nil {
+			meta["tool_calls"] = string(raw)
+		}
+	}
+	if msg.ToolCallID != "" {
+		meta["tool_call_id"] = msg.ToolCallID
+	}
+	if msg.ReasoningContent != "" {
+		meta["reasoning_content"] = msg.ReasoningContent
+	}
+	if msg.IsError {
+		meta["is_error"] = true
+	}
+	if msg.ToolName != "" {
+		meta["tool_name"] = msg.ToolName
+	}
+	if msg.CreatedAt != "" {
+		meta["created_at"] = msg.CreatedAt
+	}
+	if msg.Metadata != nil {
+		if v, ok := msg.Metadata["input_tokens"]; ok && v != "" {
+			meta["input_tokens"] = v
+		}
+		if v, ok := msg.Metadata["output_tokens"]; ok && v != "" {
+			meta["output_tokens"] = v
+		}
+	}
+	if msg.Content.IsMultimodal() {
+		if partsJSON, err := json.Marshal(msg.Content.Parts()); err == nil {
+			meta["content_parts"] = string(partsJSON)
+		}
+	}
+	if len(meta) == 0 {
+		return nil
+	}
+	return meta
+}
+
+// UpdateSession 保存会话元数据并同步内存缓存。
+func (m *Master) UpdateSession(ctx context.Context, record *store.SessionRecord) error {
+	if record == nil {
+		return errs.New(errs.CodeBadRequest, "会话记录不能为空")
+	}
+	if m.store == nil {
+		return errs.New(errs.CodeInternal, "存储未初始化")
+	}
+	if record.UpdatedAt == "" {
+		record.UpdatedAt = time.Now().Format(time.RFC3339)
+	}
+	if err := m.store.SaveSession(ctx, record); err != nil {
+		return err
+	}
+	if session := m.sessionMgr.GetSession(record.ID); session != nil {
+		session.mu.Lock()
+		session.Name = record.Name
+		session.Tags = record.Tags
+		session.UserID = record.UserID
+		if t, err := time.Parse(time.RFC3339, record.LastAccessedAt); err == nil {
+			session.LastAccessed = t
+		}
+		session.mu.Unlock()
+	}
+	return nil
 }
 
 func (m *Master) RestorePausedAfterResumeFailure(ctx context.Context, sessionID string, claimedPlanVersion int64, claimedRuntimeEpoch, claimedTurnID, message string, cause error) {

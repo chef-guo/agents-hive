@@ -155,8 +155,13 @@ func hasDelegationTrace(events []Event) bool {
 
 func actualFinalStatus(c Case, events []Event) FinalStatus {
 	for _, ev := range events {
-		if ev.FinalStatus != "" {
+		if ev.Name == EventPermissionDecision && ev.FinalStatus != "" {
 			return ev.FinalStatus
+		}
+	}
+	for i := len(events) - 1; i >= 0; i-- {
+		if events[i].FinalStatus != "" {
+			return events[i].FinalStatus
 		}
 	}
 	return c.ExpectedStatus

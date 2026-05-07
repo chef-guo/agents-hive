@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -299,19 +300,60 @@ type SkillsConfig struct {
 
 // AgentConfig 配置 Agent 行为
 type AgentConfig struct {
-	Timeout             time.Duration       `json:"timeout"`
-	MaxConcurrentAgents int                 `json:"max_concurrent_agents"`
-	HealthInterval      time.Duration       `json:"health_interval"`
-	ShellTimeout        time.Duration       `json:"shell_timeout"`                 // Shell 命令执行超时，默认 10s
-	ScriptTimeout       time.Duration       `json:"script_timeout"`                // 脚本执行超时，默认 30s
-	WSPingInterval      time.Duration       `json:"ws_ping_interval"`              // WebSocket ping 间隔，默认 30s
-	SyncInterval        time.Duration       `json:"sync_interval"`                 // 后台会话同步间隔，默认 5m
-	ContextCompression  CompactionConfig    `json:"context_compression,omitempty"` // 上下文压缩配置
-	Skills              SkillsConfig        `json:"skills,omitempty"`              // 远程/本地 skill 配置
-	ToolPolicy          ToolPolicyConfig    `json:"tool_policy,omitempty"`         // 工具过滤策略配置
-	MaxSessionCost      float64             `json:"max_session_cost,omitempty"`    // per-session 成本预算上限（USD），<=0 不限制（需要 PostgreSQL 成本追踪启用）
-	QualityGuards       QualityGuardsConfig `json:"quality_guards,omitempty"`      // 质量护栏灰度开关（见 docs/计划与路线/Agent-质量护栏治理计划.md）
-	PlanRuntime         PlanRuntimeConfig   `json:"plan_runtime,omitempty"`        // session 级 plan/todos runtime，默认开启；可显式配置关闭
+	Timeout             time.Duration             `json:"timeout"`
+	MaxConcurrentAgents int                       `json:"max_concurrent_agents"`
+	HealthInterval      time.Duration             `json:"health_interval"`
+	ShellTimeout        time.Duration             `json:"shell_timeout"`                   // Shell 命令执行超时，默认 10s
+	ScriptTimeout       time.Duration             `json:"script_timeout"`                  // 脚本执行超时，默认 30s
+	WSPingInterval      time.Duration             `json:"ws_ping_interval"`                // WebSocket ping 间隔，默认 30s
+	SyncInterval        time.Duration             `json:"sync_interval"`                   // 后台会话同步间隔，默认 5m
+	ContextCompression  CompactionConfig          `json:"context_compression,omitempty"`   // 上下文压缩配置
+	Skills              SkillsConfig              `json:"skills,omitempty"`                // 远程/本地 skill 配置
+	ToolPolicy          ToolPolicyConfig          `json:"tool_policy,omitempty"`           // 工具过滤策略配置
+	ToolRecall          ToolRecallConfig          `json:"tool_recall,omitempty"`           // 每轮隐藏工具召回配置
+	MaxSessionCost      float64                   `json:"max_session_cost,omitempty"`      // per-session 成本预算上限（USD），<=0 不限制（需要 PostgreSQL 成本追踪启用）
+	QualityGuards       QualityGuardsConfig       `json:"quality_guards,omitempty"`        // 质量护栏灰度开关（见 docs/计划与路线/Agent-质量护栏治理计划.md）
+	PlanRuntime         PlanRuntimeConfig         `json:"plan_runtime,omitempty"`          // session 级 plan/todos runtime，默认开启；可显式配置关闭
+	Reflection          ReflectionConfig          `json:"reflection,omitempty"`            // 运行时反思 note，默认开启；shadow 能力默认关闭
+	ReasoningEffortAuto ReasoningEffortAutoConfig `json:"reasoning_effort_auto,omitempty"` // 推理努力级别自动分类，默认开启
+	Observability       ObservabilityConfig       `json:"observability,omitempty"`         // agent 运行时可观测配置
+}
+
+// ToolRecallConfig 控制每轮根据用户消息临时召回隐藏工具。
+type ToolRecallConfig struct {
+	Mode               string  `json:"mode,omitempty"`                  // off | observe | inject
+	Limit              int     `json:"limit,omitempty"`                 // 每轮最多召回候选数
+	MinScore           float64 `json:"min_score,omitempty"`             // 普通工具最低召回分数
+	SideEffectMinScore float64 `json:"side_effect_min_score,omitempty"` // 副作用工具最低召回分数
+	LogCandidates      bool    `json:"log_candidates,omitempty"`        // 是否记录候选明细
+}
+
+type ObservabilityConfig struct {
+	Tracing TracingConfig `json:"tracing,omitempty"`
+}
+
+type TracingConfig struct {
+	Enabled           bool    `json:"enabled,omitempty"`
+	SampleRate        float64 `json:"sample_rate,omitempty"`
+	MaxSpanPerSession int     `json:"max_span_per_session,omitempty"`
+}
+
+// ReasoningEffortAutoConfig 控制推理努力级别自动分类。
+type ReasoningEffortAutoConfig struct {
+	Enabled      bool   `json:"enabled,omitempty"`
+	DefaultLevel string `json:"default_level,omitempty"`
+}
+
+// ReflectionConfig 控制 Agent 运行时反思与后续 shadow 评估能力。
+type ReflectionConfig struct {
+	Enabled          bool                   `json:"enabled,omitempty"`
+	TestDrivenShadow ReflectionShadowConfig `json:"test_driven_shadow,omitempty"`
+	EvaluatorShadow  ReflectionShadowConfig `json:"evaluator_shadow,omitempty"`
+}
+
+// ReflectionShadowConfig 控制额外成本/执行风险的 shadow 能力。
+type ReflectionShadowConfig struct {
+	Enabled bool `json:"enabled,omitempty"`
 }
 
 // PlanRuntimeConfig 控制 session-scoped todos 与 Plan Runtime Guard。
@@ -395,8 +437,25 @@ func Default() *Config {
 		},
 		SpecDriven: DefaultSpecDrivenConfig,
 		Agent: AgentConfig{
+			ToolRecall: DefaultToolRecallConfigValue,
 			PlanRuntime: PlanRuntimeConfig{
 				Enabled: true,
+			},
+			Reflection: ReflectionConfig{
+				Enabled:          true,
+				TestDrivenShadow: ReflectionShadowConfig{Enabled: false},
+				EvaluatorShadow:  ReflectionShadowConfig{Enabled: false},
+			},
+			ReasoningEffortAuto: ReasoningEffortAutoConfig{
+				Enabled:      true,
+				DefaultLevel: "low",
+			},
+			Observability: ObservabilityConfig{
+				Tracing: TracingConfig{
+					Enabled:           true,
+					SampleRate:        1.0,
+					MaxSpanPerSession: 2000,
+				},
 			},
 		},
 		// LLM 及其他运行时配置的默认值由 DB SQL 种子提供，服务器模式下由 LoadLLMFromDB / LoadAllConfigFromDB 填充。
@@ -435,6 +494,22 @@ func (c *Config) CLIDefaults() {
 		PlanRuntime: PlanRuntimeConfig{
 			Enabled: true,
 		},
+		Reflection: ReflectionConfig{
+			Enabled:          true,
+			TestDrivenShadow: ReflectionShadowConfig{Enabled: false},
+			EvaluatorShadow:  ReflectionShadowConfig{Enabled: false},
+		},
+		ReasoningEffortAuto: ReasoningEffortAutoConfig{
+			Enabled:      true,
+			DefaultLevel: "low",
+		},
+		Observability: ObservabilityConfig{
+			Tracing: TracingConfig{
+				Enabled:           true,
+				SampleRate:        1.0,
+				MaxSpanPerSession: 2000,
+			},
+		},
 	}
 	c.MCP = MCPConfig{
 		Timeout: DefaultMCPTimeout,
@@ -458,6 +533,7 @@ func (c *Config) CLIDefaults() {
 	c.LSP = DefaultLSPConfig
 	c.CustomToolsDir = DefaultCustomToolsDir
 	c.Agent.ToolPolicy = DefaultToolPolicyConfig
+	c.Agent.ToolRecall = DefaultToolRecallConfigValue
 	c.SessionsDir = DefaultSessionsDir
 	c.SpecDriven = DefaultSpecDrivenConfig
 }
@@ -763,6 +839,49 @@ func (c *Config) Resolve() {
 	if c.Agent.MaxSessionCost < 0 {
 		c.Agent.MaxSessionCost = 0
 	}
+	c.Agent.ToolRecall = NormalizeToolRecallConfig(c.Agent.ToolRecall)
+}
+
+func DefaultToolRecallConfig() ToolRecallConfig {
+	return DefaultToolRecallConfigValue
+}
+
+func NormalizeToolRecallConfig(cfg ToolRecallConfig) ToolRecallConfig {
+	mode := strings.ToLower(strings.TrimSpace(cfg.Mode))
+	switch mode {
+	case "":
+		cfg.Mode = DefaultToolRecallMode
+	case "off", "observe", "inject":
+		cfg.Mode = mode
+	default:
+		cfg.Mode = "off"
+	}
+	if cfg.Limit <= 0 {
+		cfg.Limit = DefaultToolRecallLimit
+	}
+	if cfg.Limit > DefaultToolRecallMaxLimit {
+		cfg.Limit = DefaultToolRecallMaxLimit
+	}
+	if !isPositiveFiniteScore(cfg.MinScore) {
+		cfg.MinScore = DefaultToolRecallMinScore
+	}
+	if cfg.MinScore > 1 {
+		cfg.MinScore = 1
+	}
+	if !isPositiveFiniteScore(cfg.SideEffectMinScore) {
+		cfg.SideEffectMinScore = DefaultToolRecallSideEffectMinScore
+	}
+	if cfg.SideEffectMinScore > 1 {
+		cfg.SideEffectMinScore = 1
+	}
+	if cfg.SideEffectMinScore < cfg.MinScore {
+		cfg.SideEffectMinScore = cfg.MinScore
+	}
+	return cfg
+}
+
+func isPositiveFiniteScore(v float64) bool {
+	return v > 0 && !math.IsNaN(v) && !math.IsInf(v, 0)
 }
 
 // BootstrapFileConfig 仅包含需要保存到配置文件的引导参数。

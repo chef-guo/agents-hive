@@ -40,6 +40,30 @@ func TestCandidateFromFailure_PersistsOptimizationSuggestions(t *testing.T) {
 	assert.Equal(t, "grep", rec.Suggestions[1].Target)
 }
 
+func TestCandidateFromReflection_PreservesReflectionSource(t *testing.T) {
+	rec := CandidateFromReflection("session-1", "连续调用失败后修复流程", "session-1:step-5", Event{
+		Name:        EventReflection,
+		Route:       "web",
+		FailureType: FailureRuntime,
+		FinalStatus: StatusBlocked,
+		Reflection: Reflection{
+			Trigger:     "call_failure",
+			Severity:    "hard_stop",
+			ToolName:    "shell",
+			Consecutive: 3,
+			Summary:     "连续工具调用失败，需要先检查错误模式再继续",
+		},
+	})
+
+	assert.Equal(t, CandidateNew, rec.Status)
+	assert.Equal(t, EventReflection, rec.SourceEvent.Name)
+	assert.Equal(t, FailureRuntime, rec.FailureType)
+	assert.Equal(t, FailureRuntime, rec.Case.FailureType)
+	assert.Equal(t, StatusBlocked, rec.Case.ExpectedStatus)
+	assert.Contains(t, rec.Case.Notes, "reflection")
+	assert.NotEmpty(t, rec.Suggestions)
+}
+
 func TestValidateCandidateStatus(t *testing.T) {
 	assert.NoError(t, ValidateCandidateStatus(CandidateApproved))
 	assert.Error(t, ValidateCandidateStatus("invalid"))

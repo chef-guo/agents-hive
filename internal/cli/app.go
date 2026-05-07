@@ -285,8 +285,13 @@ func NewApp(cfg *config.Config, logger *zap.Logger) *App {
 		InstructionURLs:     cfg.InstructionURLs,
 		StorePrivacy:        cfg.LLM.StorePrivacy,
 		ToolPolicy:          cfg.Agent.ToolPolicy,
+		ToolRecall:          cfg.Agent.ToolRecall,
 		QualityGuards:       cfg.Agent.QualityGuards,
+		Reflection:          cfg.Agent.Reflection,
+		ReasoningEffortAuto: cfg.Agent.ReasoningEffortAuto,
+		Observability:       cfg.Agent.Observability,
 	}, cfg.HITL, agentReg, skillReg, sessionStore, logger)
+	m.SetValidationExecutor(appExec)
 
 	// 设置记忆注入器（在 LLM 调用前注入相关记忆到上下文）
 	if memStore != nil {

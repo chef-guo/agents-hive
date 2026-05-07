@@ -370,14 +370,19 @@ func InitServer(cfg *config.Config, configPath string, logger *zap.Logger) *Serv
 		StorePrivacy:                cfg.LLM.StorePrivacy,
 		Router:                      sc.AIRouter,
 		ToolPolicy:                  cfg.Agent.ToolPolicy,
+		ToolRecall:                  cfg.Agent.ToolRecall,
 		MaxSessionCost:              cfg.Agent.MaxSessionCost,
 		SpecDriven:                  cfg.SpecDriven,
 		PlanRuntime:                 cfg.Agent.PlanRuntime,
 		QualityGuards:               cfg.Agent.QualityGuards,
+		Reflection:                  cfg.Agent.Reflection,
+		ReasoningEffortAuto:         cfg.Agent.ReasoningEffortAuto,
+		Observability:               cfg.Agent.Observability,
 		RuntimePolicy:               runtimePolicyFromConfig(cfg.RuntimePolicy),
 	}, cfg.HITL, sc.AgentReg, sc.SkillReg, sc.SessionStore, logger)
 
 	sc.Master.EnableStreamingExecutor = true // 域D: 并发工具执行已就绪，正式启用
+	sc.Master.SetValidationExecutor(sc.Executor)
 	sc.Master.SetMCPHost(sc.MCPHost)
 	if sc.SessionTodoStore != nil {
 		sc.Master.SetSessionTodoStore(sc.SessionTodoStore)

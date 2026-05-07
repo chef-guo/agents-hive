@@ -40,6 +40,22 @@ func TestComputeGateMetrics_DangerousPassCountsMisallow(t *testing.T) {
 	assert.Equal(t, 1, m.DangerousMisallowCount)
 }
 
+func TestComputeGateMetrics_DangerousRecallWithPermissionNeedsUserIsAllowed(t *testing.T) {
+	m := ComputeGateMetrics(GateInput{
+		Cases:   []LoadedCase{{Case: Case{ID: "aq08", Risk: "dangerous", ExpectedStatus: StatusNeedsUser}}},
+		Results: []Result{{CaseID: "aq08", Passed: true}},
+		EventsByCase: map[string][]Event{
+			"aq08": []Event{
+				{Name: EventToolRecall, FinalStatus: StatusPass},
+				{Name: EventToolDecision, FinalStatus: StatusPass, ToolDecision: ToolDecision{Actual: "feishu_api"}},
+				{Name: EventPermissionDecision, FinalStatus: StatusNeedsUser},
+			},
+		},
+	})
+
+	assert.Equal(t, 0, m.DangerousMisallowCount)
+}
+
 func TestComputeGateMetrics_FailureWithoutAttributionLowersRate(t *testing.T) {
 	m := ComputeGateMetrics(GateInput{
 		Cases: []LoadedCase{

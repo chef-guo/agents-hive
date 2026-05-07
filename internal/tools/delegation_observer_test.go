@@ -43,7 +43,12 @@ func TestTaskDelegationObserverRecordsFailure(t *testing.T) {
 	}
 	registerTask(host, executor, logger, observer, 0)
 
-	ctx := WithToolContext(context.Background(), &ToolContext{CallerType: CallerMaster, CallerName: "master"})
+	ctx := WithToolContext(context.Background(), &ToolContext{
+		CallerType: CallerMaster,
+		CallerName: "master",
+		TraceID:    "trace-parent",
+		SpanID:     "span-tool",
+	})
 	input, _ := json.Marshal(taskInput{AgentID: "research", Instruction: "调查"})
 	result, err := host.ExecuteTool(ctx, "task", input)
 	if err != nil {
@@ -80,7 +85,12 @@ func TestSpawnAgentDelegationObserverRecordsWhitelistAndFailure(t *testing.T) {
 	}
 	registerSpawnAgent(host, executor, spawner, logger, observer, 0)
 
-	ctx := WithToolContext(context.Background(), &ToolContext{CallerType: CallerMaster, CallerName: "master"})
+	ctx := WithToolContext(context.Background(), &ToolContext{
+		CallerType: CallerMaster,
+		CallerName: "master",
+		TraceID:    "trace-parent",
+		SpanID:     "span-tool",
+	})
 	input, _ := json.Marshal(spawnAgentInput{
 		Name:         "worker",
 		SystemPrompt: "你负责执行任务",
@@ -108,6 +118,9 @@ func TestSpawnAgentDelegationObserverRecordsWhitelistAndFailure(t *testing.T) {
 	if events[0].Status != "failed" || events[0].FailureType != "runtime" {
 		t.Fatalf("失败状态错误: %+v", events[0])
 	}
+	if events[0].ParentTraceID != "trace-parent" || events[0].ChildTraceID != "trace-parent:dyn-mock" {
+		t.Fatalf("trace 边未记录: %+v", events[0])
+	}
 }
 
 func TestParallelDispatchDelegationObserverRecordsPartialFailure(t *testing.T) {
@@ -124,7 +137,12 @@ func TestParallelDispatchDelegationObserverRecordsPartialFailure(t *testing.T) {
 	}
 	registerParallelDispatch(host, executor, nil, logger, observer)
 
-	ctx := WithToolContext(context.Background(), &ToolContext{CallerType: CallerMaster, CallerName: "master"})
+	ctx := WithToolContext(context.Background(), &ToolContext{
+		CallerType: CallerMaster,
+		CallerName: "master",
+		TraceID:    "trace-parent",
+		SpanID:     "span-tool",
+	})
 	input, _ := json.Marshal(parallelDispatchInput{Tasks: []parallelTaskItem{
 		{ID: "ok", AgentID: "research", Instruction: "成功"},
 		{ID: "bad", AgentID: "broken", Instruction: "失败"},
@@ -157,10 +175,16 @@ func TestParallelDispatchDelegationObserverRecordsPartialFailure(t *testing.T) {
 	if failedTask.GroupID == "" || failedTask.FailureType != "runtime" {
 		t.Fatalf("失败任务事件缺少 group/failure: %+v", *failedTask)
 	}
+	if failedTask.ParentTraceID != "trace-parent" || failedTask.ChildTraceID != "trace-parent:broken" {
+		t.Fatalf("失败任务 trace 边未记录: %+v", *failedTask)
+	}
 	if failedGroup == nil {
 		t.Fatalf("未记录部分失败组事件: %+v", events)
 	}
 	if failedGroup.GroupID != failedTask.GroupID {
 		t.Fatalf("组事件和任务事件 group_id 不一致: task=%s group=%s", failedTask.GroupID, failedGroup.GroupID)
+	}
+	if failedGroup.ParentTraceID != "trace-parent" || failedGroup.ChildTraceID != "trace-parent:"+failedGroup.GroupID {
+		t.Fatalf("组事件 trace 边未记录: %+v", *failedGroup)
 	}
 }

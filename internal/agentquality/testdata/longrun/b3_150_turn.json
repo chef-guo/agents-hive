@@ -1,0 +1,20 @@
+{
+  "id": "b3_150_turn",
+  "name": "B3 150 turn pressure workflow",
+  "route": "web",
+  "goal": "Verify an extreme 150 turn workflow does not overflow context or finish before validation.",
+  "constraints": [
+    "trace every compaction",
+    "repair each failed validation before completing",
+    "stay within the original task scope"
+  ],
+  "seed": 303,
+  "steps": [
+    { "turn": 1, "kind": "tool_success", "tool": "read_file", "action": "load plan" },
+    { "turn": 35, "kind": "tool_failure", "tool": "go test", "action": "first validation run", "outcome": "test failed and was investigated" },
+    { "turn": 36, "kind": "tool_success", "tool": "apply_patch", "action": "fix first validation failure" },
+    { "turn": 75, "kind": "compaction", "action": "first full compaction", "compaction": true, "tokens_before_compaction": 130000, "tokens_after_compaction": 52000, "compaction_stage_names": ["tool_budget", "session_memory", "truncate"], "compaction_elapsed_ms": 260 },
+    { "turn": 110, "kind": "compaction", "action": "second full compaction near budget", "compaction": true, "tokens_before_compaction": 142000, "tokens_after_compaction": 57000, "compaction_stage_names": ["tool_budget", "session_memory", "truncate"], "compaction_elapsed_ms": 260 },
+    { "turn": 150, "kind": "final", "action": "complete only after final validation", "budget_exit_mode": "none", "final_status": "completed" }
+  ]
+}

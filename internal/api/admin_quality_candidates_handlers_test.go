@@ -146,6 +146,43 @@ func TestAdminQualityCandidates_CreateCandidatePersistsOptimizationSuggestions(t
 	require.Equal(t, agentquality.SuggestionToolDescription, stored.Suggestions[1].Kind)
 }
 
+func TestAdminQualityCandidates_CreateCandidateFromReflection(t *testing.T) {
+	store := newFakeQualityCandidateStore()
+	srv := newQualityCandidateTestServer(store)
+	body := `{
+		"session_id": "session-1",
+		"replay_ref": "session-1:step-5",
+		"input": "连续 shell 调用失败后改路",
+		"quality_event": {
+			"name": "quality.reflection",
+			"route": "web",
+			"failure_type": "runtime",
+			"final_status": "blocked",
+			"prompt": {"key": "system/base", "version": "sha256:old"},
+			"reflection": {
+				"trigger": "call_failure",
+				"severity": "hard_stop",
+				"tool_name": "shell",
+				"consecutive": 3,
+				"summary": "连续工具调用失败，应先总结错误并调整下一步"
+			}
+		}
+	}`
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/quality/candidates", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	srv.handleAdminQualityCreateCandidate(rec, req)
+
+	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+	var got agentquality.CandidateRecord
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&got))
+	require.Equal(t, agentquality.EventReflection, got.SourceEvent.Name)
+	require.Equal(t, agentquality.FailureRuntime, got.FailureType)
+	require.Len(t, got.Suggestions, 1)
+	require.Equal(t, agentquality.SuggestionPromptDiff, got.Suggestions[0].Kind)
+	require.True(t, got.Suggestions[0].ReviewRequired)
+}
+
 func TestAdminQualityCandidates_ListIncludesOptimizationSuggestions(t *testing.T) {
 	store := newFakeQualityCandidateStore()
 	rec := agentquality.CandidateFromFailure("session-1", "定位 createPermissionPromptFn", "session-1:step-4", agentquality.Event{

@@ -32,7 +32,8 @@ export function useWebSocketConnection({
   const mountedRef = useRef(true);
   const connectRef = useRef<() => void>(() => {});
   const connectingRef = useRef(false);
-  const connectSeqRef = useRef(0);
+	const connectSeqRef = useRef(0);
+	const connectWithTokenRef = useRef<(token: string | null, connectSeq: number) => void>(() => {});
 
   // 用 ref 保存最新的回调，避免 connect 的 useCallback 依赖频繁变化
   const onMessageRef = useRef(onMessage);
@@ -93,7 +94,7 @@ export function useWebSocketConnection({
         connectingRef.current = true;
         ensureFreshToken({ force: true }).then((newToken) => {
           if (newToken && mountedRef.current) {
-            connectWithToken(newToken, retrySeq);
+						connectWithTokenRef.current(newToken, retrySeq);
           } else {
             window.location.href = '/login';
           }
@@ -123,7 +124,11 @@ export function useWebSocketConnection({
     ws.onerror = () => {
       ws.close();
     };
-  }, [enabled, sessionId, url]);
+	  }, [enabled, sessionId, url]);
+
+	useEffect(() => {
+		connectWithTokenRef.current = connectWithToken;
+	}, [connectWithToken]);
 
   const connect = useCallback(() => {
     if (!enabled || !url || !mountedRef.current) return;
@@ -158,7 +163,8 @@ export function useWebSocketConnection({
     connect();
     return () => {
       mountedRef.current = false;
-      connectSeqRef.current++;
+			const nextConnectSeq = connectSeqRef.current + 1;
+			connectSeqRef.current = nextConnectSeq;
       clearTimeout(reconnectTimer.current);
       if (wsRef.current) {
         wsRef.current.onclose = null;

@@ -34,6 +34,7 @@ import (
 	"github.com/chef-guo/agents-hive/internal/subagent"
 	"github.com/chef-guo/agents-hive/internal/toolctx"
 	"github.com/chef-guo/agents-hive/internal/tools"
+	"github.com/chef-guo/agents-hive/internal/trajectory"
 )
 
 // SkillRegistryProvider 是 Master 需要的 skill 注册表接口。
@@ -70,11 +71,15 @@ type Config struct {
 	APIFormat                   string                     // API 格式: "chat" 或 "responses"，默认 "chat"
 	Router                      *airouter.Router           // AI 服务路由器（可选，设置后替代直接 llmClient）
 	ToolPolicy                  config.ToolPolicyConfig    // 工具过滤策略配置
+	ToolRecall                  config.ToolRecallConfig    // 每轮隐藏工具召回配置
 	MaxSessionCost              float64                    // P0-3: per-session 成本预算上限（USD），<=0 表示不限制（需要 PostgreSQL 成本追踪启用）
 	SpecDriven                  config.SpecDrivenConfig    // Spec-driven Phase 2 总开关（默认 mode=legacy，零成本短路 session_loop intake hook）
 	PlanRuntime                 config.PlanRuntimeConfig   // session 级 plan/todos runtime 配置
 	QualityGuards               config.QualityGuardsConfig // P0 质量护栏灰度开关（见 docs/计划与路线/Agent-质量护栏治理计划.md）
-	RuntimePolicy               runtimepolicy.Policy       // 运行期 timeout、容量和成本策略
+	Reflection                  config.ReflectionConfig    // 运行时反思与 shadow 评估配置
+	ReasoningEffortAuto         config.ReasoningEffortAutoConfig
+	Observability               config.ObservabilityConfig
+	RuntimePolicy               runtimepolicy.Policy // 运行期 timeout、容量和成本策略
 }
 
 // BroadcastMessage 是 WebSocket 广播消息
@@ -232,18 +237,24 @@ type Master struct {
 	toolBridge   *skills.ToolBridge // 工具桥接（复用 SubAgent 的工具执行路径）
 	masterFilter *skills.ToolFilter // Master 的工具过滤器（启动时由 toolPolicy 构建）
 
-	memoryInjector *memory.Injector            // 记忆注入器（可选，用于将相关记忆注入 LLM 上下文）
-	costTracker    accounting.CostTracker      // 成本追踪器（可选，nil 时不记录）
-	asyncRecorder  *accounting.AsyncRecorder   // 异步写入包装器（channel+worker，shutdown 安全）
-	authEngine     *auth.Engine                // 认证引擎（可选，nil 时不检查配额）
-	journal        journal.Journal             // 开发日志（可选，nil 时不记录）
-	tracer         observability.Tracer        // 可观测性 Tracer（可选，nil 时不记录）
-	metricsWriter  observability.MetricsWriter // 可观测性 MetricsWriter（可选，nil 时不记录）
-	logWriter      observability.LogWriter     // 可观测性 LogWriter（可选，nil 时不记录）
-	obsCh          chan observabilityEntry     // 异步 observability 写入队列
-	obsDone        chan struct{}               // observability worker 退出信号
-	journalCh      chan journalEntry           // 异步 journal 写入队列（支持 tool call / file change / decision）
-	journalDone    chan struct{}               // journal worker 退出信号
+	memoryInjector  *memory.Injector            // 记忆注入器（可选，用于将相关记忆注入 LLM 上下文）
+	costTracker     accounting.CostTracker      // 成本追踪器（可选，nil 时不记录）
+	asyncRecorder   *accounting.AsyncRecorder   // 异步写入包装器（channel+worker，shutdown 安全）
+	authEngine      *auth.Engine                // 认证引擎（可选，nil 时不检查配额）
+	journal         journal.Journal             // 开发日志（可选，nil 时不记录）
+	tracer          observability.Tracer        // 可观测性 Tracer（可选，nil 时不记录）
+	metricsWriter   observability.MetricsWriter // 可观测性 MetricsWriter（可选，nil 时不记录）
+	logWriter       observability.LogWriter     // 可观测性 LogWriter（可选，nil 时不记录）
+	trajectoryStore trajectory.Store            // 诊断级 step snapshot 存储（可选）
+	validationExec  ValidationExecutor          // test-driven shadow 验证执行器（可选）
+	reflectionEval  ReflectionEvaluator         // evaluator shadow 评估器（可选）
+	obsCh           chan observabilityEntry     // 异步 observability 写入队列
+	obsDone         chan struct{}               // observability worker 退出信号
+	spansDropped    atomic.Int64
+	metricsDropped  atomic.Int64
+	logsDropped     atomic.Int64
+	journalCh       chan journalEntry // 异步 journal 写入队列（支持 tool call / file change / decision）
+	journalDone     chan struct{}     // journal worker 退出信号
 
 	stopOnce  sync.Once
 	closeOnce sync.Once // 保护 channel 关闭
@@ -259,6 +270,7 @@ type Master struct {
 	// 当前活跃的安全执行器，createPermissionPromptFn 直接调 MatchPolicy。
 	// 用 atomic.Pointer 支持热重载原子替换，零锁读。nil 时表示 Master 未完成安全初始化。
 	safeExecutor atomic.Pointer[security.SafeExecutor]
+	spanCounts   sync.Map // map[sessionID]*atomic.Int64
 
 	// 可配置的后台同步间隔
 	syncInterval time.Duration
@@ -680,6 +692,21 @@ func (m *Master) SetMemoryInjector(inj *memory.Injector) {
 	m.memoryInjector = inj
 }
 
+// SetTrajectoryStore 设置诊断级 step snapshot 存储。
+func (m *Master) SetTrajectoryStore(store trajectory.Store) {
+	m.trajectoryStore = store
+}
+
+// SetValidationExecutor 设置 test-driven shadow 使用的安全执行器。
+func (m *Master) SetValidationExecutor(exec ValidationExecutor) {
+	m.validationExec = exec
+}
+
+// SetReflectionEvaluator 设置 evaluator shadow 使用的评估器。
+func (m *Master) SetReflectionEvaluator(evaluator ReflectionEvaluator) {
+	m.reflectionEval = evaluator
+}
+
 // SetJournal 设置开发日志器，使 Master 能在会话和工具调用时记录结构化日志
 func (m *Master) SetJournal(j journal.Journal) {
 	m.journal = j
@@ -804,6 +831,8 @@ func (m *Master) StartObsWorker(ctx context.Context) {
 		return
 	}
 	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
 		writeEntry := func(e observabilityEntry) {
 			wCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 			defer cancel()
@@ -826,12 +855,16 @@ func (m *Master) StartObsWorker(ctx context.Context) {
 					case e := <-m.obsCh:
 						writeEntry(e)
 					default:
+						m.flushObservabilityDropped(context.Background())
 						close(m.obsDone)
 						return
 					}
 				}
+			case <-ticker.C:
+				m.flushObservabilityDropped(context.Background())
 			case e, ok := <-m.obsCh:
 				if !ok {
+					m.flushObservabilityDropped(context.Background())
 					close(m.obsDone)
 					return
 				}
@@ -846,10 +879,45 @@ func (m *Master) enqueueSpan(span observability.Span) {
 	if m.obsCh == nil {
 		return
 	}
+	if !m.tracingEnabled() || !m.tryCountSessionSpan(span.SessionID) {
+		m.spansDropped.Add(1)
+		return
+	}
 	select {
 	case m.obsCh <- observabilityEntry{span: &span}:
 	default:
+		m.spansDropped.Add(1)
 	}
+}
+
+func (m *Master) tracingEnabled() bool {
+	if m == nil {
+		return false
+	}
+	tracing := m.config.Observability.Tracing
+	if !tracing.Enabled {
+		// Config{} 是大量测试的零值构造，按默认开启处理。
+		return tracing.SampleRate == 0 && tracing.MaxSpanPerSession == 0
+	}
+	return true
+}
+
+func (m *Master) maxSpanPerSession() int64 {
+	limit := m.config.Observability.Tracing.MaxSpanPerSession
+	if limit <= 0 {
+		return 2000
+	}
+	return int64(limit)
+}
+
+func (m *Master) tryCountSessionSpan(sessionID string) bool {
+	if sessionID == "" {
+		return true
+	}
+	limit := m.maxSpanPerSession()
+	value, _ := m.spanCounts.LoadOrStore(sessionID, &atomic.Int64{})
+	counter := value.(*atomic.Int64)
+	return counter.Add(1) <= limit
 }
 
 // enqueueMetric 将 metric 放入异步写入队列（nil 安全，队列满时丢弃）
@@ -860,6 +928,7 @@ func (m *Master) enqueueMetric(metric observability.Metric) {
 	select {
 	case m.obsCh <- observabilityEntry{metric: &metric}:
 	default:
+		m.metricsDropped.Add(1)
 	}
 }
 
@@ -871,6 +940,37 @@ func (m *Master) enqueueLog(entry observability.LogEntry) {
 	select {
 	case m.obsCh <- observabilityEntry{log: &entry}:
 	default:
+		m.logsDropped.Add(1)
+	}
+}
+
+func (m *Master) flushObservabilityDropped(ctx context.Context) {
+	if m.metricsWriter == nil {
+		return
+	}
+	m.flushDroppedCounter(ctx, "span", "obs_queue_full", &m.spansDropped)
+	m.flushDroppedCounter(ctx, "metric", "obs_queue_full", &m.metricsDropped)
+	m.flushDroppedCounter(ctx, "log", "obs_queue_full", &m.logsDropped)
+}
+
+func (m *Master) flushDroppedCounter(ctx context.Context, kind, reason string, counter *atomic.Int64) {
+	dropped := counter.Load()
+	if dropped <= 0 {
+		return
+	}
+	if !counter.CompareAndSwap(dropped, 0) {
+		return
+	}
+	err := m.metricsWriter.Record(ctx, observability.Metric{
+		Name:  "hive.observability.dropped",
+		Value: float64(dropped),
+		Labels: map[string]any{
+			"kind":   kind,
+			"reason": reason,
+		},
+	})
+	if err != nil {
+		counter.Add(dropped)
 	}
 }
 
@@ -1313,12 +1413,16 @@ func (m *Master) ExecuteTask(ctx context.Context, agentID string, instruction st
 	}
 
 	// 构造任务请求
+	tc := toolctx.GetToolContext(ctx)
 	taskReq := subagent.TaskRequest{
-		ID:        fmt.Sprintf("task-%d", time.Now().UnixNano()),
-		Type:      "execute",
-		SessionID: toolctx.GetSessionID(ctx),
-		UserID:    auth.UserIDFrom(ctx),
-		Payload:   payloadJSON,
+		ID:            fmt.Sprintf("task-%d", time.Now().UnixNano()),
+		Type:          "execute",
+		SessionID:     toolctx.GetSessionID(ctx),
+		UserID:        auth.UserIDFrom(ctx),
+		TraceID:       tools.DeriveChildTraceID(tc.TraceID, agentID),
+		ParentSpanID:  tc.SpanID,
+		ParentTraceID: tc.TraceID,
+		Payload:       payloadJSON,
 	}
 
 	// 直接使用上游 ctx 的超时（executeTool 已对 task/spawn_agent/parallel_dispatch 豁免 2 分钟超时，

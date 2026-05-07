@@ -10,6 +10,7 @@ import (
 
 	"github.com/chef-guo/agents-hive/internal/agentquality"
 	"github.com/chef-guo/agents-hive/internal/journal"
+	"github.com/chef-guo/agents-hive/internal/llm"
 	"github.com/chef-guo/agents-hive/internal/observability"
 	"github.com/chef-guo/agents-hive/internal/skills"
 	"github.com/chef-guo/agents-hive/internal/toolctx"
@@ -86,6 +87,99 @@ func (m *Master) emitQualityEvent(traceID, spanID, sessionID string, ev agentqua
 		Ts: ev.Ts,
 	})
 	m.enqueueQualityJournalDecision(sessionID, ev, raw)
+}
+
+func (m *Master) recordToolRecall(traceID, spanID string, session *SessionState, recall agentquality.ToolRecall) {
+	if m == nil || recall.Mode == "" || recall.Mode == "off" || recall.QueryPreview == "" {
+		return
+	}
+	sessionID := ""
+	if session != nil {
+		sessionID = session.ID
+	}
+	m.emitQualityEvent(traceID, spanID, sessionID, agentquality.Event{
+		Name:        agentquality.EventToolRecall,
+		Route:       routeFromSession(session),
+		FailureType: agentquality.FailureNone,
+		FinalStatus: agentquality.StatusPass,
+		ToolRecall:  recall,
+	})
+}
+
+func (m *Master) recordReflection(traceID, spanID string, session *SessionState, in reflectionNoteInput) {
+	sessionID := ""
+	if session != nil {
+		sessionID = session.ID
+	}
+	note := buildReflectionSystemNote(in)
+	if session != nil {
+		m.appendSessionMessage(session, llm.MessageWithTools{
+			Role:      "system",
+			Content:   llm.NewTextContent(note),
+			CreatedAt: time.Now().Format(time.RFC3339),
+			Metadata: map[string]string{
+				"agent_id":            "master",
+				"reflection_trigger":  in.Trigger,
+				"reflection_severity": in.Severity,
+			},
+		})
+	}
+	m.emitQualityEvent(traceID, spanID, sessionID, agentquality.Event{
+		Name:        agentquality.EventReflection,
+		Route:       routeFromSession(session),
+		FailureType: reflectionFailureType(in.Trigger),
+		FinalStatus: reflectionFinalStatus(in.Severity),
+		Reflection: agentquality.Reflection{
+			Trigger:     in.Trigger,
+			Severity:    in.Severity,
+			ToolName:    in.ToolName,
+			Consecutive: in.Consecutive,
+			Summary:     reflectionSummary(in.Trigger),
+			Injected:    session != nil,
+		},
+	})
+	if in.Trigger == "batch_loop" && in.Severity == "warn" {
+		m.recordReflectionEvaluationShadow(context.Background(), sessionID, traceID, spanID, agentquality.EvaluationInput{
+			Trigger:          "loop_warn",
+			ToolName:         in.ToolName,
+			ValidationOutput: in.Detail,
+		})
+	}
+}
+
+func reflectionFailureType(trigger string) agentquality.FailureType {
+	switch trigger {
+	case "batch_loop", "call_failure":
+		return agentquality.FailureTool
+	case "guard_failure":
+		return agentquality.FailurePrompt
+	case "validation_failure":
+		return agentquality.FailureModel
+	default:
+		return agentquality.FailureRuntime
+	}
+}
+
+func reflectionFinalStatus(severity string) agentquality.FinalStatus {
+	if severity == "hard_stop" {
+		return agentquality.StatusFail
+	}
+	return agentquality.StatusPass
+}
+
+func reflectionSummary(trigger string) string {
+	switch trigger {
+	case "batch_loop":
+		return "repeated tool batch detected"
+	case "call_failure":
+		return "repeated tool call failure detected"
+	case "guard_failure":
+		return "quality guard blocked model output"
+	case "validation_failure":
+		return "post-validation blocked model output"
+	default:
+		return "execution path needs strategy change"
+	}
 }
 
 func (m *Master) enqueueQualityJournalDecision(sessionID string, ev agentquality.Event, raw []byte) {

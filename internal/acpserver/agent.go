@@ -20,6 +20,7 @@ import (
 	"github.com/chef-guo/agents-hive/internal/errs"
 	"github.com/chef-guo/agents-hive/internal/master"
 	"github.com/chef-guo/agents-hive/internal/mcphost"
+	"github.com/chef-guo/agents-hive/internal/toolctx"
 	"github.com/chef-guo/agents-hive/internal/tools"
 )
 
@@ -306,13 +307,16 @@ func (a *ClawAgent) recordDelegation(ctx context.Context, sessionID string, stat
 	if a.master == nil {
 		return
 	}
+	tc := toolctx.GetToolContext(ctx)
 	a.master.RecordDelegation(ctx, tools.DelegationEvent{
-		SessionID:   sessionID,
-		AgentType:   "acp",
-		Status:      status,
-		FailureType: failureType,
-		StopReason:  stopReason,
-		Error:       errText,
+		SessionID:     sessionID,
+		ParentTraceID: tc.TraceID,
+		ChildTraceID:  tools.DeriveChildTraceID(tc.TraceID, sessionID),
+		AgentType:     "acp",
+		Status:        status,
+		FailureType:   failureType,
+		StopReason:    stopReason,
+		Error:         errText,
 	})
 }
 

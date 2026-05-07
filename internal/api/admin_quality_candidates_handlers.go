@@ -50,6 +50,9 @@ func (s *Server) handleAdminQualityCreateCandidate(w http.ResponseWriter, r *htt
 	}
 
 	rec := agentquality.CandidateFromFailure(body.SessionID, body.Input, body.ReplayRef, body.QualityEvent)
+	if body.QualityEvent.Name == agentquality.EventReflection {
+		rec = agentquality.CandidateFromReflection(body.SessionID, body.Input, body.ReplayRef, body.QualityEvent)
+	}
 	rec.CreatedBy = auth.UserIDFrom(r.Context())
 	created, err := s.qualityCandidateStore.UpsertCandidate(r.Context(), rec)
 	if err != nil {

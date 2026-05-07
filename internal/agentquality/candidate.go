@@ -113,6 +113,19 @@ func CandidateFromFailure(sessionID, input, replayRef string, ev Event) Candidat
 	return rec
 }
 
+func CandidateFromReflection(sessionID, input, replayRef string, ev Event) CandidateRecord {
+	if ev.Name == "" {
+		ev.Name = EventReflection
+	}
+	rec := CandidateFromFailure(sessionID, input, replayRef, ev)
+	rec.FailureType = ev.FailureType
+	rec.SourceEvent = ev
+	rec.Case.FailureType = ev.FailureType
+	rec.Case.Notes = strings.TrimSpace(rec.Case.Notes + "\n由 quality.reflection 事件生成，必须人工 review 后才能进入优化或 golden case。")
+	rec.Suggestions = BuildOptimizationSuggestions(rec)
+	return rec
+}
+
 func CandidateFingerprint(input string, ev Event) string {
 	payload := map[string]any{
 		"route":        ev.Route,

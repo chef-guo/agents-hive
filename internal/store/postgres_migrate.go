@@ -504,6 +504,25 @@ CREATE TABLE IF NOT EXISTS optimization_rollouts (
 CREATE INDEX IF NOT EXISTS idx_optimization_rollouts_status
 	ON optimization_rollouts(status, updated_at DESC);
 
+CREATE TABLE IF NOT EXISTS hive_step_snapshots (
+	id BIGSERIAL PRIMARY KEY,
+	session_id TEXT NOT NULL,
+	snapshot_seq INTEGER NOT NULL,
+	trace_id TEXT NOT NULL DEFAULT '',
+	span_id TEXT NOT NULL DEFAULT '',
+	iteration INTEGER NOT NULL DEFAULT 0,
+	message_count INTEGER NOT NULL DEFAULT 0,
+	messages JSONB NOT NULL DEFAULT '[]'::jsonb,
+	sessiontodo JSONB,
+	memory_refs JSONB,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+	UNIQUE(session_id, snapshot_seq)
+);
+CREATE INDEX IF NOT EXISTS idx_step_snapshots_session_seq
+	ON hive_step_snapshots(session_id, snapshot_seq);
+CREATE INDEX IF NOT EXISTS idx_step_snapshots_trace
+	ON hive_step_snapshots(trace_id) WHERE trace_id != '';
+
 -- Quality Workbench 持久化表
 CREATE TABLE IF NOT EXISTS agentquality_grouping_rules (
 	id         TEXT PRIMARY KEY,

@@ -4,12 +4,13 @@ import { useReplayStore } from '../store/replay';
 import { useNodeClient } from '../hooks/useNodeClient';
 import { useReplayWebSocket } from '../hooks/useReplayWebSocket';
 import { attachQualityEvent, getCharacterState } from '../types/journal';
-import type { Message } from '../types/api';
+import type { Message, SessionTraceResponse } from '../types/api';
 import { AgentCharacter } from '../components/replay/AgentCharacter';
 import { ReplayTimeline } from '../components/replay/ReplayTimeline';
 import { ReplayControls } from '../components/replay/ReplayControls';
 import { EventDetailPanel } from '../components/replay/EventDetailPanel';
 import { ReplayStats } from '../components/replay/ReplayStats';
+import { AgentTreeView } from '../components/replay/AgentTreeView';
 import { buildQualityCandidateRequest } from '../components/replay/qualityCandidate';
 import { useAuthStore } from '../store/auth';
 import { useToastStore } from '../store/toast';
@@ -48,6 +49,9 @@ export function SessionReplay() {
   const [startedAt, setStartedAt] = useState<string | undefined>();
   const [endedAt, setEndedAt] = useState<string | undefined>();
   const [messages, setMessages] = useState<Message[]>([]);
+  const [trace, setTrace] = useState<SessionTraceResponse | null>(null);
+  const [traceError, setTraceError] = useState('');
+  const [selectedTraceIndex, setSelectedTraceIndex] = useState<number | null>(null);
   const [candidateBusy, setCandidateBusy] = useState(false);
   const currentUser = useAuthStore((s) => s.user);
   const addToast = useToastStore((s) => s.addToast);
@@ -57,18 +61,27 @@ export function SessionReplay() {
     if (!id || !client) return;
     reset();
     setSessionId(id);
+    setTrace(null);
+    setTraceError('');
+    setSelectedTraceIndex(null);
 
     const load = async () => {
       try {
         // 并行加载 session 元数据和 journal 事件
-        const [session, journal, sessionMessages] = await Promise.all([
+        const [session, journal, sessionMessages, sessionTrace] = await Promise.all([
           client.getSession(id),
           client.getSessionJournal(id),
           client.getMessages(id).catch(() => []),
+          client.getSessionTrace(id).catch((err) => {
+            setTraceError(err instanceof Error ? err.message : 'Trace 加载失败');
+            return null;
+          }),
         ]);
         setSessionName(session.name || '未命名会话');
         setSessionDate(session.created || session.last_accessed);
         setMessages(sessionMessages);
+        setTrace(sessionTrace);
+        setSelectedTraceIndex(null);
         const eventsWithQuality = journal.events.map(attachQualityEvent);
         setEvents(eventsWithQuality);
 
@@ -131,6 +144,7 @@ export function SessionReplay() {
   // 当前事件
   const currentEventIdx = filteredIndices[currentIndex];
   const currentEvent = currentEventIdx != null ? events[currentEventIdx] : null;
+  const selectedTraceItem = selectedTraceIndex != null ? trace?.items[selectedTraceIndex] ?? null : null;
   const charState = currentEvent ? getCharacterState(currentEvent) : 'idle';
   const canCreateQualityCandidate = currentUser?.role === 'admin';
 
@@ -212,8 +226,13 @@ export function SessionReplay() {
       {/* Main content */}
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
         {/* 左侧时间轴 */}
-        <div style={{ width: 240, borderRight: '1px solid var(--border, rgba(0,0,0,0.08))', background: 'var(--bg-card, #fff)', overflow: 'hidden' }}>
-          <ReplayTimeline />
+        <div style={{ width: 280, borderRight: '1px solid var(--border, rgba(0,0,0,0.08))', background: 'var(--bg-card, #fff)', overflow: 'hidden' }}>
+          <ReplayTimeline
+            trace={trace}
+            selectedTraceIndex={selectedTraceIndex}
+            onSelectTrace={setSelectedTraceIndex}
+            onSelectJournal={() => setSelectedTraceIndex(null)}
+          />
         </div>
 
         {/* 右侧舞台 + 详情 */}
@@ -285,11 +304,27 @@ export function SessionReplay() {
           }}>
             <EventDetailPanel
               event={currentEvent}
+              traceItem={selectedTraceItem}
               canCreateCandidate={canCreateQualityCandidate}
               candidateBusy={candidateBusy}
               onCreateCandidate={createQualityCandidate}
             />
           </div>
+        </div>
+
+        <div style={{
+          width: 280,
+          borderLeft: '1px solid var(--border, rgba(0,0,0,0.08))',
+          background: 'var(--bg-card, #fff)',
+          overflowY: 'auto',
+        }}>
+          {traceError ? (
+            <div style={{ padding: 12, fontSize: 12, color: '#D97706', fontFamily: 'DM Sans, sans-serif' }}>
+              {traceError}
+            </div>
+          ) : (
+            <AgentTreeView nodes={trace?.agent_tree || []} />
+          )}
         </div>
       </div>
 

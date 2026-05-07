@@ -38,6 +38,9 @@ bin/.worktrees/
 ~/.claw/
 config.json
 .gstack/
+docs/
+TODOs.md
+MEMORY.md
 DESIGN.md
 CLAUDE.md
 AGENTS.md

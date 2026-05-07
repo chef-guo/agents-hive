@@ -100,7 +100,12 @@ func TestHost_GetTool_Success(t *testing.T) {
 	host := NewHost(logger)
 
 	host.RegisterTool(
-		ToolDefinition{Name: "fetch", Description: "fetches data", InputSchema: json.RawMessage(`{"type":"object"}`)},
+		ToolDefinition{
+			Name:         "fetch",
+			Description:  "fetches data",
+			InputSchema:  json.RawMessage(`{"type":"object"}`),
+			OutputSchema: json.RawMessage(`{"type":"object","required":["data"]}`),
+		},
 		func(ctx context.Context, input json.RawMessage) (*ToolResult, error) {
 			return &ToolResult{Content: input}, nil
 		},
@@ -118,6 +123,9 @@ func TestHost_GetTool_Success(t *testing.T) {
 	}
 	if string(def.InputSchema) != `{"type":"object"}` {
 		t.Errorf("expected InputSchema %q, got %q", `{"type":"object"}`, string(def.InputSchema))
+	}
+	if string(def.OutputSchema) != `{"type":"object","required":["data"]}` {
+		t.Errorf("expected OutputSchema %q, got %q", `{"type":"object","required":["data"]}`, string(def.OutputSchema))
 	}
 }
 

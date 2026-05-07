@@ -50,6 +50,33 @@ func TestBuildOptimizationSuggestions_GeneratesPromptToolAndSkillArtifacts(t *te
 	assert.Contains(t, skillSuggestions[0].Proposed, "review")
 }
 
+func TestBuildOptimizationSuggestionsFromReflection(t *testing.T) {
+	rec := CandidateFromReflection("session-1", "连续 shell 调用失败后改路", "session-1:step-5", Event{
+		Name:        EventReflection,
+		Route:       "web",
+		FailureType: FailureRuntime,
+		FinalStatus: StatusBlocked,
+		Prompt:      PromptRef{Key: "system/base", Version: "sha256:old"},
+		Reflection: Reflection{
+			Trigger:     "call_failure",
+			Severity:    "hard_stop",
+			ToolName:    "shell",
+			Consecutive: 3,
+			Summary:     "连续工具调用失败，应先总结错误并调整下一步",
+			Recommended: []string{"检查 stderr", "改用更小命令验证"},
+		},
+	})
+
+	suggestions := BuildOptimizationSuggestions(rec)
+
+	assertSuggestionKinds(t, suggestions, SuggestionPromptDiff)
+	assert.Equal(t, "反思纠偏 Prompt 建议", suggestions[0].Title)
+	assert.Equal(t, "system/base@sha256:old", suggestions[0].Target)
+	assert.Contains(t, suggestions[0].Rationale, "quality.reflection")
+	assert.Contains(t, suggestions[0].Proposed, "call_failure")
+	assert.True(t, suggestions[0].ReviewRequired)
+}
+
 func TestGoldenCaseFromPromotedCandidate_ExportsReviewedCase(t *testing.T) {
 	rec := CandidateFromFailure("session-1", "定位 createPermissionPromptFn", "session-1:step-4", Event{
 		Route:       "web",

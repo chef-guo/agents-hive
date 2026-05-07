@@ -4,7 +4,7 @@
 
 ## 📍 sessiontodo Roadmap(Plan Runtime + Todos 重构 follow-up,2026-04-30)
 
-主计划:`docs/计划与路线/Agent-计划状态与Todos实时化重构计划.md`
+主计划:`docs/计划与路线/归档/Agent-计划状态与Todos实时化重构计划.md`
 本期 PR scope = §14 最小可交付切片。当前状态已收口为：
 
 - 已完成: Wave 1-5 以及独立项均已落地，不再作为待办。

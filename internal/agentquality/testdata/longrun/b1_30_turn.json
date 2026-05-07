@@ -1,0 +1,26 @@
+{
+  "id": "b1_30_turn",
+  "name": "B1 30 turn file workflow",
+  "route": "web",
+  "goal": "Verify a 30 turn file editing workflow keeps todos and finishes only after validation.",
+  "constraints": [
+    "do not edit generated files",
+    "include the validation command in the final answer"
+  ],
+  "seed": 101,
+  "steps": [
+    { "turn": 1, "kind": "tool_success", "tool": "read_file", "action": "read target file" },
+    { "turn": 2, "kind": "tool_success", "tool": "rg", "action": "locate related symbol" },
+    { "turn": 3, "kind": "tool_success", "tool": "read_file", "action": "read test file" },
+    { "turn": 4, "kind": "tool_success", "tool": "apply_patch", "action": "make scoped edit" },
+    { "turn": 5, "kind": "tool_failure", "tool": "go test", "action": "run focused test", "outcome": "test failed once" },
+    { "turn": 6, "kind": "tool_success", "tool": "read_file", "action": "inspect failure" },
+    { "turn": 7, "kind": "tool_success", "tool": "apply_patch", "action": "fix root cause" },
+    { "turn": 8, "kind": "tool_success", "tool": "go test", "action": "rerun focused test" },
+    { "turn": 9, "kind": "tool_success", "tool": "go test", "action": "run package test" },
+    { "turn": 10, "kind": "tool_success", "tool": "rg", "action": "confirm final command reference" },
+    { "turn": 11, "kind": "tool_success", "tool": "read_file", "action": "check changed file" },
+    { "turn": 12, "kind": "tool_success", "tool": "git diff", "action": "review scoped diff" },
+    { "turn": 30, "kind": "final", "action": "final answer includes go test ./internal/agentquality -run 'LongRun' -count=1", "budget_exit_mode": "none", "final_status": "completed" }
+  ]
+}

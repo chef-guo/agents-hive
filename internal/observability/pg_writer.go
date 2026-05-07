@@ -5,19 +5,25 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.uber.org/zap"
 )
 
+type pgTracerQuerier interface {
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+}
+
 // PgTracer 基于 PostgreSQL 的 Tracer 实现
 type PgTracer struct {
-	pool   *pgxpool.Pool
-	logger *zap.Logger
+	pool    *pgxpool.Pool
+	querier pgTracerQuerier
+	logger  *zap.Logger
 }
 
 // NewPgTracer 创建 PG Tracer
 func NewPgTracer(pool *pgxpool.Pool, logger *zap.Logger) *PgTracer {
-	return &PgTracer{pool: pool, logger: logger}
+	return &PgTracer{pool: pool, querier: pool, logger: logger}
 }
 
 // StartSpan 开始一个 Span，返回 SpanContext
@@ -48,6 +54,79 @@ func (t *PgTracer) RecordSpan(ctx context.Context, span Span) error {
 		t.logger.Warn("写入 trace span 失败", zap.Error(err))
 	}
 	return err
+}
+
+// GetSessionTimeline 返回 session 维度的 span + quality log 统一时间线。
+func (t *PgTracer) GetSessionTimeline(ctx context.Context, sessionID string, limit int) (TraceTimeline, error) {
+	if limit <= 0 {
+		limit = 2000
+	}
+	rows, err := t.querier.Query(ctx, `
+		WITH span_items AS (
+			SELECT 'span' AS kind,
+			       trace_id,
+			       span_id,
+			       COALESCE(parent_span_id, '') AS parent_span_id,
+			       operation,
+			       service,
+			       status,
+			       duration_ms,
+			       attributes,
+			       ts
+			  FROM hive_traces
+			 WHERE session_id = $1
+		), quality_items AS (
+			SELECT 'quality_event' AS kind,
+			       COALESCE(trace_id, '') AS trace_id,
+			       COALESCE(span_id, '') AS span_id,
+			       '' AS parent_span_id,
+			       message AS operation,
+			       'agentquality' AS service,
+			       'ok' AS status,
+			       0 AS duration_ms,
+			       attributes,
+			       ts
+			  FROM hive_logs
+			 WHERE session_id = $1
+			   AND message LIKE 'quality.%'
+		)
+		SELECT kind, trace_id, span_id, parent_span_id, operation, service, status, duration_ms, attributes, ts
+		  FROM (
+			SELECT * FROM span_items
+			UNION ALL
+			SELECT * FROM quality_items
+		  ) AS timeline
+		 ORDER BY ts ASC
+		 LIMIT $2`, sessionID, limit)
+	if err != nil {
+		return TraceTimeline{}, err
+	}
+	defer rows.Close()
+
+	out := TraceTimeline{SessionID: sessionID, Items: []TraceTimelineItem{}}
+	for rows.Next() {
+		var item TraceTimelineItem
+		var attrs []byte
+		if err := rows.Scan(&item.Kind, &item.TraceID, &item.SpanID, &item.ParentSpanID, &item.Operation, &item.Service, &item.Status, &item.DurationMs, &attrs, &item.Timestamp); err != nil {
+			return TraceTimeline{}, err
+		}
+		if len(attrs) > 0 && string(attrs) != "null" {
+			var decoded map[string]any
+			if err := json.Unmarshal(attrs, &decoded); err == nil {
+				item.Attributes = decoded
+			}
+		}
+		if out.TraceID == "" && item.TraceID != "" {
+			out.TraceID = item.TraceID
+		}
+		out.Items = append(out.Items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return TraceTimeline{}, err
+	}
+	SortTraceTimelineItems(out.Items)
+	out.AgentTree = BuildAgentTraceTree(out.Items)
+	return out, nil
 }
 
 // PgMetricsWriter 基于 PostgreSQL 的 MetricsWriter 实现

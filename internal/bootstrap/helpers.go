@@ -690,6 +690,11 @@ func LoadAllConfigFromDB(db store.Store, cfg *config.Config, logger *zap.Logger)
 	cfgParseBool(allCfg, "agent.plan_runtime.enabled", &cfg.Agent.PlanRuntime.Enabled)
 	cfgParseBool(allCfg, "agent.plan_runtime.auto_continue", &cfg.Agent.PlanRuntime.AutoContinue)
 	cfgParseInt(allCfg, "agent.plan_runtime.max_auto_continue", &cfg.Agent.PlanRuntime.MaxAutoContinue)
+	cfgParseString(allCfg, "agent.tool_recall.mode", &cfg.Agent.ToolRecall.Mode)
+	cfgParseInt(allCfg, "agent.tool_recall.limit", &cfg.Agent.ToolRecall.Limit)
+	cfgParseFloat64(allCfg, "agent.tool_recall.min_score", &cfg.Agent.ToolRecall.MinScore)
+	cfgParseFloat64(allCfg, "agent.tool_recall.side_effect_min_score", &cfg.Agent.ToolRecall.SideEffectMinScore)
+	cfgParseBool(allCfg, "agent.tool_recall.log_candidates", &cfg.Agent.ToolRecall.LogCandidates)
 
 	// Context Compression
 	cfgParseBool(allCfg, "agent.context_compression.enabled", &cfg.Agent.ContextCompression.Enabled)

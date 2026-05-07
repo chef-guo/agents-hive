@@ -27,6 +27,16 @@ function createApiClientMock() {
 }
 
 describe('LocalNodeClient admin capability endpoints', () => {
+  it('calls session trace endpoint with optional limit', async () => {
+    const api = createApiClientMock();
+    api.get.mockResolvedValue({ session_id: 'sess-1', items: [] });
+    const client = new LocalNodeClient(api);
+
+    await client.getSessionTrace('sess/1', 200);
+
+    expect(api.get).toHaveBeenCalledWith('/api/v1/sessions/sess%2F1/trace?limit=200');
+  });
+
   it('calls session todo resume endpoint with version and runtime epoch guards', async () => {
     const api = createApiClientMock();
     api.postLong.mockResolvedValue({});

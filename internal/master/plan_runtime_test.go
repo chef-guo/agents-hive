@@ -107,6 +107,49 @@ func TestPlanRuntimeGuard_UsesSessionStateWithoutStore(t *testing.T) {
 	assert.False(t, decision.Completed)
 }
 
+func TestPlanRuntimePausePlanForBudgetYield(t *testing.T) {
+	ctx := context.Background()
+	todoStore := sessiontodo.NewMemoryStore()
+	m := &Master{
+		sessionTodoStore: todoStore,
+		eventBus:         NewEventBus(zap.NewNop()),
+		obsCh:            make(chan observabilityEntry, 8),
+		runtimeEpoch:     "epoch-budget",
+	}
+	t.Cleanup(func() { m.eventBus.Close() })
+	_, events := m.eventBus.Subscribe()
+
+	session := &SessionState{ID: "budget-plan", PlanMode: true, PlanStatus: sessiontodo.PlanStatusExecuting}
+	snap, err := todoStore.SetPlanStatus(ctx, session.ID, sessiontodo.PlanStatusExecuting)
+	require.NoError(t, err)
+	snap, err = todoStore.Replace(ctx, session.ID, snap.PlanVersion, []sessiontodo.TodoInput{
+		{ID: "done", Content: "已完成", Status: sessiontodo.TodoStatusCompleted},
+		{ID: "next", Content: "继续执行", Status: sessiontodo.TodoStatusPending},
+	})
+	require.NoError(t, err)
+
+	updated, err := m.pausePlanForBudgetYield(ctx, session, snap, "trace-budget", "span-parent")
+
+	require.NoError(t, err)
+	assert.Equal(t, sessiontodo.PlanStatusPaused, updated.PlanStatus)
+	assert.Equal(t, sessiontodo.PlanStatusPaused, session.PlanStatus)
+	assert.True(t, session.PlanMode)
+	assert.Equal(t, "budget_graceful_yield", updated.Source)
+	assert.Equal(t, "epoch-budget", updated.RuntimeEpoch)
+	assertTodoSnapshotEvent(t, events, sessiontodo.PlanStatusPaused, updated.PlanVersion)
+
+	found := false
+	for len(m.obsCh) > 0 {
+		entry := <-m.obsCh
+		if entry.span != nil && entry.span.Operation == "plan_runtime.budget_graceful_yield" {
+			found = true
+			assert.Equal(t, "graceful_yield", entry.span.Attributes["budget_exit_mode"])
+			assert.Equal(t, 1, entry.span.Attributes["open_todo_count"])
+		}
+	}
+	assert.True(t, found, "expected budget graceful yield span")
+}
+
 func TestExecuteTool_InjectsTraceContextBeforeExecution(t *testing.T) {
 	m := newPhase6MasterWithMCPHost(t)
 

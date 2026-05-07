@@ -279,14 +279,20 @@ func (a *RemoteACPAgent) recordDelegation(ctx context.Context, req subagent.Task
 	if a.observer == nil {
 		return
 	}
+	childTraceID := req.TraceID
+	if childTraceID == "" {
+		childTraceID = tools.DeriveChildTraceID(req.ParentTraceID, a.ID())
+	}
 	a.observer.RecordDelegation(ctx, tools.DelegationEvent{
-		SessionID:   req.SessionID,
-		AgentID:     a.cfg.Name,
-		AgentType:   "acp",
-		Status:      status,
-		FailureType: failureType,
-		StopReason:  stopReason,
-		Error:       errText,
+		SessionID:     req.SessionID,
+		ParentTraceID: req.ParentTraceID,
+		ChildTraceID:  childTraceID,
+		AgentID:       a.cfg.Name,
+		AgentType:     "acp",
+		Status:        status,
+		FailureType:   failureType,
+		StopReason:    stopReason,
+		Error:         errText,
 	})
 }
 

@@ -20,6 +20,7 @@ import (
 	"github.com/chef-guo/agents-hive/internal/gateway"
 	"github.com/chef-guo/agents-hive/internal/master"
 	"github.com/chef-guo/agents-hive/internal/memory"
+	"github.com/chef-guo/agents-hive/internal/observability"
 	"github.com/chef-guo/agents-hive/internal/qualityworkbench"
 	"github.com/chef-guo/agents-hive/internal/sessiontodo"
 	"github.com/chef-guo/agents-hive/internal/skills"
@@ -107,6 +108,7 @@ type Server struct {
 	feishuAuditSink             feishu.AuditSink
 	sessionTodoStore            sessionTodoSnapshotStore
 	sessionTodoOpsReader        sessionTodoOpsReader
+	traceReader                 observability.TraceReader
 }
 
 type sessionTodoOpsReader interface {
@@ -197,6 +199,10 @@ func NewServer(
 		s.optimizationRollbackStore = agentquality.NewPGRollbackStore(pgStore.Pool())
 		s.optimizationEvalDiffStore = agentquality.NewPGEvalDiffStore(pgStore.Pool())
 		s.sessionTodoOpsReader = sessiontodo.NewPGOpsReader(pgStore.Pool())
+		s.traceReader = observability.NewPgTracer(pgStore.Pool(), logger)
+	}
+	if s.master != nil {
+		s.master.SetTrajectoryStore(s.getTrajectoryStore())
 	}
 	if fullCfg != nil && fullCfg.Channel.Feishu.Push.Enabled {
 		s.pushService = push.NewService(channelRouter, push.Config{

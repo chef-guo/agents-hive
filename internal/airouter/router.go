@@ -173,6 +173,11 @@ func (r *Router) GetUserLLMClient() *llm.Client {
 	return r.GetLLMClient(TaskChat)
 }
 
+func (r *Router) SupportsAutoReasoningEffort(task LLMTaskType) bool {
+	model := r.selectBestModel(task)
+	return model != nil && model.SupportsAutoReasoningEffort()
+}
+
 // SwitchUserModel 切换用户选定的主对话模型（由前端触发）
 func (r *Router) SwitchUserModel(modelName, model, baseURL, provider, apiFormat string) {
 	r.mu.Lock()

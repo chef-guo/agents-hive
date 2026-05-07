@@ -14,6 +14,7 @@ import { CanvasPanel } from '../components/canvas/CanvasPanel';
 import { useTaskProgressStore } from '../store/taskProgress';
 import { shouldShowTodosPanel, useTodosStore } from '../store/todos';
 import { TodosList } from '../components/todos/TodosList';
+import { calculateMessageTotalTokens } from '../utils/tokenUsage';
 
 export function Chat() {
   const { t } = useTranslation();
@@ -150,8 +151,8 @@ export function Chat() {
     ? t('sessions.newSession', '新会话')
     : (currentSession?.name || id?.slice(0, 8));
 
-  // 从消息列表实时累加 completion tokens（不用 stale 的 currentSession.total_tokens）
-  const totalTokens = useMemo(() => messages.reduce((sum, m) => sum + (m.usage?.output_tokens ?? 0), 0), [messages]);
+  // 从消息列表实时累加 input + output tokens（不用 stale 的 currentSession.total_tokens）
+  const totalTokens = useMemo(() => calculateMessageTotalTokens(messages), [messages]);
 
   useEffect(() => {
     setSlots({

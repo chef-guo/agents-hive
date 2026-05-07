@@ -49,11 +49,25 @@ type AgentCard struct {
 
 // TaskRequest 是从 master 发送给 sub-agent 的任务
 type TaskRequest struct {
-	ID        string          `json:"id"`
-	Type      string          `json:"type"`
-	SessionID string          `json:"session_id,omitempty"` // 发起会话 ID（用于成本追踪等）
-	UserID    string          `json:"user_id,omitempty"`    // 发起用户 ID（用于成本追踪等）
-	Payload   json.RawMessage `json:"payload"`
+	ID            string          `json:"id"`
+	Type          string          `json:"type"`
+	SessionID     string          `json:"session_id,omitempty"`      // 发起会话 ID（用于成本追踪等）
+	UserID        string          `json:"user_id,omitempty"`         // 发起用户 ID（用于成本追踪等）
+	TraceID       string          `json:"trace_id,omitempty"`        // 当前 child agent trace
+	ParentSpanID  string          `json:"parent_span_id,omitempty"`  // 发起 delegation 的 tool span
+	ParentTraceID string          `json:"parent_trace_id,omitempty"` // 发起 delegation 的 parent trace
+	Payload       json.RawMessage `json:"payload"`
+}
+
+// DeriveChildTraceID 稳定派生子 agent trace，避免各委派入口拼接规则漂移。
+func DeriveChildTraceID(parentTraceID, agentID string) string {
+	if parentTraceID == "" {
+		return agentID
+	}
+	if agentID == "" {
+		return parentTraceID + ":unknown-agent"
+	}
+	return parentTraceID + ":" + agentID
 }
 
 // TaskResponse 是 sub-agent 返回给 master 的结果

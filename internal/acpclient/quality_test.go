@@ -100,9 +100,11 @@ func TestRemoteACPAgentRecordsPromptStopReason(t *testing.T) {
 
 			payload, _ := json.Marshal(map[string]string{"instruction": "执行远程任务"})
 			resp := agent.handleTask(context.Background(), subagent.TaskRequest{
-				ID:        "task-1",
-				SessionID: "session-1",
-				Payload:   payload,
+				ID:            "task-1",
+				SessionID:     "session-1",
+				ParentTraceID: "trace-parent",
+				TraceID:       "trace-parent:remote-1",
+				Payload:       payload,
 			})
 			assert.Equal(t, tt.wantTaskStatus, resp.Status)
 
@@ -113,8 +115,34 @@ func TestRemoteACPAgentRecordsPromptStopReason(t *testing.T) {
 			assert.Equal(t, "acp", events[0].AgentType)
 			assert.Equal(t, tt.wantEventStatus, events[0].Status)
 			assert.Equal(t, tt.wantStopReason, events[0].StopReason)
+			assert.Equal(t, "trace-parent", events[0].ParentTraceID)
+			assert.Equal(t, "trace-parent:remote-1", events[0].ChildTraceID)
 		})
 	}
+}
+
+func TestRemoteACPAgentDerivesChildTraceWhenRequestTraceMissing(t *testing.T) {
+	observer := &recordingDelegationObserver{}
+	agent := NewRemoteACPAgentWithPromptClient(
+		RemoteAgentConfig{Name: "remote-1"},
+		fakePromptClient{resp: acp.PromptResponse{StopReason: acp.StopReasonEndTurn}},
+		"acp-remote",
+		zap.NewNop(),
+		observer,
+	)
+
+	resp := agent.handleTask(context.Background(), subagent.TaskRequest{
+		ID:            "task-1",
+		SessionID:     "session-1",
+		ParentTraceID: "trace-parent",
+		Payload:       json.RawMessage(`{"instruction":"执行远程任务"}`),
+	})
+	require.Equal(t, "completed", resp.Status)
+
+	events := observer.snapshot()
+	require.Len(t, events, 1)
+	assert.Equal(t, "trace-parent", events[0].ParentTraceID)
+	assert.Equal(t, "trace-parent:remote-1", events[0].ChildTraceID)
 }
 
 func TestRemoteACPAgentAggregatesAssistantOutputFromSessionUpdates(t *testing.T) {

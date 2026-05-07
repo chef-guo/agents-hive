@@ -87,6 +87,60 @@ export interface MessagesListResponse {
   total: number;
 }
 
+// Session trace / observability replay
+export interface TraceQualityReflection {
+  trigger?: string;
+  severity?: string;
+  tool_name?: string;
+  consecutive?: number;
+  summary?: string;
+  recommended?: string[];
+  injected?: boolean;
+}
+
+export interface TraceQualityEvent {
+  name?: string;
+  failure_type?: string;
+  retry_reason?: string;
+  final_status?: string;
+  reflection?: TraceQualityReflection;
+  tool_decision?: Record<string, unknown>;
+  prompt?: Record<string, unknown>;
+  context_build?: Record<string, unknown>;
+  delegation?: Record<string, unknown>;
+  attributes?: Record<string, unknown>;
+}
+
+export interface TraceTimelineItem {
+  kind: 'span' | 'quality_event' | string;
+  trace_id?: string;
+  span_id?: string;
+  parent_span_id?: string;
+  operation: string;
+  service?: string;
+  status?: string;
+  duration_ms?: number;
+  attributes?: Record<string, unknown> & {
+    quality_event?: TraceQualityEvent | string;
+  };
+  timestamp: string;
+}
+
+export interface AgentTraceNode {
+  trace_id: string;
+  agent_id?: string;
+  type?: string;
+  status?: string;
+  children?: AgentTraceNode[];
+}
+
+export interface SessionTraceResponse {
+  session_id: string;
+  trace_id?: string;
+  items: TraceTimelineItem[];
+  agent_tree?: AgentTraceNode[];
+}
+
 // HITL 相关
 export type InputRequestType = 'approval' | 'clarification' | 'confirmation' | 'choice' | 'permission';
 

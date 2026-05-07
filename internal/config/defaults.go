@@ -66,6 +66,14 @@ const (
 	// 隐私与远程指令默认值
 	DefaultStorePrivacy = false // 默认不设置 store=false（不影响 OpenAI 默认行为）
 
+	// 每轮工具召回默认值。默认保持既有行为：召回 5 个候选并注入本轮 model-visible tools。
+	DefaultToolRecallMode               = "inject"
+	DefaultToolRecallLimit              = 5
+	DefaultToolRecallMaxLimit           = 20
+	DefaultToolRecallMinScore           = 0.35
+	DefaultToolRecallSideEffectMinScore = 0.65
+	DefaultToolRecallLogCandidates      = true
+
 	// Spec-driven Phase 2 默认值（openspec/changes/harden-spec-driven-phase2）
 	// FM-1 反例：continuation.default 必须 off——不允许静默 MRU 续写。
 	// FM-4 反例：planner.token_budget 硬上限——schema fail 触发 DownshiftPlannerSchemaFailed。
@@ -84,6 +92,15 @@ var DefaultSpecDrivenConfig = SpecDrivenConfig{
 	Planner: SpecPlannerConfig{
 		TokenBudget: DefaultSpecPlannerTokenBudget,
 	},
+}
+
+// DefaultToolRecallConfigValue 返回每轮工具召回默认配置。
+var DefaultToolRecallConfigValue = ToolRecallConfig{
+	Mode:               DefaultToolRecallMode,
+	Limit:              DefaultToolRecallLimit,
+	MinScore:           DefaultToolRecallMinScore,
+	SideEffectMinScore: DefaultToolRecallSideEffectMinScore,
+	LogCandidates:      DefaultToolRecallLogCandidates,
 }
 
 // DefaultCompactionPipelineStages 默认管线阶段：tool_budget -> session_memory -> truncate

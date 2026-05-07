@@ -129,6 +129,8 @@ func registerSpawnAgent(host *mcphost.Host, executor TaskExecutor, spawner Agent
 				)
 				if observer != nil {
 					observer.RecordDelegation(ctx, DelegationEvent{
+						ParentTraceID: toolCtx.TraceID,
+						ChildTraceID:  DeriveChildTraceID(toolCtx.TraceID, params.Name),
 						AgentID:       params.Name,
 						AgentType:     "subagent",
 						ToolWhitelist: append([]string(nil), params.Tools...),
@@ -167,6 +169,8 @@ func registerSpawnAgent(host *mcphost.Host, executor TaskExecutor, spawner Agent
 				)
 				if observer != nil {
 					observer.RecordDelegation(ctx, DelegationEvent{
+						ParentTraceID: toolCtx.TraceID,
+						ChildTraceID:  DeriveChildTraceID(toolCtx.TraceID, agentID),
 						AgentID:       agentID,
 						AgentType:     "subagent",
 						ToolWhitelist: append([]string(nil), params.Tools...),
@@ -189,6 +193,8 @@ func registerSpawnAgent(host *mcphost.Host, executor TaskExecutor, spawner Agent
 			)
 			if observer != nil {
 				observer.RecordDelegation(ctx, DelegationEvent{
+					ParentTraceID: toolCtx.TraceID,
+					ChildTraceID:  DeriveChildTraceID(toolCtx.TraceID, agentID),
 					AgentID:       agentID,
 					AgentType:     "subagent",
 					ToolWhitelist: append([]string(nil), params.Tools...),

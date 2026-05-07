@@ -10,6 +10,7 @@ import type {
   SessionListResponse,
   Message,
   MessagesListResponse,
+  SessionTraceResponse,
   WeChatConfigResponse,
   UpdateWeChatProtocolRequest,
   FileAttachment,
@@ -96,6 +97,7 @@ export interface NodeClient {
   // 消息
   sendMessage(sessionId: string, content: string, options?: { attachments?: FileAttachment[]; deepThinking?: boolean }): Promise<SendMessageResponse>;
   getMessages(sessionId: string, limit?: number): Promise<Message[]>;
+  getSessionTrace(sessionId: string, limit?: number): Promise<SessionTraceResponse>;
   getTodoSnapshot(sessionId: string): Promise<TodoSnapshot>;
   resumeTodos(sessionId: string, expectedPlanVersion: number, expectedRuntimeEpoch: string): Promise<TodoResumeResponse>;
   // HITL
@@ -281,6 +283,11 @@ export class LocalNodeClient implements NodeClient {
     const params = limit ? `?limit=${limit}` : '';
     const res = await this.client.get<MessagesListResponse>(`/api/v1/sessions/${sessionId}/messages${params}`);
     return res.messages || [];
+  }
+
+  getSessionTrace(sessionId: string, limit?: number): Promise<SessionTraceResponse> {
+    const params = limit ? `?limit=${limit}` : '';
+    return this.client.get(`/api/v1/sessions/${encodeURIComponent(sessionId)}/trace${params}`);
   }
 
   getTodoSnapshot(sessionId: string): Promise<TodoSnapshot> {
