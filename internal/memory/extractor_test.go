@@ -353,3 +353,119 @@ func TestExtractor_ExtractFromSummaryWritesGovernanceDefaults(t *testing.T) {
 		t.Fatalf("expires_at = %s, want %s", g.ExpiresAt, now.Add(30*24*time.Hour))
 	}
 }
+
+func TestExtractor_ExtractFeedbackWritesFeedbackMemory(t *testing.T) {
+	store := &mockMemoryStore{searchResult: &SearchResult{}}
+	ext := NewExtractor(store, zap.NewNop())
+	now := time.Now()
+
+	records, err := ext.ExtractFeedback(context.Background(), FeedbackInput{
+		Text:          "用户指出不要只说应该可以，必须跑测试后再声明完成。",
+		SessionID:     "session-1",
+		UserID:        "user-1",
+		Source:        "user_correction",
+		SourceMessage: "msg-9",
+		RunID:         "run-1",
+		Confidence:    0.9,
+	}, WithNow(func() time.Time { return now }))
+
+	if err != nil {
+		t.Fatalf("ExtractFeedback returned error: %v", err)
+	}
+	if len(records) != 1 {
+		t.Fatalf("records = %d, want 1", len(records))
+	}
+	if len(store.savedRecords) != 1 {
+		t.Fatalf("saved records = %d, want 1", len(store.savedRecords))
+	}
+	rec := store.savedRecords[0]
+	if rec.Type != MemoryTypeFeedback {
+		t.Fatalf("type = %q, want feedback", rec.Type)
+	}
+	if rec.UserID != "user-1" || rec.SessionID != "session-1" {
+		t.Fatalf("record ownership = user %q session %q", rec.UserID, rec.SessionID)
+	}
+	g := DecodeGovernance(rec.Metadata)
+	if g.Source != "user_correction" || g.SourceUserID != "user-1" || g.SourceMessage != "msg-9" || g.RunID != "run-1" {
+		t.Fatalf("governance = %+v", g)
+	}
+	if g.Confidence != 0.9 {
+		t.Fatalf("confidence = %v, want 0.9", g.Confidence)
+	}
+}
+
+func TestJSONStructuredExtractorValidatesAndParsesFacts(t *testing.T) {
+	extractor := JSONStructuredExtractor{
+		Generate: func(context.Context, string) (string, error) {
+			return `[{"type":"feedback","content":"用户要求完成声明必须附带测试输出。","confidence":0.85,"evidence":"必须跑测试"}]`, nil
+		},
+	}
+
+	facts, err := extractor.ExtractMemoryFacts(context.Background(), StructuredExtractInput{
+		Text:         "source",
+		AllowedTypes: []MemoryType{MemoryTypeFeedback},
+	})
+
+	if err != nil {
+		t.Fatalf("ExtractMemoryFacts returned error: %v", err)
+	}
+	if len(facts) != 1 || facts[0].Type != MemoryTypeFeedback || facts[0].Confidence != 0.85 {
+		t.Fatalf("facts = %+v", facts)
+	}
+}
+
+func TestExtractor_StructuredFailureFallsBackToRules(t *testing.T) {
+	store := &mockMemoryStore{searchResult: &SearchResult{}}
+	ext := NewExtractorWithStructured(store, JSONStructuredExtractor{
+		Generate: func(context.Context, string) (string, error) {
+			return `not-json`, nil
+		},
+	}, zap.NewNop())
+
+	err := ext.ExtractFromSummary(context.Background(), "- 用户要求以后直接改文件，不要先讲方案", "session-1", "user-1")
+
+	if err != nil {
+		t.Fatalf("ExtractFromSummary returned error: %v", err)
+	}
+	if len(store.savedRecords) != 1 {
+		t.Fatalf("saved records = %d, want fallback rule extraction", len(store.savedRecords))
+	}
+	if store.savedRecords[0].Type != MemoryTypeFeedback {
+		t.Fatalf("type = %q, want feedback", store.savedRecords[0].Type)
+	}
+}
+
+func TestExtractor_NonBulletFeedbackCanBeExtracted(t *testing.T) {
+	store := &mockMemoryStore{searchResult: &SearchResult{}}
+	ext := NewExtractor(store, zap.NewNop())
+
+	records, err := ext.ExtractFeedback(context.Background(), FeedbackInput{
+		Text:      "用户说以后不要反复问确认，能直接安全执行就直接改。",
+		UserID:    "user-1",
+		SessionID: "session-1",
+	})
+
+	if err != nil {
+		t.Fatalf("ExtractFeedback returned error: %v", err)
+	}
+	if len(records) != 1 {
+		t.Fatalf("records = %d, want 1", len(records))
+	}
+}
+
+func TestExtractor_ProjectRequirementIsNotFeedback(t *testing.T) {
+	store := &mockMemoryStore{searchResult: &SearchResult{}}
+	ext := NewExtractor(store, zap.NewNop())
+
+	err := ext.ExtractFromSummary(context.Background(), "- 项目必须支持多租户和独立权限模型", "session-1", "user-1")
+
+	if err != nil {
+		t.Fatalf("ExtractFromSummary returned error: %v", err)
+	}
+	if len(store.savedRecords) != 1 {
+		t.Fatalf("saved records = %d, want 1", len(store.savedRecords))
+	}
+	if store.savedRecords[0].Type != MemoryTypeProject {
+		t.Fatalf("type = %q, want project", store.savedRecords[0].Type)
+	}
+}

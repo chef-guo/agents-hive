@@ -60,14 +60,15 @@ func (e *LocalExecutor) Execute(ctx context.Context, req ExecRequest) (ExecResul
 
 	stdout, stderr, exitCode, err := e.shell.Execute(ctx, cmdBuilder.String())
 	if err != nil {
-		return ExecResult{}, err
+		return attachExecDiagnostic(req, ExecResult{Stdout: stdout, Stderr: stderr, ExitCode: exitCode}, err), err
 	}
 
-	return ExecResult{
+	result := ExecResult{
 		Stdout:   stdout,
 		Stderr:   stderr,
 		ExitCode: exitCode,
-	}, nil
+	}
+	return attachExecDiagnostic(req, result, nil), nil
 }
 
 // Close 关闭底层 shell。

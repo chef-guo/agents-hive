@@ -1,0 +1,31 @@
+{
+  "id": "mc28_schema_default_kind_subject",
+  "name": "旧数据缺省 metadata 可推导默认 kind 与 subject_type",
+  "query": "旧项目记忆应该如何分类",
+  "user_id": "u1",
+  "memories": [
+    {
+      "id": 36,
+      "user_id": "u1",
+      "type": "project",
+      "content": "旧项目记忆默认归类为 semantic project",
+      "confidence": 0.9,
+      "score": 0.86,
+      "source": "summary"
+    }
+  ],
+  "want_injected_ids": [36],
+  "want_metadata": [
+    {
+      "memory_id": 36,
+      "target_scope": "user",
+      "target_id": "u1",
+      "visibility": "private",
+      "target_user_id": "u1",
+      "kind": "semantic",
+      "subject_type": "project",
+      "source": "summary"
+    }
+  ],
+  "required": true
+}

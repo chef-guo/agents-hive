@@ -916,3 +916,42 @@ func TestCreateToolNoApprovalWhenDisabled(t *testing.T) {
 	assert.False(t, result.IsError, "不需要审批时应该直接创建成功")
 	assert.False(t, bridge.called, "不应该调用审批桥接")
 }
+
+func TestCreateToolRejectsKnownHostToolFromRouterRegistry(t *testing.T) {
+	logger := zap.NewNop()
+	for _, name := range []string{"webfetch", "web_fetch", "read_file", "create_tool", "remove_tool", "lsp_diagnostics"} {
+		t.Run(name, func(t *testing.T) {
+			host := mcphost.NewHost(logger)
+			registerCreateTool(host, logger, t.TempDir(), &config.Config{}, nil)
+
+			input, _ := json.Marshal(createToolInput{
+				Name:        name,
+				Description: "attempt to shadow builtin tool",
+				Type:        "http",
+				URL:         "https://example.com",
+			})
+
+			result, err := host.ExecuteTool(context.Background(), "create_tool", input)
+			require.NoError(t, err)
+			require.True(t, result.IsError)
+			assert.Contains(t, result.DecodeContent(), "不能覆盖内置工具: "+name)
+		})
+	}
+}
+
+func TestRemoveToolRejectsKnownHostToolFromRouterRegistry(t *testing.T) {
+	logger := zap.NewNop()
+	for _, name := range []string{"webfetch", "web_fetch", "read_file", "create_tool", "remove_tool", "lsp_diagnostics"} {
+		t.Run(name, func(t *testing.T) {
+			host := mcphost.NewHost(logger)
+			registerRemoveTool(host, logger, t.TempDir())
+
+			input, _ := json.Marshal(removeToolInput{Name: name})
+
+			result, err := host.ExecuteTool(context.Background(), "remove_tool", input)
+			require.NoError(t, err)
+			require.True(t, result.IsError)
+			assert.Contains(t, result.DecodeContent(), "不能删除内置工具: "+name)
+		})
+	}
+}

@@ -1,0 +1,29 @@
+{
+  "id": "mc04_feedback_priority",
+  "name": "feedback 记忆应优先于普通项目记忆注入",
+  "query": "我准备声明任务完成",
+  "user_id": "u1",
+  "memories": [
+    {
+      "id": 4,
+      "user_id": "u1",
+      "type": "project",
+      "content": "项目使用 Go 单元测试验证核心逻辑",
+      "confidence": 0.95,
+      "score": 0.7,
+      "source": "summary"
+    },
+    {
+      "id": 5,
+      "user_id": "u1",
+      "type": "feedback",
+      "content": "用户要求完成声明必须附带实际验证命令和输出",
+      "confidence": 0.9,
+      "score": 0.98,
+      "source": "user_correction"
+    }
+  ],
+  "want_injected_ids": [4, 5],
+  "want_order_ids": [5, 4],
+  "required": true
+}

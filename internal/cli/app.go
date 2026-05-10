@@ -480,13 +480,27 @@ func (ad *sandboxToSkillsAdapter) Execute(ctx context.Context, req skills.Sandbo
 		return skills.SandboxExecResult{}, err
 	}
 	return skills.SandboxExecResult{
-		Stdout:   result.Stdout,
-		Stderr:   result.Stderr,
-		ExitCode: result.ExitCode,
+		Stdout:     result.Stdout,
+		Stderr:     result.Stderr,
+		ExitCode:   result.ExitCode,
+		Diagnostic: toSkillsExecDiagnostic(result.Diagnostic),
 	}, nil
 }
 
 func (ad *sandboxToSkillsAdapter) Close() error { return ad.inner.Close() }
+
+func toSkillsExecDiagnostic(diag *sandbox.ExecFailureDiagnostic) *skills.SandboxExecDiagnostic {
+	if diag == nil {
+		return nil
+	}
+	return &skills.SandboxExecDiagnostic{
+		FailureType:          diag.FailureType,
+		Summary:              diag.Summary,
+		RequiresUserApproval: diag.RequiresUserApproval,
+		SuggestedAction:      diag.SuggestedAction,
+		SuggestedEnv:         diag.SuggestedEnv,
+	}
+}
 
 // skillsSandboxExecutor 返回 skills.SandboxExecutor 适配器，如果 executor 为 nil 则返回 nil
 func (a *App) skillsSandboxExecutor() skills.SandboxExecutor {

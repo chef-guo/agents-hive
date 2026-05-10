@@ -1,0 +1,25 @@
+{
+  "id": "mc12_scope_global_public",
+  "name": "ScopePolicy 允许 global/public 可见记忆",
+  "query": "公共规范是什么",
+  "user_id": "u1",
+  "skip_injection": true,
+  "memories": [
+    {
+      "id": 1012,
+      "user_id": "admin",
+      "type": "reference",
+      "content": "公共规范：所有改动必须可回滚",
+      "target_scope": "global",
+      "visibility": "global",
+      "confidence": 0.95
+    }
+  ],
+  "scope_assertions": [
+    {"memory_id": 1012, "runtime_context": {"user_id": "u1"}, "allowed": true, "reason": "global_visibility"}
+  ],
+  "want_metadata": [
+    {"memory_id": 1012, "target_scope": "global", "visibility": "global", "kind": "reference", "subject_type": "reference"}
+  ],
+  "required": true
+}

@@ -81,7 +81,8 @@ func (m *Master) prepareDirectExecParams(ctx context.Context, session *SessionSt
 		session.mu.RUnlock()
 		if lastUserMsg != "" {
 			userID := auth.UserIDFrom(ctx)
-			memResult, err := m.memoryInjector.InjectContextDetailed(ctx, lastUserMsg, session.ID, userID)
+			memCtx := m.memoryRuntimeContext(ctx, session, "react")
+			memResult, err := m.memoryInjector.InjectContextDetailed(memCtx, lastUserMsg, session.ID, userID)
 			if err != nil {
 				m.logger.Warn("记忆注入失败", zap.Error(err))
 			} else {
@@ -176,12 +177,30 @@ func (m *Master) prepareDirectExecParams(ctx context.Context, session *SessionSt
 	}, nil
 }
 
+func (m *Master) memoryRuntimeContext(ctx context.Context, session *SessionState, taskType string) context.Context {
+	rc := memory.RuntimeContext{
+		UserID:    auth.UserIDFrom(ctx),
+		TaskType:  taskType,
+		AgentName: "master",
+	}
+	if session != nil {
+		rc.SessionID = session.ID
+		if allowed := session.AllowedToolInputsSnapshot(); len(allowed) > 0 {
+			if skillArgs := allowed["skill"]; len(skillArgs) > 0 {
+				rc.SkillName = strings.TrimSpace(skillArgs["name"])
+			}
+		}
+	}
+	return memory.WithRuntimeContext(ctx, rc)
+}
+
 // processTaskDirectExec 使用 ReAct Tool-Use 循环处理任务。
 // Master 拥有所有常用工具（master_direct profile），直接执行用户任务。
 func (m *Master) processTaskDirectExec(ctx context.Context, request string, session *SessionState, responseID uint64, sessionTraceID, sessionSpanID string, skipUserMsg bool) error {
 	if m.agentFactory != nil {
 		defer m.agentFactory.CleanupBySession(session.ID)
 	}
+	ctx = m.memoryRuntimeContext(ctx, session, "react")
 
 	// 读取附件并构建用户消息
 	pendingAttachments, _, _ := session.GetPendingData()
@@ -345,24 +364,30 @@ func (m *Master) runReActLoop(
 			FailureType: agentquality.FailureNone,
 			FinalStatus: agentquality.StatusPass,
 			ContextBuild: agentquality.ContextBuild{
-				MessageCount:       len(preparedMessages),
-				Compressed:         len(preparedMessages) < len(msgsCopy),
-				MemoryInjected:     memoryInjection.Text != "",
-				MemoryIDs:          memoryInjection.MemoryIDs(),
-				SkippedMemoryIDs:   append([]int64(nil), memoryInjection.SkippedMemoryIDs...),
-				SkippedExpired:     memoryInjection.SkippedExpired,
-				SkippedLowTrust:    memoryInjection.SkippedLowTrust,
-				SkippedCrossUser:   memoryInjection.SkippedCrossUser,
-				SkippedTokenBudget: memoryInjection.SkippedTokenBudget,
-				SkippedMemoryTotal: memoryInjection.SkippedTotal(),
-				AttachmentCount:    len(pendingAttachments),
-				PromptVersions:     promptVersions,
-				EstimatedTokens:    memoryInjection.EstimatedTokens,
-				ContaminationCheck: contaminationStatus(memoryInjection),
+				MessageCount:          len(preparedMessages),
+				Compressed:            len(preparedMessages) < len(msgsCopy),
+				MemoryInjected:        memoryInjection.Text != "",
+				MemoryIDs:             memoryInjection.MemoryIDs(),
+				SkippedMemoryIDs:      append([]int64(nil), memoryInjection.SkippedMemoryIDs...),
+				SkippedExpired:        memoryInjection.SkippedExpired,
+				SkippedLowTrust:       memoryInjection.SkippedLowTrust,
+				SkippedCrossUser:      memoryInjection.SkippedCrossUser,
+				SkippedScope:          memoryInjection.SkippedScope,
+				SkippedLowScore:       memoryInjection.SkippedLowScore,
+				SkippedTokenBudget:    memoryInjection.SkippedTokenBudget,
+				SkippedFeedbackBudget: memoryInjection.SkippedFeedbackBudget,
+				SkippedRegularBudget:  memoryInjection.SkippedRegularBudget,
+				SkippedMemoryTotal:    memoryInjection.SkippedTotal(),
+				FeedbackMemoryCount:   memoryInjection.FeedbackCount,
+				RegularMemoryCount:    memoryInjection.RegularCount,
+				AttachmentCount:       len(pendingAttachments),
+				PromptVersions:        promptVersions,
+				EstimatedTokens:       memoryInjection.EstimatedTokens,
+				ContaminationCheck:    contaminationStatus(memoryInjection),
 			},
 		})
 
-		modelVisibleTools, toolRecallObs := modelVisibleToolsForPreparedMessagesWithRecallObservation(session, availableTools, preparedMessages, m.config.ToolRecall)
+		modelVisibleTools, toolRecallObs := modelVisibleToolsForSessionWithRecallObservationAndSkills(session, availableTools, m.skillMetasForModel(userID), extractLatestUserQuery(preparedMessages), m.config.ToolRecall)
 		m.logger.Info("发起 LLM 调用",
 			zap.String("session_id", session.ID),
 			zap.String("model", sessionLLM.Model()),
@@ -620,6 +645,8 @@ func (m *Master) runReActLoop(
 			),
 		})
 		selectedRecallTool, usedRecallTool := selectedRecalledTool(resp.ToolCalls, toolRecallObs.RecalledToolNames)
+		m.recordRouteDecision(sessionTraceID, sessionSpanID, session, toolRecallObs.toRouteDecisionEvent())
+		m.recordRouteDecisionSpan(sessionTraceID, sessionSpanID, session, toolRecallObs.toDecisionSpan(sessionTraceID, qualitySessionHash(session.ID)))
 		m.recordToolRecall(sessionTraceID, sessionSpanID, session, toolRecallObs.toEvent(sessionTraceID, sessionTraceID, selectedRecallTool, usedRecallTool))
 
 		// LLM 调用成功：写入 trace + metrics
@@ -1051,6 +1078,16 @@ func (m *Master) runReActLoop(
 					if tr.Terminal {
 						terminalCache[callFP] = tr.Content
 						terminalFailures = append(terminalFailures, toolCall.Name)
+						if kind := reflectionFailureKindFromToolError(tr.Content); kind != "" {
+							callFailureReflections = append(callFailureReflections, reflectionNoteInput{
+								Trigger:     "call_failure",
+								Severity:    "warn",
+								ToolName:    toolCall.Name,
+								Consecutive: 1,
+								Detail:      tr.Content,
+								FailureKind: kind,
+							})
+						}
 						m.logger.Warn("工具返回终端错误，已缓存，后续相同调用将跳过",
 							zap.String("tool", toolCall.Name),
 							zap.String("session_id", session.ID),
@@ -1067,6 +1104,7 @@ func (m *Master) runReActLoop(
 								Severity:    "warn",
 								ToolName:    toolCall.Name,
 								Consecutive: 2,
+								Detail:      tr.Content,
 							})
 							m.logger.Warn("同一工具+参数连续失败 2 次，标记为终端失败",
 								zap.String("tool", toolCall.Name),
@@ -1202,6 +1240,29 @@ func isTerminalError(content string) bool {
 	return false
 }
 
+func reflectionFailureKindFromToolError(content string) string {
+	lower := strings.ToLower(content)
+	switch {
+	case strings.Contains(lower, "permission denied"), strings.Contains(lower, "access denied"), strings.Contains(lower, "工具策略拒绝"), strings.Contains(lower, "不在当前 profile 的允许列表中"):
+		return "permission_denied"
+	case strings.Contains(lower, "unauthorized"), strings.Contains(lower, "invalid credentials"), strings.Contains(lower, "account suspended"):
+		return "auth"
+	case strings.Contains(lower, "403 forbidden"):
+		return "4xx"
+	case strings.Contains(lower, "schema"), strings.Contains(lower, "invalid input"), strings.Contains(lower, "invalid argument"):
+		return "schema_invalid"
+	default:
+		return ""
+	}
+}
+
+func commandFailureMetadata(result *mcphost.ToolResult) (failureType string, requiresApproval bool, suggestedAction string) {
+	if result == nil {
+		return "", false, ""
+	}
+	return result.FailureType, result.RequiresUserApproval, result.SuggestedAction
+}
+
 // canonicalFingerprint 生成工具调用的规范化 fingerprint（tool + 规范化 args）
 // 通过 unmarshal/marshal 消除 JSON key order 和 whitespace 差异
 func canonicalFingerprint(toolName string, args json.RawMessage) string {
@@ -1216,6 +1277,20 @@ func canonicalFingerprint(toolName string, args json.RawMessage) string {
 		normalized = args
 	}
 	return toolName + ":" + string(normalized)
+}
+
+func toolInputName(args json.RawMessage) (string, bool) {
+	var in struct {
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal(args, &in); err != nil {
+		return "", false
+	}
+	name := strings.TrimSpace(in.Name)
+	if name == "" {
+		return "", false
+	}
+	return name, true
 }
 
 // executeTool 执行单个工具调用，返回结果
@@ -1316,6 +1391,44 @@ func (m *Master) executeTool(ctx context.Context, session *SessionState, userID 
 		return toolResult{Content: fmt.Sprintf("[工具策略拒绝: %q 不在当前 profile 的允许列表中]", toolCall.Name), IsError: true, Terminal: true}
 	}
 
+	if allowed, ok := session.AllowedToolInput(toolCall.Name, "name"); ok {
+		actual, hasName := toolInputName(args)
+		if !hasName || actual != allowed {
+			reason := fmt.Sprintf("route decision denied %s name %q; allowed name is %q", toolCall.Name, actual, allowed)
+			m.logger.Info("工具输入被 RouteDecision 拒绝",
+				zap.String("tool", toolCall.Name),
+				zap.String("actual_name", actual),
+				zap.String("allowed_name", allowed),
+			)
+			m.emitToolCallEvent(sessionID, ToolCallEvent{
+				ToolCallID: toolCall.ID,
+				ToolName:   toolCall.Name,
+				TurnID:     sessionTraceID,
+				Status:     "error",
+				Error:      reason,
+				SessionID:  sessionID,
+			})
+			m.emitQualityEvent(sessionTraceID, sessionSpanID, sessionID, agentquality.Event{
+				Name:        agentquality.EventToolDecision,
+				Route:       routeFromSession(session),
+				FailureType: agentquality.FailurePermission,
+				FinalStatus: agentquality.StatusBlocked,
+				ToolDecision: agentquality.ToolDecision{
+					Actual:   toolCall.Name,
+					Decision: agentquality.DecisionRejected,
+					ArgsHash: hashToolArgs(args),
+				},
+				Attributes: map[string]any{
+					"reason":       reason,
+					"allowed_name": allowed,
+					"actual_name":  actual,
+				},
+			})
+			m.logToolCall(ctx, sessionID, toolCall, string(args), "[RouteDecision 拒绝: "+reason+"]", true, 0)
+			return toolResult{Content: "[RouteDecision 拒绝: " + reason + "]", IsError: true, Terminal: true}
+		}
+	}
+
 	// 权限检查：仅在 HITL 启用且配置了 permMgr 时进行，否则直接执行
 	// 如果 context 中标记了 SkipPermission（同任务内已审批过的 tool+args 组合），跳过权限检查
 	if m.permMgr != nil && m.hitlBroker != nil && m.hitlBroker.Enabled() && !toolctx.ShouldSkipPermission(ctx) {
@@ -1409,15 +1522,19 @@ func (m *Master) executeTool(ctx context.Context, session *SessionState, userID 
 		m.logger.Warn("工具执行失败",
 			zap.String("tool", executedToolCall.Name),
 			zap.Error(err))
+		failureType, requiresApproval, suggestedAction := commandFailureMetadata(result)
 		// 广播工具调用失败事件
 		m.emitToolCallEvent(sessionID, ToolCallEvent{
-			ToolCallID: toolCall.ID,
-			ToolName:   executedToolCall.Name,
-			TurnID:     sessionTraceID,
-			Status:     "error",
-			Duration:   duration.Milliseconds(),
-			Error:      err.Error(),
-			SessionID:  sessionID,
+			ToolCallID:           toolCall.ID,
+			ToolName:             executedToolCall.Name,
+			TurnID:               sessionTraceID,
+			Status:               "error",
+			Duration:             duration.Milliseconds(),
+			Error:                err.Error(),
+			FailureType:          failureType,
+			RequiresUserApproval: requiresApproval,
+			SuggestedAction:      suggestedAction,
+			SessionID:            sessionID,
 		})
 		m.enqueueSpan(observability.Span{
 			TraceID:      sessionTraceID,
@@ -1445,14 +1562,18 @@ func (m *Master) executeTool(ctx context.Context, session *SessionState, userID 
 	// 检查工具返回的 IsError 标记（工具执行成功但业务逻辑报错）
 	if result != nil && result.IsError {
 		decoded := mcphost.DecodeToolContent(result.Content)
+		failureType, requiresApproval, suggestedAction := commandFailureMetadata(result)
 		m.emitToolCallEvent(sessionID, ToolCallEvent{
-			ToolCallID: toolCall.ID,
-			ToolName:   executedToolCall.Name,
-			TurnID:     sessionTraceID,
-			Status:     "error",
-			Duration:   duration.Milliseconds(),
-			Error:      decoded,
-			SessionID:  sessionID,
+			ToolCallID:           toolCall.ID,
+			ToolName:             executedToolCall.Name,
+			TurnID:               sessionTraceID,
+			Status:               "error",
+			Duration:             duration.Milliseconds(),
+			Error:                decoded,
+			FailureType:          failureType,
+			RequiresUserApproval: requiresApproval,
+			SuggestedAction:      suggestedAction,
+			SessionID:            sessionID,
 		})
 		m.enqueueSpan(observability.Span{
 			TraceID:      sessionTraceID,
@@ -2302,6 +2423,16 @@ func (m *Master) buildSkillsIndex(userID string) map[string]bool {
 	return idx
 }
 
+func (m *Master) skillMetasForModel(userID string) []skills.SkillMetadata {
+	if m == nil || m.skillReg == nil {
+		return nil
+	}
+	if userID == "" {
+		return m.skillReg.ListForModel()
+	}
+	return m.skillReg.ListForModel(userID)
+}
+
 // persistAssistant 是 P0-A structural lock 的 assistant 消息持久化唯一入口。
 // 接受 assistantcap.Capability 作为编译期 + 运行时双层授权证明。
 // 全包内 Role:"assistant" 字面量仅在此函数体出现一处。
@@ -2756,6 +2887,16 @@ func (m *Master) executeToolsConcurrent(
 			if isTerminalError(contentStr) {
 				terminalCache[callFP] = contentStr
 				*terminalFailures = append(*terminalFailures, toolCall.Name)
+				if kind := reflectionFailureKindFromToolError(contentStr); kind != "" {
+					*callFailureReflections = append(*callFailureReflections, reflectionNoteInput{
+						Trigger:     "call_failure",
+						Severity:    "warn",
+						ToolName:    toolCall.Name,
+						Consecutive: 1,
+						Detail:      contentStr,
+						FailureKind: kind,
+					})
+				}
 			} else if detector != nil && detector.recordCallResult(callFP, true) {
 				terminalCache[callFP] = contentStr
 				*terminalFailures = append(*terminalFailures, toolCall.Name)
@@ -2764,6 +2905,7 @@ func (m *Master) executeToolsConcurrent(
 					Severity:    "warn",
 					ToolName:    toolCall.Name,
 					Consecutive: 2,
+					Detail:      contentStr,
 				})
 			}
 		} else {

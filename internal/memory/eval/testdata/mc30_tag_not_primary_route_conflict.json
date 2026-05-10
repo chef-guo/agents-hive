@@ -1,0 +1,38 @@
+{
+  "id": "mc30_tag_not_primary_route_conflict",
+  "name": "tag 相同但 target/kind 不同时不得压过主路由语义",
+  "query": "memory eval 的 CI gate 规则是什么",
+  "user_id": "u1",
+  "memories": [
+    {
+      "id": 39,
+      "user_id": "u1",
+      "type": "project",
+      "content": "memory eval CI gate 只在 memory eval 相关路径变更时运行",
+      "confidence": 0.95,
+      "score": 0.92,
+      "tags": ["ci", "memory"],
+      "target_scope": "project",
+      "project_id": "agent-memory-plan",
+      "memory_kind": "semantic",
+      "subject_type": "ci",
+      "source": "manual"
+    },
+    {
+      "id": 40,
+      "user_id": "u1",
+      "type": "user",
+      "content": "仅共享 ci tag 的用户偏好不应优先于项目 CI gate 规则",
+      "confidence": 0.95,
+      "score": 0.31,
+      "tags": ["ci", "memory"],
+      "target_scope": "user",
+      "memory_kind": "semantic",
+      "subject_type": "preference",
+      "source": "summary"
+    }
+  ],
+  "want_injected_ids": [39, 40],
+  "want_order_ids": [39, 40],
+  "required": true
+}

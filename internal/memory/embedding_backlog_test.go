@@ -149,6 +149,59 @@ func TestEmbeddingBacklogWorkerUsesJobVectorSpace(t *testing.T) {
 	}
 }
 
+func TestEmbeddingBacklogWorkerRecordsMetrics(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 4, 30, 10, 0, 0, 0, time.UTC)
+	backlog := NewInMemoryEmbeddingBacklog()
+	recorder := &recordingMemoryMetricRecorder{}
+	syncer := &recordingEmbeddingSyncer{}
+	_, err := backlog.Enqueue(ctx, EmbeddingBacklogJob{MemoryID: 11, UserID: "u1", Content: "uses rg", CreatedAt: now})
+	if err != nil {
+		t.Fatalf("Enqueue() error = %v", err)
+	}
+	worker := NewEmbeddingBacklogWorker(backlog, &staticEmbedder{vectors: [][]float32{{7, 8, 9}}}, syncer, EmbeddingBacklogWorkerOptions{
+		WorkerID: "worker-a",
+		Now:      (&manualClock{now: now}).Now,
+		Metrics:  recorder,
+	})
+
+	processed, err := worker.ProcessOne(ctx)
+	if err != nil {
+		t.Fatalf("ProcessOne() error = %v", err)
+	}
+	if !processed {
+		t.Fatal("ProcessOne() processed = false, want true")
+	}
+	if !recorder.hasMetric(MetricEmbeddingLatencySeconds, "status", "ok") {
+		t.Fatalf("missing embedding latency metric: %+v", recorder.events)
+	}
+}
+
+func TestEmbeddingBacklogStatsRecordsDepth(t *testing.T) {
+	ctx := context.Background()
+	backlog := NewInMemoryEmbeddingBacklog()
+	recorder := &recordingMemoryMetricRecorder{}
+	wrapped := NewInstrumentedEmbeddingBacklog(backlog, recorder)
+	_, err := wrapped.Enqueue(ctx, EmbeddingBacklogJob{MemoryID: 12, UserID: "u1", Content: "uses go"})
+	if err != nil {
+		t.Fatalf("Enqueue() error = %v", err)
+	}
+
+	stats, err := wrapped.Stats(ctx)
+	if err != nil {
+		t.Fatalf("Stats() error = %v", err)
+	}
+	if stats.Total != 1 {
+		t.Fatalf("Stats().Total = %d, want 1", stats.Total)
+	}
+	if !recorder.hasMetric(MetricEmbeddingBacklogDepth, "status", string(EmbeddingBacklogStatusPending)) {
+		t.Fatalf("missing backlog depth metric: %+v", recorder.events)
+	}
+	if !recorder.hasMetric(MetricEmbeddingBacklogDepth, "status", "total") {
+		t.Fatalf("missing total backlog depth metric: %+v", recorder.events)
+	}
+}
+
 func TestEmbeddingBacklogFailureExponentialBackoffAccumulatesAtLeast30sAfter10Failures(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, 4, 30, 10, 0, 0, 0, time.UTC)
@@ -314,4 +367,27 @@ func (s *recordingEmbeddingSyncer) SyncMemoryEmbedding(_ context.Context, memory
 	s.vector = append([]float32(nil), vector...)
 	s.status = status
 	return nil
+}
+
+type recordingMemoryMetricRecorder struct {
+	events []MetricEvent
+}
+
+func (r *recordingMemoryMetricRecorder) RecordMemoryMetric(_ context.Context, event MetricEvent) {
+	r.events = append(r.events, event)
+}
+
+func (r *recordingMemoryMetricRecorder) hasMetric(name, labelKey, labelValue string) bool {
+	for _, event := range r.events {
+		if event.Name != name {
+			continue
+		}
+		if labelKey == "" {
+			return true
+		}
+		if got, ok := event.Labels[labelKey]; ok && got == labelValue {
+			return true
+		}
+	}
+	return false
 }

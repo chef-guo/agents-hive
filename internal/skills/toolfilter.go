@@ -2,7 +2,6 @@ package skills
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/chef-guo/agents-hive/internal/errs"
 	"github.com/chef-guo/agents-hive/internal/mcphost"
@@ -49,8 +48,8 @@ func (f *ToolFilter) IsEmpty() bool {
 
 // IsAllowed 检查工具名称是否被允许。
 // deny 优先于 allow。如果过滤器为空或为 nil 则返回 true。
-// 外部 MCP 工具（名称包含 "__"）在不被 deny 的情况下自动放行，
-// 因为它们是动态注册的，profile 无法穷举。
+// 外部 MCP/custom 工具不会绕过 allow list；动态发现只提供候选，
+// 是否可调用必须由上层路由与显式 profile 决定。
 func (f *ToolFilter) IsAllowed(toolName string) bool {
 	if f == nil {
 		return true
@@ -61,10 +60,6 @@ func (f *ToolFilter) IsAllowed(toolName string) bool {
 	}
 	// 如果没有 allow 列表，允许所有（不在 deny 中的）
 	if len(f.allowedTools) == 0 {
-		return true
-	}
-	// 外部 MCP 工具（带 "__" 前缀，如 wenyan__search）自动放行
-	if strings.Contains(toolName, "__") {
 		return true
 	}
 	return f.allowedTools[toolName]

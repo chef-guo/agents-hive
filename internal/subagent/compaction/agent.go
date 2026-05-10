@@ -24,7 +24,7 @@ type Agent struct {
 	llmResolver   subagent.LLMClientResolver // 动态获取 LLM client（优先于静态 llm）
 	cfg           config.CompactionConfig
 	tokenCounter  *llm.TokenCounter
-	memExtractor  memory.MemoryExtractor      // 记忆提取器（可选，从压缩摘要中自动提取记忆）
+	memExtractor  memory.MemoryExtractor       // 记忆提取器（可选，从压缩摘要中自动提取记忆）
 	llmCompleteFn subagent.LLMCompleteCallback // LLM 用量回调（可选）
 	promptLoader  any                          // PromptLoader（可选，用于 prompt 外部化）
 	sessionID     string                       // 当前任务的会话 ID（由 handleTask 从 TaskRequest 中提取）
@@ -160,7 +160,13 @@ func (a *Agent) handleTask(ctx context.Context, req subagent.TaskRequest) subage
 		if len(result) > 0 && result[0].Role == "system" {
 			summaryText := result[0].Content.Text()
 			sessionID := compReq.SessionID
-			if err := a.memExtractor.ExtractFromSummary(ctx, summaryText, sessionID, a.userID); err != nil {
+			memCtx := memory.WithRuntimeContext(ctx, memory.RuntimeContext{
+				UserID:    a.userID,
+				SessionID: sessionID,
+				AgentName: a.ID(),
+				TaskType:  "compaction",
+			})
+			if err := a.memExtractor.ExtractFromSummary(memCtx, summaryText, sessionID, a.userID); err != nil {
 				a.logger.Warn("自动提取记忆失败", zap.Error(err))
 			}
 		}

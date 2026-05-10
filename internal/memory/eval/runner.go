@@ -7,11 +7,18 @@ import (
 	"go.uber.org/zap"
 )
 
+const RequiredFixtureCount = 45
+
 // Result 是单条 memory/context fixture 的执行结果。
 type Result struct {
-	CaseID string `json:"case_id"`
-	Passed bool   `json:"passed"`
-	Reason string `json:"reason,omitempty"`
+	CaseID  string   `json:"case_id"`
+	Name    string   `json:"name,omitempty"`
+	Passed  bool     `json:"passed"`
+	Reason  string   `json:"reason,omitempty"`
+	Tags    []string `json:"tags,omitempty"`
+	Target  string   `json:"target,omitempty"`
+	Kind    string   `json:"kind,omitempty"`
+	Fixture string   `json:"fixture,omitempty"`
 }
 
 // Summary 汇总 memory/context eval 执行结果，可被 CLI 或质量门禁消费。
@@ -41,7 +48,15 @@ func RunCases(ctx context.Context, dir string) (Summary, error) {
 			summary.RequiredTotal++
 		}
 
-		result := Result{CaseID: lc.Case.ID, Passed: true}
+		result := Result{
+			CaseID:  lc.Case.ID,
+			Name:    lc.Case.Name,
+			Passed:  true,
+			Tags:    caseTags(lc.Case),
+			Target:  lc.Case.Target,
+			Kind:    lc.Case.Kind,
+			Fixture: lc.Path,
+		}
 		if err := runCase(ctx, lc); err != nil {
 			result.Passed = false
 			result.Reason = err.Error()
@@ -69,37 +84,76 @@ func runCase(ctx context.Context, loaded LoadedCase) error {
 	if err != nil {
 		return err
 	}
-	inj := memory.NewInjector(&caseStore{records: records}, 2000, 10, zap.NewNop())
-	got, err := inj.InjectContextDetailed(ctx, loaded.Case.Query, "eval-session", loaded.Case.UserID)
+	if err := AssertMetadata(loaded.Case, records); err != nil {
+		return err
+	}
+	if err := AssertScope(loaded.Case, records); err != nil {
+		return err
+	}
+	if loaded.Case.SkipInjection {
+		return nil
+	}
+
+	store := &fixtureMemoryStore{
+		records:         records,
+		exposeCrossUser: loaded.Case.ExposeCrossUser,
+	}
+	sessionID := loaded.Case.SessionID
+	if sessionID == "" {
+		sessionID = "eval-session"
+	}
+	rctx := fixtureRuntimeContext(loaded.Case)
+	if rctx.SessionID == "" {
+		rctx.SessionID = sessionID
+	}
+	ctx = memory.WithRuntimeContext(ctx, rctx)
+
+	cfg := memory.DefaultInjectionConfig()
+	cfg.FeedbackMaxTokens = 600
+	cfg.MemoryMaxTokens = 2000
+	cfg.FeedbackTopK = 3
+	cfg.MemoryTopK = 10
+	if loaded.Case.MinScore != nil {
+		cfg.MinScore = *loaded.Case.MinScore
+	}
+	inj := memory.NewInjectorWithConfig(store, cfg, zap.NewNop())
+	recorder := &fixtureMetricRecorder{}
+	if loaded.Case.Hybrid != nil && loaded.Case.Hybrid.Enabled {
+		embed, vec := buildHybridFixtures(*loaded.Case.Hybrid)
+		hybrid := memory.NewHybridSearcher(store, vec, embed, zap.NewNop())
+		hybrid.SetMetrics(recorder)
+		if loaded.Case.Hybrid.VectorSpace != "" {
+			hybrid.SetMetricsConfig(memory.MetricsConfig{
+				Recorder:    recorder,
+				VectorSpace: loaded.Case.Hybrid.VectorSpace,
+			})
+		}
+		inj.SetHybridSearcher(hybrid)
+	}
+
+	got, err := inj.InjectContextDetailed(ctx, loaded.Case.Query, sessionID, loaded.Case.UserID)
 	if err != nil {
 		return err
 	}
-	return AssertResult(loaded.Case, got)
+	if err := AssertResult(loaded.Case, got); err != nil {
+		return err
+	}
+	if err := AssertStoreExpectations(loaded.Case, store); err != nil {
+		return err
+	}
+	return AssertMetrics(loaded.Case, recorder)
 }
 
-type caseStore struct {
-	records []memory.MemoryRecord
-}
-
-func (s *caseStore) Save(context.Context, *memory.MemoryRecord) (int64, error) { return 0, nil }
-func (s *caseStore) Get(_ context.Context, id int64) (*memory.MemoryRecord, error) {
-	for i := range s.records {
-		if s.records[i].ID == id {
-			return &s.records[i], nil
+func caseTags(c Case) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, mem := range c.Memories {
+		for _, tag := range mem.Tags {
+			if !seen[tag] {
+				seen[tag] = true
+				out = append(out, tag)
+			}
 		}
 	}
-	return nil, nil
+	return out
 }
-func (s *caseStore) Update(context.Context, *memory.MemoryRecord) error { return nil }
-func (s *caseStore) Delete(context.Context, int64) error                { return nil }
-func (s *caseStore) Search(context.Context, memory.SearchOptions) (*memory.SearchResult, error) {
-	return &memory.SearchResult{Memories: s.records, Total: len(s.records)}, nil
-}
-func (s *caseStore) List(context.Context, memory.SearchOptions) (*memory.SearchResult, error) {
-	return &memory.SearchResult{Memories: s.records, Total: len(s.records)}, nil
-}
-func (s *caseStore) Stats(context.Context) (*memory.MemoryStats, error) {
-	return &memory.MemoryStats{}, nil
-}
-func (s *caseStore) SetEmbedding(memory.EmbeddingProvider, memory.VectorStore) {}
-func (s *caseStore) Close() error                                              { return nil }

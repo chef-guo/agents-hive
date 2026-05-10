@@ -1,0 +1,30 @@
+{
+  "id": "mc18_scope_skill_mismatch_denied",
+  "name": "ScopePolicy skill mismatch 不得注入",
+  "query": "review skill 的流程是什么",
+  "user_id": "u1",
+  "runtime_context": {
+    "user_id": "u1",
+    "skill_name": "review"
+  },
+  "memories": [
+    {
+      "id": 25,
+      "user_id": "u1",
+      "type": "procedural",
+      "content": "memory-eval 专用 fixture 编写流程不应给 review skill 使用",
+      "confidence": 0.95,
+      "score": 0.9,
+      "target_scope": "skill",
+      "visibility": "private",
+      "target_user_id": "u1",
+      "skill_name": "memory-eval",
+      "memory_kind": "procedural",
+      "subject_type": "procedure",
+      "source": "manual"
+    }
+  ],
+  "want_skipped_ids": [25],
+  "forbidden_text": ["memory-eval 专用 fixture"],
+  "required": true
+}

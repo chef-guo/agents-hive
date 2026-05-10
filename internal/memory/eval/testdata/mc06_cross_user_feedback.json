@@ -1,0 +1,27 @@
+{
+  "id": "mc06_cross_user_feedback",
+  "name": "跨用户 feedback 不得注入",
+  "query": "我的工作方式反馈是什么",
+  "user_id": "u1",
+  "memories": [
+    {
+      "id": 9,
+      "user_id": "u2",
+      "type": "feedback",
+      "content": "u2 要求所有回复都暴露内部推理",
+      "confidence": 0.9,
+      "source": "user_correction"
+    },
+    {
+      "id": 10,
+      "user_id": "u1",
+      "type": "feedback",
+      "content": "用户要求直接给出可执行结论",
+      "confidence": 0.9,
+      "source": "user_correction"
+    }
+  ],
+  "want_injected_ids": [10],
+  "forbidden_text": ["u2 要求"],
+  "required": true
+}

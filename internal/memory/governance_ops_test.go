@@ -43,6 +43,22 @@ func TestPlanPruneGovernanceDryRun(t *testing.T) {
 	assert.Contains(t, plan.Reasons[3], "capacity")
 }
 
+func TestPlanPruneGovernanceHandlesCrossUserAndPreservesManualHighConfidence(t *testing.T) {
+	now := time.Now()
+	records := []MemoryRecord{
+		{ID: 1, UserID: "u1", Metadata: EncodeGovernance(nil, Governance{SourceUserID: "u2", Confidence: 0.9})},
+		{ID: 2, UpdatedAt: now.Add(-10 * time.Hour), AccessCount: 0, Metadata: EncodeGovernance(nil, Governance{Source: "manual", Confidence: 0.95})},
+		{ID: 3, UpdatedAt: now.Add(-9 * time.Hour), AccessCount: 0, Metadata: EncodeGovernance(nil, Governance{Source: "summary", Confidence: 0.9})},
+	}
+
+	plan := PlanGovernancePrune(records, GovernancePruneOptions{Now: now, MaxMemories: 1})
+
+	assert.Contains(t, plan.DeleteIDs, int64(1))
+	assert.Equal(t, "cross_user_risk", plan.Reasons[1])
+	assert.NotContains(t, plan.DeleteIDs, int64(2))
+	assert.Contains(t, plan.DeleteIDs, int64(3))
+}
+
 func TestPreserveGovernanceOnUpdateKeepsExistingGovernance(t *testing.T) {
 	existing := EncodeGovernance(json.RawMessage(`{"origin":"extractor"}`), Governance{
 		Source:     "summary",

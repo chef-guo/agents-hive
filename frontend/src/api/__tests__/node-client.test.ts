@@ -96,15 +96,23 @@ describe('LocalNodeClient admin capability endpoints', () => {
     const client = new LocalNodeClient(api);
     const document: MemoryExportDocument = { version: 1, user_id: 'u1', memories: [] };
 
-    await client.adminExportMemory({ userId: 'u1', limit: 25 });
-    await client.adminImportMemory({ user_id: 'u1', reset_ids: true, document });
+    await client.adminExportMemory({ userId: 'u1', target: 'profile', target_scope: 'personal', kind: 'user', limit: 25 });
+    await client.adminImportMemory({ user_id: 'u1', target: 'profile', target_scope: 'personal', memory_kind: 'user', reset_ids: true, document });
+    await client.adminGetMemoryInjectionExplain({ limit: 12 });
     await client.adminPlanVectorSpaceMigration({ target_space: 'memory:v2', batch_size: 10, dry_run: true, limit: 50 });
     await client.adminGetEmbeddingBacklogStats();
+    await client.adminGetMemoryProductionMetrics({ windowMinutes: 120, bucketMinutes: 30 });
+    await client.adminListMemoryPromotionCandidates({ userId: 'u1', target: 'profile', target_scope: 'personal', kind: 'feedback', limit: 8, minConfidence: 0.75 });
+    await client.adminApplyMemoryPromotion({ subject_id: 'subj-1', user_id: 'u1', target: 'profile', target_scope: 'personal', memory_kind: 'feedback', limit: 8, min_confidence: 0.75, approval_id: 'appr-1' });
 
-    expect(api.get).toHaveBeenNthCalledWith(1, '/api/v1/admin/memory/export?user_id=u1&limit=25');
-    expect(api.post).toHaveBeenNthCalledWith(1, '/api/v1/admin/memory/import', { user_id: 'u1', reset_ids: true, document });
+    expect(api.get).toHaveBeenNthCalledWith(1, '/api/v1/admin/memory/export?user_id=u1&target=profile&target_scope=personal&memory_kind=user&limit=25');
+    expect(api.post).toHaveBeenNthCalledWith(1, '/api/v1/admin/memory/import', { user_id: 'u1', target: 'profile', target_scope: 'personal', memory_kind: 'user', reset_ids: true, document });
     expect(api.post).toHaveBeenNthCalledWith(2, '/api/v1/admin/memory/vector-space/plan', { target_space: 'memory:v2', batch_size: 10, dry_run: true, limit: 50 });
-    expect(api.get).toHaveBeenNthCalledWith(2, '/api/v1/admin/memory/backlog/stats');
+    expect(api.get).toHaveBeenNthCalledWith(2, '/api/v1/admin/memory/injection/explain?limit=12');
+    expect(api.get).toHaveBeenNthCalledWith(3, '/api/v1/admin/memory/backlog/stats');
+    expect(api.get).toHaveBeenNthCalledWith(4, '/api/v1/admin/memory/metrics?window_minutes=120&bucket_minutes=30');
+    expect(api.get).toHaveBeenNthCalledWith(5, '/api/v1/admin/memory/promotions/candidates?user_id=u1&target=profile&target_scope=personal&memory_kind=feedback&limit=8&min_confidence=0.75');
+    expect(api.post).toHaveBeenNthCalledWith(3, '/api/v1/admin/memory/promotions/apply', { subject_id: 'subj-1', user_id: 'u1', target: 'profile', target_scope: 'personal', memory_kind: 'feedback', limit: 8, min_confidence: 0.75, approval_id: 'appr-1' });
   });
 
   it('calls optimization eval diff, approvals, and rollback endpoints', async () => {

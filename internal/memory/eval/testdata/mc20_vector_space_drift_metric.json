@@ -1,0 +1,28 @@
+{
+  "id": "mc20_vector_space_drift_metric",
+  "name": "Vector-space drift 记录 mismatch 与 fallback 指标",
+  "query": "向量空间迁移",
+  "user_id": "u1",
+  "hybrid": {
+    "enabled": true,
+    "embedding": [1, 0, 0],
+    "vector_error": "dimension mismatch: vector space mismatch",
+    "vector_space": "memory:v2"
+  },
+  "memories": [
+    {
+      "id": 1024,
+      "user_id": "u1",
+      "type": "project",
+      "content": "向量空间迁移必须 dry-run 后再 apply",
+      "confidence": 0.95,
+      "score": 0.8
+    }
+  ],
+  "want_injected_ids": [1024],
+  "want_metrics": [
+    {"name": "memory_hybrid_search_fallback_total", "labels": {"reason": "vector_error"}},
+    {"name": "memory_vector_space_mismatch_total", "labels": {"operation": "search"}}
+  ],
+  "required": true
+}

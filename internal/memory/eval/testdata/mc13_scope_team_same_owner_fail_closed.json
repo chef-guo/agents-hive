@@ -1,0 +1,38 @@
+{
+  "id": "mc13_scope_team_same_owner_fail_closed",
+  "name": "ScopePolicy team 私有记忆同 owner fail-closed 允许",
+  "query": "团队发布窗口是什么",
+  "user_id": "u1",
+  "runtime_context": {
+    "user_id": "u1",
+    "tenant_id": "tenant-a"
+  },
+  "memories": [
+    {
+      "id": 20,
+      "user_id": "u1",
+      "type": "project",
+      "content": "团队发布窗口是每周二下午",
+      "confidence": 0.9,
+      "score": 0.83,
+      "target_scope": "team",
+      "target_id": "team-a",
+      "visibility": "private",
+      "target_user_id": "u1",
+      "tenant_id": "tenant-a",
+      "source": "summary"
+    }
+  ],
+  "want_injected_ids": [20],
+  "scope_assertions": [
+    {
+      "memory_id": 20,
+      "runtime_context": {
+        "user_id": "u1"
+      },
+      "allowed": true,
+      "reason": "same_owner_fail_closed"
+    }
+  ],
+  "required": true
+}

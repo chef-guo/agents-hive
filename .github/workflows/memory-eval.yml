@@ -1,0 +1,69 @@
+name: memory-eval
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'internal/memory/eval/**'
+      - 'internal/memory/injector.go'
+      - 'internal/memory/extractor.go'
+      - 'internal/memory/governance_ops.go'
+      - 'internal/memory/governance.go'
+      - 'internal/memory/hybrid.go'
+      - 'internal/memory/promotion.go'
+      - 'internal/memory/pg_store.go'
+      - 'internal/memory/scope.go'
+      - 'internal/memory/target.go'
+      - 'internal/memory/types.go'
+      - 'internal/memory/store.go'
+      - 'internal/api/admin_memory_handlers.go'
+      - 'internal/api/admin_memory_handlers_test.go'
+      - 'internal/store/postgres_migrate.go'
+      - 'cmd/memory-eval/**'
+      - '.github/workflows/memory-eval.yml'
+      - 'go.mod'
+      - 'go.sum'
+  push:
+    branches: [main]
+    paths:
+      - 'internal/memory/eval/**'
+      - 'internal/memory/injector.go'
+      - 'internal/memory/extractor.go'
+      - 'internal/memory/governance_ops.go'
+      - 'internal/memory/governance.go'
+      - 'internal/memory/hybrid.go'
+      - 'internal/memory/promotion.go'
+      - 'internal/memory/pg_store.go'
+      - 'internal/memory/scope.go'
+      - 'internal/memory/target.go'
+      - 'internal/memory/types.go'
+      - 'internal/memory/store.go'
+      - 'internal/api/admin_memory_handlers.go'
+      - 'internal/api/admin_memory_handlers_test.go'
+      - 'internal/store/postgres_migrate.go'
+      - 'cmd/memory-eval/**'
+      - '.github/workflows/memory-eval.yml'
+      - 'go.mod'
+      - 'go.sum'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  memory-eval:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.1'
+          cache: true
+
+      - name: Run memory eval tests
+        run: go test ./internal/memory/eval -count=1
+
+      - name: Run memory eval CLI
+        run: go run ./cmd/memory-eval

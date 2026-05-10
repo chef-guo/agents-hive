@@ -2,6 +2,7 @@ package memory
 
 import (
 	"context"
+	"errors"
 	"math"
 	"testing"
 
@@ -43,7 +44,7 @@ func (m *mockHybridStore) Stats(_ context.Context) (*MemoryStats, error) {
 	return &MemoryStats{}, nil
 }
 func (m *mockHybridStore) SetEmbedding(_ EmbeddingProvider, _ VectorStore) {}
-func (m *mockHybridStore) Close() error { return nil }
+func (m *mockHybridStore) Close() error                                    { return nil }
 
 // mockHybridVec 测试用 VectorStore mock
 type mockHybridVec struct {
@@ -52,7 +53,7 @@ type mockHybridVec struct {
 }
 
 func (m *mockHybridVec) Add(_ context.Context, _ int64, _ []float32) error { return nil }
-func (m *mockHybridVec) Remove(_ context.Context, _ int64) error            { return nil }
+func (m *mockHybridVec) Remove(_ context.Context, _ int64) error           { return nil }
 func (m *mockHybridVec) Search(_ context.Context, _ []float32, _ int, _ string) ([]VecSearchResult, error) {
 	if m.searchErr != nil {
 		return nil, m.searchErr
@@ -60,13 +61,13 @@ func (m *mockHybridVec) Search(_ context.Context, _ []float32, _ int, _ string) 
 	return m.searchResult, nil
 }
 func (m *mockHybridVec) Count(_ context.Context) (int, error) { return len(m.searchResult), nil }
-func (m *mockHybridVec) Close() error                        { return nil }
+func (m *mockHybridVec) Close() error                         { return nil }
 
 // mockHybridEmbed 测试用 EmbeddingProvider mock
 type mockHybridEmbed struct {
-	vec          []float32
-	embedErr     error
-	dimensions   int
+	vec        []float32
+	embedErr   error
+	dimensions int
 }
 
 func (m *mockHybridEmbed) Embed(_ context.Context, texts []string) ([][]float32, error) {
@@ -214,6 +215,31 @@ func TestHybridSearcher_Search_EmbedFails(t *testing.T) {
 	}
 }
 
+func TestHybridSearcher_RecordsVectorMismatchMetric(t *testing.T) {
+	recorder := &recordingMemoryMetricRecorder{}
+	store := &mockHybridStore{
+		searchResult: &SearchResult{Memories: []MemoryRecord{{ID: 1, Score: 0.9}}},
+	}
+	vec := &mockHybridVec{searchErr: errors.New("查询向量维度不匹配：已建立维度 3，查询维度 2")}
+	embed := &mockHybridEmbed{vec: []float32{1, 0}}
+
+	h := NewHybridSearcher(store, vec, embed, zap.NewNop())
+	h.SetMetrics(recorder)
+	results, err := h.Search(context.Background(), "test", 5, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 || results[0].ID != 1 {
+		t.Fatalf("results = %+v, want FTS fallback result", results)
+	}
+	if !recorder.hasMetric(MetricVectorSpaceMismatchTotal, "operation", "search") {
+		t.Fatalf("missing %s metric: %+v", MetricVectorSpaceMismatchTotal, recorder.events)
+	}
+	if !recorder.hasMetric(MetricHybridSearchFallbackTotal, "reason", HybridFallbackReasonVectorError) {
+		t.Fatalf("missing vector fallback metric: %+v", recorder.events)
+	}
+}
+
 func TestHybridSearcher_Search_Limit(t *testing.T) {
 	store := &mockHybridStore{
 		searchResult: &SearchResult{
@@ -257,8 +283,8 @@ func TestHybridSearcher_Search_VecScoreZero(t *testing.T) {
 	}
 	vec := &mockHybridVec{
 		searchResult: []VecSearchResult{
-			{ID: 2, Score: 0.0},   // Score <= 0 被过滤
-			{ID: 3, Score: -0.1},  // 负分数
+			{ID: 2, Score: 0.0},  // Score <= 0 被过滤
+			{ID: 3, Score: -0.1}, // 负分数
 		},
 	}
 	embed := &mockHybridEmbed{vec: []float32{1, 0, 0}}
@@ -341,13 +367,14 @@ func TestFuse_RRFScores(t *testing.T) {
 		t.Errorf("排序错误: 第三个应为 ID=3，得到 %d", results[2].ID)
 	}
 
-	// 验证 RRF 分数计算（按 ID 查找，而非按索引）
+	// 验证 RRF 分数计算（按 ID 查找，而非按索引），返回前会归一化到 0..1。
 	// FTS: ID=1 rank=0 → 1/61, ID=2 rank=1 → 1/62
 	// Vec: ID=2 rank=0 → 1/61, ID=3 rank=1 → 1/62
+	rawTop := 1.0/62.0 + 1.0/61.0
 	wantScores := map[int64]float64{
-		2: 1.0/62.0 + 1.0/61.0, // FTS rank=1 + vec rank=0
-		1: 1.0 / 61.0,          // FTS rank=0
-		3: 1.0 / 62.0,          // vec rank=1
+		2: 1,                     // FTS rank=1 + vec rank=0
+		1: (1.0 / 61.0) / rawTop, // FTS rank=0
+		3: (1.0 / 62.0) / rawTop, // vec rank=1
 	}
 	for _, r := range results {
 		expected, ok := wantScores[r.ID]

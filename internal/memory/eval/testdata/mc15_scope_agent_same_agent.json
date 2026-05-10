@@ -1,0 +1,49 @@
+{
+  "id": "mc15_scope_agent_same_agent",
+  "name": "ScopePolicy agent 私有记忆只允许同 agent",
+  "query": "Worker Eval 的执行约束是什么",
+  "user_id": "u1",
+  "skip_injection": true,
+  "runtime_context": {
+    "user_id": "u1",
+    "agent_name": "worker-eval"
+  },
+  "memories": [
+    {
+      "id": 22,
+      "user_id": "u1",
+      "type": "procedural",
+      "content": "Worker Eval 只修改 eval fixture 和 CI gate",
+      "confidence": 0.95,
+      "score": 0.91,
+      "target_scope": "agent",
+      "visibility": "private",
+      "target_user_id": "u1",
+      "agent_name": "worker-eval",
+      "memory_kind": "procedural",
+      "subject_type": "procedure",
+      "source": "manual"
+    }
+  ],
+  "scope_assertions": [
+    {
+      "memory_id": 22,
+      "runtime_context": {
+        "user_id": "u1",
+        "agent_name": "worker-eval"
+      },
+      "allowed": true,
+      "reason": "same_agent"
+    },
+    {
+      "memory_id": 22,
+      "runtime_context": {
+        "user_id": "u1",
+        "agent_name": "worker-api"
+      },
+      "allowed": false,
+      "reason": "agent_scope_mismatch"
+    }
+  ],
+  "required": true
+}

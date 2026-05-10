@@ -1,0 +1,22 @@
+{
+  "id": "mc11_scope_user_cross",
+  "name": "ScopePolicy 拒绝跨用户 user scope",
+  "query": "偏好是什么",
+  "user_id": "u1",
+  "skip_injection": true,
+  "memories": [
+    {
+      "id": 1011,
+      "user_id": "u2",
+      "type": "user",
+      "content": "另一个用户的偏好",
+      "target_scope": "user",
+      "target_user_id": "u2",
+      "confidence": 0.95
+    }
+  ],
+  "scope_assertions": [
+    {"memory_id": 1011, "runtime_context": {"user_id": "u1"}, "allowed": false, "reason": "cross_user"}
+  ],
+  "required": true
+}

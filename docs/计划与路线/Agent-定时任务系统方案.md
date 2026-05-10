@@ -1,1109 +1,946 @@
 # Agent 定时任务系统方案
 
-> 日期:2026-05-05
-> 状态:DRAFT,待评审 — 已经过 /plan-ceo-review + outside voice 一轮,详见 §16 决策清单
-> 触发背景:仓库现有 `scheduled_pushes`(IM 渠道定时推送)+ `internal/master/cron.go`(进程内 ticker 调度)只完成 80% 基础设施,但 (1) 没有前端管理页 (2) target 仅限 IM 推送 (3) 仅支持固定间隔 interval_sec,不支持 cron 表达式 (4) 内存版调度,master 重启数据丢失。生产 `scheduled_pushes` 表 0 行 = 实际无人在用。本计划把"IM 推送定时"泛化为通用"用户级定时任务系统",前端可视化管理。
->
-> **业务驱动场景**:_(D2=B 用户判定业务侧有明确场景,具体场景由业务侧补充。outside voice OV10 关切已记录。请在实施前回填,作为本期价值衡量的 anchor。)_
+> 日期: 2026-05-05
+> 修订: 2026-05-08
+> 状态: READY TO IMPLEMENT after plan-ceo-review / plan-eng-review / plan-design-review / D2-D11 fixes
+> 核心结论: 本期做通用用户级定时任务系统,但不按旧版"长事务 advisory lock + 一次性 rename + skill 预留 + 不存在的前端组件"执行。本文件是修订后的唯一事实源。
 
-## 1. 现状评估(基于代码证据)
+## 1. 业务场景
 
-| 已有 | 缺失 |
-|---|---|
-| `scheduled_pushes` PG 表(id/name/platform/prompt/interval_sec/created_by/last_run_at/next_run_at/last_error/enabled)| 前端管理页 |
-| `cron.go` 进程内 ticker 调度 | cron 表达式("每天 9 点") |
-| `/api/v1/channels/push/schedules` POST/GET/DELETE 三接口 | `target_type` 字段(只能 IM 推送)|
-| `auth.UserFrom(ctx)` 用户身份注入 | 用户隔离 query(创建有 created_by,但 list 没按 user 过滤)|
-| `pg_advisory_xact_lock` 模式现成 | 多实例 leader election(重启数据丢失)|
-| `scheduledPromptDispatcher` 钩子 | 时区处理(用户时区 vs UTC)|
+`scheduled_pushes` 生产 0 行说明旧能力没有形成真实使用入口。本期价值不再定义为"补一个 cron UI",而是让用户能把 Agent 变成可靠的后台工人。
 
-**生产 0 行**说明此能力上线但无人用。直接原因是缺前端 UI 加上 target 太窄。
+本期用这两个真实场景验收:
 
-## 2. 设计目标
+1. **每日质量巡检**: 用户创建一个 `session` 定时任务,每天 09:00 自动新建 Web Session,执行"检查当前仓库测试/质量风险并生成报告"。用户登录后台能看到新 session、执行结果和失败原因。
+2. **团队例行播报**: 用户创建一个 `im_push` 定时任务,每个工作日上午向飞书群推送固定模板或摘要。旧 `/api/v1/channels/push/schedules` 行为保持兼容。
 
-1. 统一概念:用户在 web 后台一个页面管理所有定时任务,不分 push / session 入口
-2. **三种 target**:
-   - `im_push` — 复用现有飞书/企微/钉钉推送链路
-   - `session` — 在用户名下新建 web session 跑 prompt,结果可在 web 看到
-   - `skill` — 触发某个 Skill(预留,本期不实现)
-3. **用户隔离**:list/get/update/delete 都按 `created_by` 过滤,用户只能看见自己的任务
-4. **cron 表达式**:支持标准 5 字段 cron + 时区(IANA)
-5. **持久化**:重启后任务自动恢复(基于 PG 表 + bootstrap 时 reload)
-6. **多实例安全**:advisory lock + `last_run_at` 版本号,确保任务不被重复触发
-7. **前端 CRUD UI**:新建/编辑/删除/启停/查看历史(最近 N 次执行)
+非目标: 本期不做任务依赖图、模板市场、Webhook target、Skill target、prompt 加密、移动端完整管理 UI。
 
-## 3. 不做什么
+## 2. 当前代码证据
 
-- 不引入 K8s CronJob / Argo Workflows 这种外部调度系统(本地 cron parser 够用)
-- 不做"任务依赖图"(任务 A 完成后触发 B)— 本期单任务独立
-- 不做并发控制("同一任务 N 个实例并行"的高级配置)— 本期单任务串行
-- 不做用户级配额("用户最多建 N 个定时任务")— 简单上限 100 写死,follow-up 再做配额体系
-- 不做权限委派(运营给某个用户代建任务)— 仅 created_by 可见可改
-- 不做 Skill target 的实际触发逻辑(Skill 当前缺基础设施)— 字段预留
-- **不重写 cron.go**:升级它,不替换
+| 现状 | 代码位置 | 结论 |
+|---|---|---|
+| `scheduled_pushes` 表已存在 | `internal/store/postgres_migrate.go` | 物理表本期继续沿用,不立即 rename |
+| 旧 push schedule API 只有 POST/GET/DELETE | `internal/api/push_schedule_handler.go` | 作为 alias 保留,内部委托新实现 |
+| `cron.go` 仅支持 `Interval time.Duration` | `internal/master/cron.go` | 原地升级,不重写调度器 |
+| `restoreFeishuPushSchedules` 启动恢复已存在 | `internal/bootstrap/helpers.go` | 替换为通用 scheduled task reload |
+| `auth.WithUser(ctx, *auth.User)` 是真实接口 | `internal/auth/middleware.go` | session target 必须注入完整用户对象 |
+| `SessionRequest` 不含 `OwnerUserID` | `internal/master/session.go` | user 只能从 context 传入 |
+| 前端没有 `components/ui/Table/Sheet/Badge` | `frontend/src/components/` | Phase 5 必须按现有组件/样式实现 |
+| 前端没有 `react-hook-form` | `frontend/package.json` | 本期不用它,使用受控表单 |
+
+## 3. 本期范围
+
+### 3.1 做什么
+
+1. 新增 `/api/v1/scheduled-tasks` 用户级 CRUD API。
+2. 支持两种 target:
+   - `im_push`: 复用 `internal/channel/push.Service`。
+   - `session`: 在任务 owner 名下创建/执行 Web Session。
+3. 支持两种 schedule:
+   - `interval_sec`: 保留旧能力。
+   - `cron_expr` + `timezone`: 标准 5 字段 cron + IANA 时区。
+4. 任务和 run history 持久化到 PostgreSQL。
+5. 多实例下同一任务同一 tick 只执行一次。
+6. 前端新增桌面版定时任务管理页。
+7. 最近 run history 可查看,高频数据用周分区保留 4 周。
+
+### 3.2 不做什么
+
+- 不新增 `target_type='skill'`。CHECK 约束只允许 `im_push` / `session`。
+- 不新增 dispatcher 注册表。两个 target 用显式 `switch`。
+- 不做物理表 rename。`scheduled_pushes` 作为物理表保留,新代码可以用 `ScheduledTask` 类型表达语义。
+- 不用长事务包住 Agent 执行。
+- 不依赖不存在的 `frontend/src/components/ui/*`。
+- 不引入 `react-hook-form`。
+- 不做 mobile table-to-card 体验。`<768px` 显示桌面使用提示。
 
 ## 4. 数据模型
 
-### 4.1 表结构演进:`scheduled_pushes` → `scheduled_tasks`
+### 4.1 物理表策略
 
-不新建并行表,**演进现有表 + 重命名**(一次 PG migration):
+本期不执行 `ALTER TABLE scheduled_pushes RENAME TO scheduled_tasks`。原因:
+
+1. 滚动部署期间旧进程仍会访问 `scheduled_pushes`。
+2. 当前仓库迁移集中在 `pgInitSQL`,没有成熟版本化 migration runner。
+3. 表名不影响 API/Go 类型语义,rename 可以等真实使用稳定后作为独立 cleanup。
+
+### 4.2 `scheduled_pushes` 演进
+
+在 `internal/store/postgres_migrate.go` 的 `CREATE TABLE IF NOT EXISTS scheduled_pushes` 中新增列,并给已有库补 `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` 的初始化逻辑。不要删除旧列。
 
 ```sql
--- migration: 20260505_scheduled_tasks_evolve.sql
-ALTER TABLE scheduled_pushes RENAME TO scheduled_tasks;
+ALTER TABLE scheduled_pushes
+  ADD COLUMN IF NOT EXISTS description TEXT NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS target_type TEXT NOT NULL DEFAULT 'im_push',
+  ADD COLUMN IF NOT EXISTS target_config JSONB NOT NULL DEFAULT '{}'::jsonb,
+  ADD COLUMN IF NOT EXISTS cron_expr TEXT NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS timezone TEXT NOT NULL DEFAULT 'UTC',
+  ADD COLUMN IF NOT EXISTS active_run_id TEXT NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS lease_expires_at TIMESTAMPTZ;
 
--- 新增 target 抽象
-ALTER TABLE scheduled_tasks ADD COLUMN target_type TEXT NOT NULL DEFAULT 'im_push'
-  CHECK (target_type IN ('im_push', 'session', 'skill'));
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conname = 'scheduled_pushes_target_type_check'
+      AND conrelid = 'scheduled_pushes'::regclass
+  ) THEN
+    ALTER TABLE scheduled_pushes
+      ADD CONSTRAINT scheduled_pushes_target_type_check
+      CHECK (target_type IN ('im_push', 'session'));
+  END IF;
 
--- 老 platform 字段语义保留,但仅 target_type='im_push' 时使用
-COMMENT ON COLUMN scheduled_tasks.platform IS '仅 target_type=im_push 时使用,im 渠道 (feishu/wechat/dingtalk)';
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conname = 'scheduled_pushes_schedule_check'
+      AND conrelid = 'scheduled_pushes'::regclass
+  ) THEN
+    ALTER TABLE scheduled_pushes
+      ADD CONSTRAINT scheduled_pushes_schedule_check
+      CHECK (
+        (cron_expr <> '' AND interval_sec = 0)
+        OR
+        (cron_expr = '' AND interval_sec > 0)
+      );
+  END IF;
+END $$;
 
--- 新增 target 配置 JSON,按 target_type 解释:
---   im_push: {"platform":"feishu","conversation_id":"oc_xxx"}
---   session: {"session_id":"...","auto_create":true}
---   skill:   {"skill_name":"xxx","args":{...}}
-ALTER TABLE scheduled_tasks ADD COLUMN target_config JSONB NOT NULL DEFAULT '{}'::jsonb;
+COMMENT ON COLUMN scheduled_pushes.last_error IS
+  '最近一次 run 的最终错误,仅用于 UI 展示,不驱动调度逻辑';
 
--- cron 表达式(可选,与 interval_sec 互斥)
-ALTER TABLE scheduled_tasks ADD COLUMN cron_expr TEXT NOT NULL DEFAULT '';
-ALTER TABLE scheduled_tasks ADD COLUMN timezone TEXT NOT NULL DEFAULT 'UTC';
+CREATE INDEX IF NOT EXISTS idx_scheduled_pushes_user_enabled
+  ON scheduled_pushes(created_by, enabled, next_run_at);
 
--- 互斥校验:cron_expr 和 interval_sec 不能同时设(一个为空)
-ALTER TABLE scheduled_tasks ADD CONSTRAINT cron_or_interval_check
-  CHECK ((cron_expr <> '' AND interval_sec = 0) OR (cron_expr = '' AND interval_sec > 0));
+-- 创建唯一索引前必须先做 preflight。若返回任何行,迁移 fail-fast,
+-- 由人工清理重复 name 后再重跑,不要自动改用户可见数据。
+SELECT created_by, name, COUNT(*)
+FROM scheduled_pushes
+GROUP BY created_by, name
+HAVING COUNT(*) > 1;
 
--- 历史执行记录表
-CREATE TABLE IF NOT EXISTS scheduled_task_runs (
-    id           TEXT NOT NULL,
-    task_id      TEXT NOT NULL REFERENCES scheduled_tasks(id) ON DELETE CASCADE,
-    started_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    finished_at  TIMESTAMPTZ,
-    status       TEXT NOT NULL CHECK (status IN ('running','succeeded','failed','timeout')),
-    output       TEXT NOT NULL DEFAULT '',
-    error        TEXT NOT NULL DEFAULT '',
-    session_id   TEXT,                  -- target_type='session' 时记录创建的 session
-    PRIMARY KEY (id),
-    INDEX (task_id, started_at DESC)    -- 按任务查最近执行
-);
-
-CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_user ON scheduled_tasks(created_by, enabled);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_scheduled_pushes_user_name
+  ON scheduled_pushes(created_by, name);
 ```
 
-### 4.2 老接口兼容
+说明:
 
-`/api/v1/channels/push/schedules` 三个接口**保留不动**作为 alias,内部委托给新 `/api/v1/scheduled-tasks` 实现 + 强制 `target_type='im_push'`。3 个月后下线 alias。
+- `platform` 保留,仅 `target_type='im_push'` 时使用。
+- `target_config` 用于 target 参数。`im_push` 存 `platform/chat_id/open_id/msg_type/template/vars/idempotency_key`; `session` 存 `session_name`。
+- `active_run_id` 和 `lease_expires_at` 用于短事务 claim,避免同一任务并发执行。
+- `pg_constraint` guard 必须同时匹配 `conname` 和 `conrelid`,防止其他表同名约束导致迁移误判。
+- `(created_by, name)` 唯一索引前必须做重复 preflight,发现重复时返回明确迁移错误,不自动重命名。
 
-### 4.3 Go 类型
+### 4.3 Run history 分区表
+
+`scheduled_task_runs` 按 `scheduled_at` 周分区。不要做大批量 DELETE GC。
+
+```sql
+CREATE TABLE IF NOT EXISTS scheduled_task_runs (
+    scheduled_at     TIMESTAMPTZ NOT NULL,
+    id               TEXT NOT NULL,
+    task_id          TEXT NOT NULL REFERENCES scheduled_pushes(id) ON DELETE CASCADE,
+    started_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    finished_at      TIMESTAMPTZ,
+    status           TEXT NOT NULL CHECK (status IN ('running','succeeded','failed','timeout','skipped')),
+    attempt_count    INTEGER NOT NULL DEFAULT 0,
+    output           TEXT NOT NULL DEFAULT '',
+    error            TEXT NOT NULL DEFAULT '',
+    session_id       TEXT NOT NULL DEFAULT '',
+    claimed_by       TEXT NOT NULL DEFAULT '',
+    claim_expires_at TIMESTAMPTZ,
+    PRIMARY KEY (scheduled_at, id),
+    UNIQUE (scheduled_at, task_id)
+) PARTITION BY RANGE (scheduled_at);
+```
+
+每周创建一个分区:
+
+```sql
+CREATE TABLE IF NOT EXISTS scheduled_task_runs_2026_w19
+  PARTITION OF scheduled_task_runs
+  FOR VALUES FROM ('2026-05-04') TO ('2026-05-11');
+
+CREATE INDEX IF NOT EXISTS idx_scheduled_task_runs_2026_w19_task_started
+  ON scheduled_task_runs_2026_w19(task_id, scheduled_at DESC);
+```
+
+历史保留 4 周。GC 每周一 03:00 创建下周分区,并 `DROP TABLE IF EXISTS scheduled_task_runs_<old_week>`。
+
+写入 run history 前不能只依赖 GC 预创建分区。新增:
+
+```go
+EnsureScheduledTaskRunPartition(ctx context.Context, scheduledAt time.Time) error
+```
+
+要求:
+
+- `ClaimDueScheduledTaskRun` 和 `ClaimManualScheduledTaskRun` 在插入 `scheduled_task_runs` 前都必须先调用。
+- 分区名按 ISO week 生成,例如 `scheduled_task_runs_2026_w19`。
+- 建表和建索引必须幂等。并发 ensure 同一周分区时,用短事务 advisory lock 或等价互斥保护 DDL,不要影响任务执行事务。
+- GC 只负责提前创建下周分区和删除 4 周前分区,不是写入安全性的唯一保障。
+
+### 4.4 Go 类型
 
 ```go
 type ScheduledTask struct {
-    ID           string                 `json:"id"`
-    Name         string                 `json:"name"`
-    TargetType   string                 `json:"target_type"`         // im_push | session | skill
-    TargetConfig map[string]any         `json:"target_config"`        // 按 target_type 解释
-    Prompt       string                 `json:"prompt"`
-    CronExpr     string                 `json:"cron_expr,omitempty"`  // "0 9 * * *" 形式;与 IntervalSec 互斥
-    IntervalSec  int                    `json:"interval_sec,omitempty"`
-    Timezone     string                 `json:"timezone"`             // "Asia/Shanghai"
-    Enabled      bool                   `json:"enabled"`
-    CreatedBy    string                 `json:"created_by"`           // 强制 = auth.UserFrom(ctx).ID
-    LastRunAt    *time.Time             `json:"last_run_at,omitempty"`
-    NextRunAt    *time.Time             `json:"next_run_at,omitempty"`
-    LastError    string                 `json:"last_error,omitempty"`
-    CreatedAt    time.Time              `json:"created_at"`
-    UpdatedAt    time.Time              `json:"updated_at"`
+    ID             string         `json:"id"`
+    Name           string         `json:"name"`
+    Description    string         `json:"description,omitempty"`
+    TargetType     string         `json:"target_type"` // im_push | session
+    TargetConfig   map[string]any `json:"target_config"`
+    Platform       string         `json:"platform,omitempty"`
+    Prompt         string         `json:"prompt"`
+    CronExpr       string         `json:"cron_expr,omitempty"`
+    IntervalSec    int            `json:"interval_sec,omitempty"`
+    Timezone       string         `json:"timezone"`
+    Enabled        bool           `json:"enabled"`
+    CreatedBy      string         `json:"created_by"`
+    LastRunAt      *time.Time     `json:"last_run_at,omitempty"`
+    NextRunAt      *time.Time     `json:"next_run_at,omitempty"`
+    LastError      string         `json:"last_error,omitempty"`
+    ActiveRunID    string         `json:"active_run_id,omitempty"`
+    LeaseExpiresAt *time.Time     `json:"lease_expires_at,omitempty"`
+    CreatedAt      time.Time      `json:"created_at"`
+    UpdatedAt      time.Time      `json:"updated_at"`
 }
 
 type ScheduledTaskRun struct {
-    ID         string     `json:"id"`
-    TaskID     string     `json:"task_id"`
-    StartedAt  time.Time  `json:"started_at"`
-    FinishedAt *time.Time `json:"finished_at,omitempty"`
-    Status     string     `json:"status"`     // running | succeeded | failed | timeout
-    Output     string     `json:"output"`
-    Error      string     `json:"error"`
-    SessionID  string     `json:"session_id,omitempty"`
+    ScheduledAt    time.Time  `json:"scheduled_at"`
+    ID             string     `json:"id"`
+    TaskID         string     `json:"task_id"`
+    StartedAt      time.Time  `json:"started_at"`
+    FinishedAt     *time.Time `json:"finished_at,omitempty"`
+    Status         string     `json:"status"`
+    AttemptCount   int        `json:"attempt_count"`
+    Output         string     `json:"output"`
+    Error          string     `json:"error"`
+    SessionID      string     `json:"session_id,omitempty"`
+    ClaimedBy      string     `json:"claimed_by,omitempty"`
+    ClaimExpiresAt *time.Time `json:"claim_expires_at,omitempty"`
 }
 ```
 
-## 5. 后端架构
+## 5. 调度与执行模型
 
-### 5.1 调度器升级(internal/master/cron.go)
+### 5.1 不使用长事务 advisory lock
 
-现有 `cron.go` 仅支持 `Interval time.Duration`。升级:
+旧方案的问题: `session` target 可能运行几分钟到 30 分钟。如果用 `pg_try_advisory_xact_lock` 包住整个 callback,数据库事务会跟 Agent 执行一样长,容易占连接、阻塞 vacuum、放大故障。
+
+本期改为 **短事务 claim + 事务外执行 + 短事务 finalize**。
+
+```
+cron / interval tick
+  |
+  v
+短事务 ClaimDueScheduledTaskRun
+  - row lock scheduled_pushes
+  - 检查 enabled / next_run_at <= now / active_run_id 是否空或 lease 过期
+  - 写 active_run_id + lease_expires_at
+  - 插入 scheduled_task_runs(status=running)
+  - 计算并写下一次 next_run_at
+  |
+  v
+提交事务
+  |
+  v
+执行 im_push 或 session,最多 30 分钟
+  |
+  v
+短事务 FinishScheduledTaskRun
+  - status=succeeded/failed/timeout
+  - 写 output/error/session_id
+  - 清 active_run_id
+  - 写 last_error
+```
+
+### 5.2 Claim SQL 形态
+
+`ClaimDueScheduledTaskRun` 必须是一个短事务。
+
+调用前先计算本次 `scheduled_at=task.next_run_at`,并调用 `EnsureScheduledTaskRunPartition(ctx, scheduledAt)`。分区 ensure 失败时不要进入 claim SQL,直接记录 metric/log 并返回错误。
+
+```sql
+WITH due AS (
+  SELECT id, next_run_at AS scheduled_at
+  FROM scheduled_pushes
+  WHERE id = $1
+    AND enabled = TRUE
+    AND next_run_at IS NOT NULL
+    AND next_run_at <= $2
+    AND (active_run_id = '' OR lease_expires_at IS NULL OR lease_expires_at < $2)
+    AND NOT EXISTS (
+      SELECT 1
+      FROM scheduled_task_runs r
+      WHERE r.task_id = scheduled_pushes.id
+        AND r.scheduled_at = scheduled_pushes.next_run_at
+    )
+  FOR UPDATE SKIP LOCKED
+),
+inserted AS (
+  INSERT INTO scheduled_task_runs (
+  scheduled_at, id, task_id, status, attempt_count, claimed_by, claim_expires_at
+  )
+  SELECT scheduled_at, $3, id, 'running', 0, $6, $4
+  FROM due
+  ON CONFLICT (scheduled_at, task_id) DO NOTHING
+  RETURNING scheduled_at, id, task_id
+),
+updated AS (
+  UPDATE scheduled_pushes sp
+  SET active_run_id = inserted.id,
+      lease_expires_at = $4,
+      last_run_at = $2,
+      next_run_at = $5,
+      updated_at = NOW()
+  FROM inserted
+  WHERE sp.id = inserted.task_id
+  RETURNING sp.*
+)
+SELECT inserted.scheduled_at, inserted.id, inserted.task_id
+FROM inserted
+JOIN updated ON updated.id = inserted.task_id;
+```
+
+如果返回 0 行,说明别的实例已经 claim,或者任务已禁用/未到点/仍在运行。本实例直接跳过。
+
+### 5.3 手动 run-now
+
+`run-now` 不复用 `ClaimDueScheduledTaskRun` 的 `next_run_at <= now` 条件。新增:
+
+```go
+ClaimManualScheduledTaskRun(ctx context.Context, taskID string, now time.Time, runID string, leaseUntil time.Time, claimedBy string) (*ScheduledTaskRun, error)
+```
+
+语义:
+
+- `scheduled_at=now.UTC()`。
+- 仍检查 `enabled=true`、owner 权限、`active_run_id` 为空或 lease 已过期。
+- 插入 run 前调用 `EnsureScheduledTaskRunPartition(ctx, now)`。
+- 不修改 `next_run_at`,手动执行不能推迟或提前下一次自动触发。
+- 返回 0 行时表示仍在运行/被其他实例 claim/任务被禁用,API 返回 409 或可恢复错误,不要静默成功。
+- 之后执行与 finalize 完全复用普通 tick 的 dispatcher 路径。
+
+### 5.4 Finalize 顺序
+
+`FinishScheduledTaskRun` 必须是一个短事务,顺序固定:
+
+1. 按 `(scheduled_at, run_id)` 更新 `scheduled_task_runs` 自己的 `status/output/error/session_id/finished_at/attempt_count`。
+2. 按 `(task_id, active_run_id)` 条件清理 `scheduled_pushes.active_run_id/lease_expires_at/last_error`。
+3. 第二步影响 0 行不是错误,说明旧 run 超时后已有新 run 接管。此时 run history 仍必须保留最终状态,但不能清空新 run 的 lease。
+
+清理 task lease 时必须带 run id 防旧 run 覆盖新 run:
+
+```sql
+UPDATE scheduled_pushes
+SET active_run_id = '',
+    lease_expires_at = NULL,
+    last_error = $3,
+    updated_at = NOW()
+WHERE id = $1
+  AND active_run_id = $2;
+```
+
+如果这条 UPDATE 影响 0 行,仍然更新 `scheduled_task_runs` 自己的 status/output/error,但不要清空 task 上的 `active_run_id`。这说明旧 run 已超时后被新 run 接管。
+
+### 5.5 Retry 与 schedule 解耦
+
+每次 schedule tick 只创建一条 run。run 内部最多重试 3 次,退避 1m/5m/15m。下一个 tick 是新 run,不继承上一次 run 的 retry 状态。
+
+连续失败自动禁用规则:
+
+- 不在 dispatcher 内联禁用。
+- 在 finalize 或 GC 时检查最近 5 次 run。
+- 只有 `len(recentRuns) == 5` 且 5 次全是 `failed` 或 `timeout` 时,设置 `enabled=false`,写 `last_error="最近 5 次执行均失败,已自动停用"`。
+- 最近 run 少于 5 条时绝不自动停用,避免新任务第一次失败就被关闭。
+
+### 5.6 Timeout
+
+每个 run 使用 `context.WithTimeout(ctx, 30*time.Minute)`。超时写:
+
+- `scheduled_task_runs.status='timeout'`
+- `scheduled_task_runs.error='scheduled task timed out after 30m'`
+- `scheduled_pushes.last_error` 同步为该错误
+- 清空 `active_run_id`
+
+### 5.7 Schedule 计算
+
+新增:
 
 ```go
 type ScheduleSpec struct {
-    Interval time.Duration  // 与 CronExpr 互斥
-    CronExpr string         // 5 字段 cron("M H DoM Mon DoW")
-    Timezone string         // IANA "Asia/Shanghai"
-}
-
-type CronJob struct {
-    ID           string
-    Name         string
-    Schedule     ScheduleSpec
-    UserID       string                                  // 用户隔离
-    Callback     func(context.Context) error
+    Interval time.Duration
+    CronExpr string
+    Timezone string
 }
 ```
 
-引入 `github.com/robfig/cron/v3` 作为 cron 表达式 parser(成熟、Go 生态首选,~100KB)。Interval 路径保留不动(向后兼容)。
+规则:
 
-### 5.2 多 target 分发(新增 dispatcher 注册表)
+- `Interval > 0` 与 `CronExpr != ""` 互斥。
+- `CronExpr` 使用 `github.com/robfig/cron/v3` 标准 5 字段 parser。
+- `Timezone` 必须能 `time.LoadLocation`。
+- 普通用户 `interval_sec >= 60`。admin 可通过配置放宽到最低 10 秒,仅用于运维或测试。
+- cron 表达式预解析后必须拒绝等价高频调度,即下一次和再下一次触发间隔低于当前用户最小 interval 时返回 validation error。
+- 创建/更新任务时预计算 `next_run_at`。
+- 每次 claim 时基于当前 task spec 计算下一次 `next_run_at`。
 
-```go
-type TargetDispatcher func(ctx context.Context, task ScheduledTask) (sessionID string, err error)
+### 5.8 可观测性
 
-// 注册表:每个 target_type 一个实现
-m.RegisterTargetDispatcher("im_push", imPushDispatcher)    // 调 push.SendChannelMessage
-m.RegisterTargetDispatcher("session", sessionDispatcher)   // 调 sm.ProcessRequestWithResponse
-m.RegisterTargetDispatcher("skill", nil)                    // 本期 nil,工具返回 "not implemented"
-```
+首版必须复用现有 zap logger 和 `Master.enqueueMetric`,不做 dashboard。至少记录:
 
-执行流:cron 触发 → 查 task.target_type → 走对应 dispatcher → 写 `scheduled_task_runs` 记录。
-
-### 5.3 多实例 leader election(advisory lock)
-
-bootstrap 时 reload 任务,但**不同实例不能同时跑同一任务**。每次 cron tick:
-
-```go
-func (m *Master) tryRunTask(ctx context.Context, taskID string) {
-    err := m.db.BeginFunc(ctx, func(tx pgx.Tx) error {
-        // 用 task_id hash 作 advisory lock key,事务级锁
-        var locked bool
-        tx.QueryRow(ctx, "SELECT pg_try_advisory_xact_lock(hashtext($1))", taskID).Scan(&locked)
-        if !locked {
-            return nil  // 别的实例正在跑这个 task,跳过
-        }
-        // 在锁保护下执行 + 更新 last_run_at
-        return runTaskAndRecord(ctx, tx, taskID)
-    })
-}
-```
-
-锁随 transaction 释放,无悬空风险。复用现有 `internal/auth/pg_store.go:466` 已有的 advisory lock 模式。
-
-### 5.4 持久化 reload(bootstrap)
-
-`internal/bootstrap/server.go` 启动时:
-
-```go
-// 启动后从 PG 加载所有 enabled=true 的任务,注册到内存 cron
-tasks, _ := store.ListEnabledScheduledTasks(ctx)
-for _, t := range tasks {
-    m.CronCreate(toCronJob(t))
-}
-```
-
-任务 CRUD 时双写:PG + 内存 cron。删 task 同时停 cron job。
-
-### 5.5 用户隔离 query
-
-handlers 改造:
-
-```go
-func (s *Server) handleListScheduledTasks(w http.ResponseWriter, r *http.Request) {
-    user := auth.UserFrom(r.Context())
-    if user == nil { return 401 }
-    tasks, err := s.store.ListScheduledTasksByUser(ctx, user.ID)  // ← 强制按 created_by 过滤
-    ...
-}
-
-func (s *Server) handleGetScheduledTask(w http.ResponseWriter, r *http.Request) {
-    user := auth.UserFrom(r.Context())
-    task, err := s.store.GetScheduledTask(ctx, taskID)
-    if task.CreatedBy != user.ID { return 404 }   // ← 不漏存在性
-    ...
-}
-```
-
-更新/删除同理。**Admin role 例外**(可看所有用户任务)走 `/api/v1/admin/scheduled-tasks/*`。
-
-### 5.6 后端 API endpoints(新)
-
-| Method | Path | 说明 |
+| Metric / log | Labels | 触发 |
 |---|---|---|
-| POST | `/api/v1/scheduled-tasks` | 新建任务,强制 created_by=auth user |
-| GET | `/api/v1/scheduled-tasks` | 列出当前用户任务 |
-| GET | `/api/v1/scheduled-tasks/{id}` | 详情(校验 ownership)|
-| PUT | `/api/v1/scheduled-tasks/{id}` | 修改(校验 ownership)|
-| DELETE | `/api/v1/scheduled-tasks/{id}` | 删除(校验 ownership)|
-| POST | `/api/v1/scheduled-tasks/{id}/toggle` | 启用/禁用切换 |
-| POST | `/api/v1/scheduled-tasks/{id}/run-now` | 手动触发一次(调试用)|
-| GET | `/api/v1/scheduled-tasks/{id}/runs` | 最近 N 次执行历史(默认 N=20)|
-| GET | `/api/v1/admin/scheduled-tasks` | 管理员列出全部任务 |
+| `scheduled_task.claim_total` | `result=claimed/skipped/error`, `target_type` | due/manual claim 返回 |
+| `scheduled_task.run_total` | `status=succeeded/failed/timeout`, `target_type` | finalize |
+| `scheduled_task.reload_total` | `result=ok/failed` | bootstrap reload 单任务结果 |
+| `scheduled_task.partition_ensure_total` | `result=ok/failed` | ensure 分区 |
+| structured log `scheduled task claim skipped` | `task_id`, `reason`, `run_id` | claim 返回 0 行 |
+| structured log `scheduled task run finalized` | `task_id`, `run_id`, `status`, `lease_cleared` | finalize |
 
-老 `/api/v1/channels/push/schedules` 三接口保留 alias 3 个月。
+## 6. Target 执行
 
-## 6. 前端 UI
+### 6.1 `im_push`
 
-### 6.1 路由
-
-新增 `frontend/src/pages/ScheduledTasks.tsx`,路由 `/scheduled-tasks`(放在 Admin 侧边栏 + 普通用户侧边栏)。
-
-### 6.2 页面结构
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│ 定时任务  [+ 新建任务]                              [搜索框]      │
-├─────────────────────────────────────────────────────────────────┤
-│ ☑ 启用 │ 名称       │ 调度       │ 目标          │ 上次执行  │ 操作│
-│ ☑      │ 早会播报   │ 每天 9:00  │ IM 飞书 #研发 │ 2 小时前 │ ⋮  │
-│ ☐      │ 周报分析   │ 每周一 8:00│ Web Session  │ 6 天前   │ ⋮  │
-│ ☑      │ Lint 巡检 │ 每 2 小时  │ Web Session  │ 23 分钟前│ ⋮  │
-└─────────────────────────────────────────────────────────────────┘
-            点击任意行展开 → 最近 5 次执行历史 + Output preview
-            操作菜单:编辑 / 立即运行 / 删除 / 复制
-```
-
-### 6.3 新建/编辑表单
-
-```
-名称 *           [______________]
-描述              [______________]
-
-调度方式 *       (●) 简单间隔  ( ) Cron 表达式
-  ┌ 简单间隔 ─────────────┐    ┌ Cron 表达式 ──────────────┐
-  │ 每 [_30_] 分钟 ▼      │    │ [0 9 * * *      ]        │
-  │ (秒/分钟/小时/天)     │    │ 例:每天 9:00,周一 8:30   │
-  └────────────────────────┘    │ 时区 [Asia/Shanghai ▼]  │
-                                 └────────────────────────┘
-
-目标 *           ( ) IM 推送  (●) Web Session  ( ) Skill (即将上线)
-
-  ┌ Web Session ─────────────┐   ┌ IM 推送 ────────────────┐
-  │ 会话名称 [______________] │   │ 平台 [飞书 ▼]            │
-  │ ☑ 自动创建新会话           │   │ 群/会话 ID [_______]    │
-  └────────────────────────────┘   └──────────────────────────┘
-
-Prompt *          [大文本框,800 char 上限]
-
-☑ 启用            [取消]  [保存]
-```
-
-### 6.4 五态 UI
-
-| 状态 | 渲染 |
-|---|---|
-| loading | 表格骨架屏 3 行 + animate-pulse |
-| empty | 大图标 + "还没有定时任务,点击「新建任务」开始" + 按钮 |
-| success | 表格列表 |
-| error | 顶部红条 "加载失败 [重试]" + 缓存内容灰度 |
-| partial | 顶部黄条 "调度服务异常,任务可能未按时执行" |
-
-### 6.5 复用现有组件
-
-- 表格走 `frontend/src/components/ui/Table.tsx`(已有)
-- 表单走 react-hook-form(仓库已用)
-- cron 表达式解释器:`cronstrue` npm 包(把 `0 9 * * *` 翻译成中文"每天 9:00")
-- 时区下拉:`Intl.supportedValuesOf('timeZone')`(浏览器 native)
-
-### 6.6 i18n
-
-新增 keys 进 `frontend/src/i18n/locales/{en,zh}.json`:
-- `scheduledTasks.title`、`.create`、`.cronExpr`、`.timezone`、`.targetIm`、`.targetSession` 等约 30 条
-
-## 7. 关键产品决策(需评审拍板)
-
-下面是必须在实施前定的事:
-
-**Q1 — cron 表达式 vs 简单间隔 vs 都支持**:推荐都支持,简单间隔保留兼容老 push;cron 表达式适合"每天 9 点"。
-
-**Q2 — 时区:用户级 vs 任务级 vs 服务器 UTC**:推荐**任务级**(每个任务带 timezone),最灵活;UI 默认填浏览器时区。
-
-**Q3 — 失败重试**:推荐"自动重试 3 次,指数退避(1min/5min/15min)";超过失败次数 enabled 自动关闭并发邮件/IM 通知。
-
-**Q4 — 单任务并发**:推荐"严格串行"(同一 task 上次没跑完就不开下次),advisory lock 自然保证。
-
-**Q5 — `target_type=session` 时 session 行为**:推荐"每次执行新建 sub-session"(避免跨次污染上下文),session_id 命名为 `scheduled-{task_id}-{run_id}`。
-
-**Q6 — 用户最多建多少任务**:推荐"上限 100 写死,超出报 429"。配额体系作 follow-up。
-
-**Q7 — 历史执行保留多久**:推荐"30 天滚动删除",配 cron 任务 daily 清理。
-
-## 8. 实施阶段
-
-### Phase 1 — 数据模型迁移
-
-**Files:**
-- Modify: `internal/store/postgres_migrate.go`(新增 migration)
-- Create: `internal/store/scheduled_task_store.go`(增删改查 + 用户隔离)
-- Create: `internal/store/scheduled_task_store_test.go`
-
-**Tasks:**
-- [ ] PG migration:`scheduled_pushes` → `scheduled_tasks` + 5 个新列 + 1 个新表
-- [ ] migration 兼容性测试:老数据自动 `target_type='im_push'`、`platform` 字段保留
-- [ ] Store 接口:`Save/Get/List/ListByUser/Update/Delete/ListEnabled` + run history `RecordRun/ListRuns`
-- [ ] 测试:CRUD 路径 + ownership 校验 + cron_or_interval CHECK 约束
-
-### Phase 2 — cron 调度器升级
-
-**Files:**
-- Modify: `internal/master/cron.go`(加 ScheduleSpec / cron_expr 解析)
-- Modify: `internal/master/cron_test.go`
-- Add dependency: `github.com/robfig/cron/v3`
-
-**Tasks:**
-- [ ] `ScheduleSpec` + `parseSchedule()` 函数(interval 或 cron_expr 二选一)
-- [ ] `runCronJob` 改用 `cron.Schedule.Next()` 计算下次触发
-- [ ] 时区:`time.LoadLocation(spec.Timezone)` 加载;非法时区报错
-- [ ] 多实例 advisory lock(`pg_try_advisory_xact_lock`)包 callback
-- [ ] 失败重试逻辑(3 次指数退避 + enabled=false 兜底)
-- [ ] 测试:cron 表达式解析 / interval 兼容 / 时区切换 / advisory lock 互斥
-
-### Phase 3 — 多 target dispatcher
-
-**Files:**
-- Create: `internal/master/dispatcher_im_push.go`(复用现有 push 链路)
-- Create: `internal/master/dispatcher_session.go`(调 sm.ProcessRequestWithResponse)
-- Modify: `internal/master/master.go`(注册 dispatcher map)
-
-**Tasks:**
-- [ ] dispatcher 接口 + 注册表(im_push / session / skill)
-- [ ] `im_push` 实现:从 `target_config` 读 platform/conversation_id,调 push.SendChannelMessage
-- [ ] `session` 实现:`session_id = scheduled-{task_id}-{run_id}`,调 sessionManager 创建 + 投递 prompt
-- [ ] `skill` 占位 dispatcher 返回 `ErrNotImplemented`
-- [ ] 每次执行写 `scheduled_task_runs` 记录(running → succeeded/failed)
-- [ ] 测试:每个 dispatcher 独立单测 + 端到端集成测
-
-### Phase 4 — REST API
-
-**Files:**
-- Create: `internal/api/scheduled_tasks_handler.go`
-- Create: `internal/api/scheduled_tasks_handler_test.go`
-- Modify: `internal/api/routes.go`
-- Modify: `internal/api/push_schedule_handler.go`(改成委托新 handler)
-
-**Tasks:**
-- [ ] 7 个新 endpoints(POST/GET/GET-id/PUT/DELETE/toggle/run-now)
-- [ ] `/runs` 历史接口(分页,默认 20 条)
-- [ ] 用户隔离强制 — list 走 ListByUser,get/update/delete 校验 ownership
-- [ ] 老 `/channels/push/schedules` alias 委托新 handler + 强制 target_type='im_push'
-- [ ] Admin endpoint `/api/v1/admin/scheduled-tasks` 走 admin role check
-- [ ] 输入校验:cron_expr 用 robfig/cron 预解析、timezone IANA 校验、prompt 长度 ≤ 8000
-- [ ] 测试:每个 endpoint + ownership 跨用户隔离 + 校验失败路径
-
-### Phase 5 — bootstrap reload + 历史清理
-
-**Files:**
-- Modify: `internal/bootstrap/server.go`
-- Create: `internal/master/scheduled_task_history_gc.go`
-
-**Tasks:**
-- [ ] 启动时 ListEnabledScheduledTasks → 注册所有任务进内存 cron
-- [ ] 启动失败任务(cron_expr 解析失败)记录到 `last_error` + enabled=false
-- [ ] 历史清理 cron(每天 03:00 删除 `scheduled_task_runs.started_at < now - 30d`)
-- [ ] 测试:进程重启后任务自动恢复 + 老任务字段兼容
-
-### Phase 6 — 前端 UI
-
-**Files:**
-- Create: `frontend/src/pages/ScheduledTasks.tsx`
-- Create: `frontend/src/components/scheduled-tasks/TaskList.tsx`
-- Create: `frontend/src/components/scheduled-tasks/TaskForm.tsx`
-- Create: `frontend/src/components/scheduled-tasks/RunHistoryDrawer.tsx`
-- Create: `frontend/src/store/scheduledTasks.ts`
-- Modify: `frontend/src/api/node-client.ts`(7 个新 API client)
-- Modify: `frontend/src/layouts/AdminSidebar.tsx`(加菜单)
-- Modify: `frontend/src/i18n/locales/{en,zh}.json`(~30 keys)
-- Add dependency: `cronstrue`
-
-**Tasks:**
-- [ ] TaskList 表格(列名/调度/目标/上次执行/操作)+ 搜索/筛选
-- [ ] TaskForm 新建/编辑(简单间隔 vs cron_expr 切换 + cronstrue 实时翻译 + 时区下拉)
-- [ ] RunHistoryDrawer(展开任意行显示最近 5 次,链接到完整历史页)
-- [ ] 五态 UI(loading 骨架/empty 空提示/error 重试条/partial WS 断条)
-- [ ] toggle/run-now 按钮 + Toast 反馈
-- [ ] 用户视角与 Admin 视角 UI 复用,通过 prop `mode` 切换
-- [ ] e2e 测:create → list → run-now → check history → delete 全链路
-
-## 9. 测试计划
-
-### 9.1 后端测试矩阵
-
-```
-NEW CODEPATHS:
-  ├── cron.go::ScheduleSpec.Next()         单测 cron + interval + timezone
-  ├── cron.go::tryRunTask + advisory lock  单测两实例并发 + 锁互斥
-  ├── dispatcher_im_push.Send                单测复用 push 链路
-  ├── dispatcher_session.Send                单测 session 创建 + prompt 投递
-  ├── handler_create + ownership check       单测跨用户访问拒绝
-  ├── handler_list_by_user                   单测仅返回 created_by=user.ID
-  ├── handler_run_now                        单测手动触发 + run 记录
-  └── bootstrap_reload                       单测启动后任务恢复
-
-REGRESSION 关键:
-  ├── 老 /channels/push/schedules 三接口语义不变(转发新 handler)
-  ├── 老 scheduled_pushes 数据自动 target_type='im_push'
-  └── interval_sec 路径继续工作(cron_or_interval CHECK 兼容)
-```
-
-### 9.2 前端测试
-
-- TaskForm:cron_expr 与 interval_sec 切换 + cronstrue 翻译正确
-- TaskList:用户隔离仅看自己任务 + admin 视角看全部
-- e2e:用 playwright 跑 create → list → toggle → run-now → history → delete
-
-### 9.3 测试命令
-
-```bash
-env GOCACHE=/tmp/go-build go test ./internal/store ./internal/master ./internal/api -run "Scheduled" -count=1
-cd frontend && npm test -- --run src/pages/ScheduledTasks
-```
-
-## 10. 验收矩阵
-
-| 场景 | 期望 |
-|---|---|
-| 用户 A 建 1 个任务 | 用户 B list 看不到,admin list 能看到 |
-| 用户 B 拿到 A 的 task_id 调 GET/PUT/DELETE | 返回 404,不漏存在性 |
-| 任务 cron_expr `0 9 * * *` Asia/Shanghai | 每天北京时间 9:00 触发 |
-| 任务 interval_sec=300 | 每 5 分钟触发(老路径兼容)|
-| 两 master 实例同时跑同一任务 | advisory lock 保证只一个跑 |
-| target=im_push | 复用 push 链路,飞书群收到消息 |
-| target=session | 用户登录 web 看到新 session 名 `scheduled-{id}-{run}`,prompt 已执行 |
-| 任务 cron_expr 非法 | API 创建返回 400,错误体包含解析错误 |
-| 任务连续失败 3 次 | enabled 自动关,通知 created_by |
-| master 重启 | enabled=true 任务自动恢复调度,不丢任务 |
-| 30 天前的 run 记录 | history GC 自动清理 |
-| 老 /channels/push/schedules 调用 | 透传到新 handler,强制 target_type='im_push' |
-
-## 11. 灰度与兼容
-
-- **数据**:migration 完成后老 `scheduled_pushes.platform` 字段保留,通过 `target_type='im_push'` 区分;target_config 默认 `{}`,im_push 自动从 platform/conversation_id 字段重建
-- **API**:老接口保留 alias 3 个月,带 `Deprecation: true` HTTP 头
-- **前端**:管理页 lazy-loaded,不影响主流程;feature flag `agent.scheduled_tasks.enabled=true` 默认开
-- **回退**:如出现严重问题,关 feature flag → 前端菜单隐藏,但已注册的 cron job 仍跑(不破坏现有 IM 推送)
-
-## 12. 风险与 follow-up
-
-| 风险 | 处理 |
-|---|---|
-| 用户建 100 个 cron 任务挤占 master 资源 | 上限 100 + advisory lock 串行 + 单任务超时 30 分钟 |
-| cron_expr 解析失败但任务仍 enabled | 启动 reload 时校验失败 → enabled=false + 写 last_error |
-| `target_type=session` 时新 session 占 db 空间 | session 加 ttl + GC,跟 sessiontodo Wave 1 内存 GC 同模式 |
-| 用户 prompt 含敏感数据持久化到 PG | 在表上加 `prompt_redacted bool` 标记,follow-up 加密存储 |
-| 时区夏令时跨日处理 | robfig/cron/v3 内置正确处理 DST,不需要手撸 |
-
-**follow-up 不进本期**:
-
-- T1:用户级配额(每天最多 N 次执行 / 每月 token 上限)
-- T2:任务依赖图(A → B 串行触发)
-- T3:Skill target dispatcher 实现(等 Skills 系统补齐)
-- T4:Webhook 出站 target(任务执行完发 callback)
-- T5:任务模板市场(分享给团队复用)
-- T6:per-user timezone 设置(用户 profile 默认时区,个体任务可覆盖)
-- T7:prompt 加密 + 审计日志
-
-## 13. 估算
-
-| Phase | 人/团队 | CC+gstack |
-|---|---|---|
-| Phase 1 (数据)| 1.5 天 | 30 分钟 |
-| Phase 2 (cron 升级)| 2 天 | 1 小时 |
-| Phase 3 (dispatcher)| 1.5 天 | 30 分钟 |
-| Phase 4 (REST API)| 2 天 | 45 分钟 |
-| Phase 5 (bootstrap+GC)| 1 天 | 20 分钟 |
-| Phase 6 (前端)| 4 天 | 1.5 小时 |
-| **总计** | **~12 天** | **~5 小时** |
-
-## 14. 最小可交付切片
-
-如果需要更小起步范围,Phase 1+2+4+6 是最小切片(数据+调度+API+前端),Phase 3 dispatcher 只实现 `im_push`(就是把 push schedule 加 UI),Phase 5 bootstrap reload 推后。这样**~3 天完成**(CC+gstack ~1.5 小时)。但故事 C 的"target=session"能力会缺失。
-
-不推荐做这个切片——故事 C 的核心价值在 `target=session`(让 agent 定时帮用户跑任务),没这条 = 退化成"故事 A:仅 IM 推送泛化",失去最大产品价值。
-
----
-
-## 15. Claude Code 审核重点
-
-请重点审核:
-
-1. **scheduled_pushes → scheduled_tasks 迁移**是否会破坏老 IM 推送数据?ALTER + RENAME 是否需要 downtime?
-2. **多实例 advisory lock** 用 `pg_try_advisory_xact_lock(hashtext(task_id))` 是否会与其他模块的锁冲突?(hashtext 可能重叠)
-3. **target=session 时新 session 的 user 上下文怎么注入?** session 创建用的 ctx 没有 HTTP request 的 auth.UserFrom 信息,需手动注入 user_id
-4. **bootstrap reload 失败任务多 = 启动慢**?如果 100 个任务有 50 个 cron_expr 非法,启动时一个个解析失败要写 50 次 PG;能否批量更新
-5. **前端 cron 表达式输入** UX 是否够友好?用户能不能正确写出 "每周一 8:00"?需不需要做 visual cron builder
-6. **失败重试 3 次后 enabled=false** 是否合理?会不会出现"运维半夜被动收到一堆任务自动关闭通知"
-7. **历史 GC 30 天**是否合理?长任务可能 30 天内每天跑 → 30 条记录,但 IM 推送可能每分钟跑一次 → 43200 条 / 月,要不要按任务类型不同 ttl
-
----
-
-> 整体判断:**80% 基础设施已存在,本期是泛化 + 补 UI + 补持久化**,不是从零做新功能。比看起来工程量小很多。
-
----
-
-## 16. CEO Review + Outside Voice 决策清单(2026-05-05)
-
-本节记录 `/plan-ceo-review` + outside voice 一轮后的决议。**plan 主体 §3-§13 按本节修订实施**(实施工程师对照本节,不重写主体)。
-
-### 16.1 已锁定的产品决策(D1=A 7 项一拨拍)
-
-| ID | 决策 | 主体落点 |
-|---|---|---|
-| Q1 | cron 表达式 + interval_sec 都支持(互斥)| §4.1 已写 cron_or_interval CHECK |
-| Q2 | 时区任务级,IANA 字符串 | §4.1 timezone 列已加 |
-| Q3 | ~~3 次指数退避~~ → **被 OV7 替换** | 见 16.2-OV7 |
-| Q4 | 严格串行(单任务) | §5.3 advisory lock 自然保证 |
-| Q5 | ~~每次新 sub-session~~ → **被 OV3 替换** | 见 16.2-OV3 |
-| Q6 | ~~100 写死~~ → **被 OV5 强化** | 见 16.2-OV5 |
-| Q7 | ~~30 天 DELETE GC~~ → **被 OV6 替换** | 见 16.2-OV6 |
-
-### 16.2 Outside Voice 9 项工程修复全接受(D3=A)
-
-#### OV1 ALTER + RENAME **不是零停机** → 改两阶段 migration
-
-**问题**:`ALTER TABLE scheduled_pushes RENAME TO scheduled_tasks` 持 ACCESS EXCLUSIVE 瞬时锁,但滚动部署期间老 master replica 仍跑 `SELECT FROM scheduled_pushes`,RENAME 完老进程 500。
-
-**修订**:§4.1 migration 改两阶段(跨 2 个发布版本):
-
-**阶段一 v_N**(纯加列,不改名):
-```sql
-ALTER TABLE scheduled_pushes ADD COLUMN target_type TEXT NOT NULL DEFAULT 'im_push'
-  CHECK (target_type IN ('im_push', 'session'));      -- skill 不加(OV8 cut)
-ALTER TABLE scheduled_pushes ADD COLUMN target_config JSONB NOT NULL DEFAULT '{}'::jsonb;
-ALTER TABLE scheduled_pushes ADD COLUMN cron_expr TEXT NOT NULL DEFAULT '';
-ALTER TABLE scheduled_pushes ADD COLUMN timezone TEXT NOT NULL DEFAULT 'UTC';
-ALTER TABLE scheduled_pushes ADD CONSTRAINT cron_or_interval_check ...;
--- 老进程仍读 platform/prompt/interval_sec 字段,新列默认值不影响
-```
-
-**阶段二 v_N+1**(rename + view alias):
-```sql
-ALTER TABLE scheduled_pushes RENAME TO scheduled_tasks;
-CREATE OR REPLACE VIEW scheduled_pushes AS SELECT * FROM scheduled_tasks;
--- 老进程通过 view 仍能读写;新代码用 scheduled_tasks。等 v_N+2 删 view
-```
-
-**新增**:`scheduled_task_runs` 表见 16.2-OV6(分区表替代普通表)。
-
-#### OV2 advisory lock namespace 防碰撞 → 用 2-key 形式
-
-**问题**:`hashtext(task_id)` 32-bit 空间,与 `hashtext('auth_providers_delete')` 等其他模块的 advisory lock 物理不可分。
-
-**修订**:§5.3 lock 改:
-```go
-const lockNamespaceScheduledTasks = 0x5C8E  // 16-bit 自定 namespace,与 auth/sessiontodo 等隔离
-tx.QueryRow(ctx, `SELECT pg_try_advisory_xact_lock($1, hashtext($2))`,
-    lockNamespaceScheduledTasks, taskID).Scan(&locked)
-```
-
-仓内其他模块使用 advisory lock 时也应分配自己的 namespace 整数前缀,文档化在 `docs/架构设计/`。
-
-#### OV3 session dispatcher 复用 Plan Runtime,不自建生命周期
-
-**问题**:Plan Runtime 刚上线有完整 long-running task lifecycle(`session_loop` + Plan Runtime Guard + `runtime_epoch`)。我自建 `scheduled-{task_id}-{run_id}` session 命名 + 自己 GC,**两套生命周期不对齐 = 孤儿 session、统计重复**。
-
-**修订**:`internal/master/scheduled_task_dispatch.go` 单文件 + switch(2 分支),不抽 dispatcher 注册表(OV8 + ER-A1=B 决议):
+不要调用不存在的 `push.SendChannelMessage`。使用当前真实服务:
 
 ```go
-// dispatchScheduledTask 在 cron callback 内调,2 分支 ~30 行
-func (m *Master) dispatchScheduledTask(ctx context.Context, task ScheduledTask, runID string) (string, error) {
-    // user 上下文注入 — auth.WithUser 接受整个 *auth.User 对象,不是字符串
-    user, err := m.authStore.GetUser(ctx, task.CreatedBy)
+type scheduledPushService interface {
+    Push(ctx context.Context, req push.Request) error
+    DispatchScheduledPrompt(ctx context.Context, prompt string) error
+}
+```
+
+兼容两种输入:
+
+1. 老记录: `target_config={}` 且 `prompt` 以 `scheduled_push:` 开头时,调用 `DispatchScheduledPrompt(ctx, task.Prompt)`。
+2. 新记录: 从 `target_config` 组装 `push.Request`,调用 `Push(ctx, req)`。
+
+### 6.2 `session`
+
+session target 必须在 owner 身份下执行。当前真实接口是:
+
+- `auth.WithUser(ctx, *auth.User)`
+- `auth.Engine.GetUserByID(ctx, userID)`
+- `SessionRequest{SessionID, Input}`
+- `SessionManager.ProcessRequestWithResponse(ctx, req)`
+
+新增一个用户解析依赖,不要在 `Master` 里假设存在 `m.authStore.GetUser`。
+
+```go
+type scheduledTaskUserResolver interface {
+    GetUserByID(ctx context.Context, userID string) (*auth.User, error)
+}
+```
+
+执行逻辑:
+
+```go
+func (m *Master) dispatchScheduledTask(ctx context.Context, task ScheduledTask, runID string) (sessionID string, output string, err error) {
+    user, err := m.scheduledTaskUserResolver.GetUserByID(ctx, task.CreatedBy)
     if err != nil {
-        return "", fmt.Errorf("scheduled task %s: owner %s not found: %w", task.ID, task.CreatedBy, err)
+        return "", "", fmt.Errorf("scheduled task %s owner lookup failed: %w", task.ID, err)
+    }
+    if user == nil || user.Status != "active" {
+        return "", "", fmt.Errorf("scheduled task %s owner is missing or inactive", task.ID)
     }
     ctx = auth.WithUser(ctx, user)
 
     switch task.TargetType {
     case "im_push":
-        // 复用现有 push 链路
-        platform, _ := task.TargetConfig["platform"].(string)
-        convID, _ := task.TargetConfig["conversation_id"].(string)
-        return "", push.SendChannelMessage(ctx, platform, convID, task.Prompt)
-
+        return m.dispatchScheduledIMPush(ctx, task)
     case "session":
-        // 触发 web session — 自动复用 Plan Runtime sessiontodo Wave GC、runtime_epoch、paused/resume
         sessionID := fmt.Sprintf("scheduled-%s-%s", task.ID, runID)
-        _, err := m.sessionMgr.ProcessRequestWithResponse(ctx, SessionRequest{
+        resp, err := m.sessionMgr.ProcessRequestWithResponse(ctx, SessionRequest{
             SessionID: sessionID,
             Input:     task.Prompt,
         })
-        return sessionID, err
-
+        return sessionID, resp.Content, err
     default:
-        return "", fmt.Errorf("unsupported target_type: %s", task.TargetType)
+        return "", "", fmt.Errorf("unsupported target_type: %s", task.TargetType)
     }
 }
 ```
 
-**关键修正**(eng review 验证后):
-- `auth.WithUser(ctx, *auth.User)`,**不是** `auth.WithUserID(ctx, string)`(`internal/auth/middleware.go:125` 真函数)
-- `SessionRequest` 不含 `OwnerUserID` 字段,user 通过 ctx 注入(sessionManager 内部读)
-- user 不存在时 fail-fast 并写 `last_error`,不 fallback admin 身份
-- session 自动走 Plan Runtime sessiontodo Wave 1 GC、runtime_epoch、paused/resume,不自建生命周期
+注意:
 
-**收益不变**(对齐原 OV3 意图):
-- session 自动支持 paused/resume(Plan Runtime Guard)
-- statistics/observability 复用 sessiontodo trace span
-- 不重新发明 GC 链路
+- `SessionRequest` 不传 `OwnerUserID`。
+- user 不存在时 fail-fast,写 run error,不 fallback admin。
+- session 的 `UserID` 通过 `auth.UserIDFrom(ctx)` 写入现有 session 创建路径。
 
-**收益**:
-- session 自动走 Plan Runtime sessiontodo Wave 1 GC
-- session 自动支持 paused/resume(用户在 web 看到这个 session 卡了可以手动续)
-- 统计/observability 复用 Plan Runtime 的 trace span,不重复造
+## 7. API
 
-#### OV4 bootstrap reload 异步 + per-task recover
+### 7.1 新 endpoints
 
-**问题**:1000 任务串行解析、单条失败写一次 PG `last_error`,启动 50s 卡死;一条 cron_expr panic(robfig 不会 panic 但 target_config JSON unmarshal 可能)整个 server 起不来。
-
-**修订**:§5.4 bootstrap reload 改:
-
-```go
-func (m *Master) startScheduledTasksAsync(ctx context.Context) {
-    go func() {
-        tasks, err := store.ListEnabledScheduledTasks(ctx)
-        if err != nil {
-            m.logger.Error("scheduled tasks reload failed", zap.Error(err))
-            return  // 健康检查不依赖此函数
-        }
-        // 批量校验 cron_expr,单条失败用 defer recover() 隔离,不影响其他任务
-        var failures []scheduledTaskFailure
-        for _, t := range tasks {
-            func() {
-                defer func() {
-                    if r := recover(); r != nil {
-                        failures = append(failures, scheduledTaskFailure{ID: t.ID, Err: fmt.Errorf("panic: %v", r)})
-                    }
-                }()
-                if err := m.CronCreate(toCronJob(t)); err != nil {
-                    failures = append(failures, scheduledTaskFailure{ID: t.ID, Err: err})
-                }
-            }()
-        }
-        // 一次性批量 UPDATE last_error + enabled=false,而非逐条
-        if len(failures) > 0 {
-            store.BulkMarkScheduledTaskFailures(ctx, failures)
-        }
-    }()
-}
-```
-
-健康检查 `/health` **不依赖** scheduled tasks reload 完成 — server 立即可服务,scheduled tasks 后台并发就绪。
-
-#### OV5 用户任务上限明确 = per-user + 429
-
-**问题**:plan 写"上限 100 写死"但没说 per-user 还是全局。Admin 算不算?
-
-**修订**:§7 Q6 修正:
-- **per-user 100**(普通用户,通过 `created_by`)
-- Admin role 不受限(运维系统级任务)
-- 超限返回 `429 Too Many Requests`,错误体:
-  ```json
-  {
-    "error": "scheduled_tasks_quota_exceeded",
-    "code": 429,
-    "limit": 100,
-    "current": 100,
-    "message": "已达到每用户 100 个定时任务上限,请删除旧任务或联系管理员"
-  }
-  ```
-- 前端 UI 收 429 时显示 toast + 引导用户去删除页
-
-#### OV6 history GC 改分区表 + DROP PARTITION
-
-**问题**:`scheduled_task_runs` 高频任务月产 43200 行/任务,btree 索引 + 大量 DELETE → dead tuple → VACUUM 跟不上。
-
-**修订**:§4.1 表结构改:
-```sql
-CREATE TABLE scheduled_task_runs (
-    id           TEXT NOT NULL,
-    task_id      TEXT NOT NULL,
-    started_at   TIMESTAMPTZ NOT NULL,
-    finished_at  TIMESTAMPTZ,
-    status       TEXT NOT NULL,
-    output       TEXT NOT NULL DEFAULT '',
-    error        TEXT NOT NULL DEFAULT '',
-    session_id   TEXT,
-    PRIMARY KEY (started_at, id)            -- 分区键必须在 PK 里
-) PARTITION BY RANGE (started_at);
-
--- 每周一个分区,bootstrap 时按需 CREATE PARTITION
-CREATE TABLE scheduled_task_runs_2026_w19 PARTITION OF scheduled_task_runs
-    FOR VALUES FROM ('2026-05-04') TO ('2026-05-11');
-
--- 索引:每分区独立 (task_id, started_at DESC),BRIN(started_at) 全表汇总
-CREATE INDEX ON scheduled_task_runs_2026_w19 (task_id, started_at DESC);
-```
-
-**GC**:不 DELETE,直接 `DROP TABLE scheduled_task_runs_<old_week>`(瞬时 + 0 dead tuple)。新增 `internal/master/scheduled_task_history_gc.go`:
-
-```go
-// 每周一 03:00 创建下周分区 + DROP 4 周前分区
-func (m *Master) rotatePartitions(ctx context.Context) {
-    nextWeek := time.Now().Add(7 * 24 * time.Hour)
-    db.Exec(ctx, fmt.Sprintf(`CREATE TABLE IF NOT EXISTS scheduled_task_runs_%s PARTITION OF ...`, weekKey(nextWeek)))
-    oldWeek := time.Now().Add(-28 * 24 * time.Hour)
-    db.Exec(ctx, fmt.Sprintf(`DROP TABLE IF EXISTS scheduled_task_runs_%s`, weekKey(oldWeek)))
-}
-```
-
-保留 4 周历史(28 天),更长由 partition rotate 控制。
-
-#### OV7 重试与调度解耦
-
-**问题**:plan §7 Q3 写"3 次指数退避(1/5/15min)",但 cron 任务 `0 9 * * *` 每天一次,9:00 失败 → 9:01/9:06/9:21 重试 → 与下一日 cron 错位 + 互相覆盖 last_error。
-
-**修订**:§5.1 增加"调度 vs 执行"两轴:
-
-```
-调度轴(cron tick / interval):决定 何时 应该跑
-   └─ 触发执行轴(retry policy):决定 失败时怎么重试 / 多久放弃
-```
-
-每次调度 tick 创建一条新的 `scheduled_task_runs.status='running'` 记录。该 run 内部最多重试 3 次(配置可调,默认 3),超过则 status='failed' + 写 `last_error`。**下次调度 tick 是新 run,与上次 run 完全独立**,不存在跨 tick 重试。
-
-`task.last_error` 字段保留"最近一次失败原因"供 UI 显示,但不再驱动调度逻辑。"连续失败 N 次 → enabled=false" 的判定改为:**最近 5 次 run 全 failed 才自动关**(由 GC cron 顺手判,而不是 dispatcher 内联判)。
-
-#### OV8 cut over-engineering — 本期不做 skill / prompt_redacted / Webhook / 模板市场
-
-**修订**:§3 不做什么 + §4.1 schema 调整:
-
-- **删除** `target_type='skill'` 选项(CHECK 约束去掉)
-- **删除** `prompt_redacted` 字段
-- **删除** dispatcher 注册表抽象 — 2 个实现直接在 cron callback 里 `switch task.TargetType`,~20 行
-- §12 follow-up 中的 T3/T4/T5/T7 全部移除:**T3 Skill target / T4 Webhook 出站 / T5 模板市场 / T7 prompt 加密** 不再列为本期 follow-up。如果未来真有需求再开新 plan。
-
-YAGNI 减重:估算从 12 天 → ~9 天(CC ~4 小时)。
-
-#### OV9 Phase 5 并入 Phase 2
-
-**问题**:Phase 5(bootstrap reload)与 Phase 2(cron 升级)是同一个事的两面 — 没有 reload 没法测多实例 advisory lock。
-
-**修订**:§8 Phase 顺序变为:
-
-```
-Phase 1: 数据迁移(两阶段 migration)
-Phase 2: cron 升级 + bootstrap reload(原 Phase 2 + 5 合并)
-Phase 3: 多 target dispatcher(im_push + session,不要 skill)
-Phase 4: REST API
-Phase 5(原 Phase 6): 前端 UI
-Phase 6(原 GC):分区 GC + 历史清理 cron
-```
-
-### 16.3 估算修订
-
-| Phase | 人/团队 | CC+gstack |
+| Method | Path | 说明 |
 |---|---|---|
-| Phase 1 数据(两阶段 migration)| 1.5 天 | 30 分 |
-| Phase 2 cron + bootstrap reload + advisory lock 修复 | 2.5 天 | 1 小时 |
-| Phase 3 dispatcher(im_push + session,直接 switch)| 1 天 | 20 分 |
-| Phase 4 REST API + 用户隔离 | 2 天 | 45 分 |
-| Phase 5 前端 UI | 4 天 | 1.5 小时 |
-| Phase 6 分区 GC | 0.5 天 | 15 分 |
-| **总计** | **~11.5 天 → 实际 ~9 天**(并行 + cut)| **~4 小时** |
+| POST | `/api/v1/scheduled-tasks` | 新建任务,`created_by=auth.UserFrom(ctx).ID` |
+| GET | `/api/v1/scheduled-tasks` | 当前用户任务 |
+| GET | `/api/v1/scheduled-tasks/{id}` | 当前用户任务详情,跨用户返回 404 |
+| PUT | `/api/v1/scheduled-tasks/{id}` | 修改任务,跨用户返回 404 |
+| DELETE | `/api/v1/scheduled-tasks/{id}` | 删除任务,跨用户返回 404 |
+| POST | `/api/v1/scheduled-tasks/{id}/toggle` | 启停任务 |
+| POST | `/api/v1/scheduled-tasks/{id}/run-now` | 手动触发一次 |
+| GET | `/api/v1/scheduled-tasks/{id}/runs?limit=20` | 最近执行历史 |
+| GET | `/api/v1/admin/scheduled-tasks` | admin 列出全部 |
 
-### 16.4 必修项 checklist(给实施工程师)
+### 7.2 旧接口兼容
 
-实施前对照本表,plan 主体读到对应章节时同时读本节修订:
+旧接口保留 3 个月:
 
-- [ ] OV1 阶段一 migration 只加列 + 不 RENAME(本期发布)
-- [ ] OV1 阶段二 migration 在 v_N+1 发布,带 view alias
-- [ ] OV2 advisory lock 加 namespace `0x5C8E` + 2-key 形式
-- [ ] OV3 dispatcher_session 改为调 `sessionMgr.CreateScheduledSession()` 复用 Plan Runtime,不自建 sub-session
-- [ ] OV4 bootstrap reload 异步 + per-task `defer recover` + 批量 BulkMarkScheduledTaskFailures
-- [ ] OV4 `/health` 不依赖 reload 完成
-- [ ] OV5 `created_by` 用户级 100 上限,Admin 例外,429 错误体格式按 §16.2-OV5 标准化
-- [ ] OV6 `scheduled_task_runs` 用 PARTITION BY RANGE(started_at) 分区表
-- [ ] OV6 GC cron 走 DROP PARTITION,保留 4 周
-- [ ] OV7 重试与调度解耦,run 级别重试,跨 tick 不串
-- [ ] OV7 enabled 自动关判定改为"最近 5 次 run 全 failed",不在 dispatcher 内联判
-- [ ] OV8 schema 不加 `target_type='skill'`、不加 `prompt_redacted`
-- [ ] OV8 dispatcher 直接 switch,不抽注册表
-- [ ] OV9 Phase 5(bootstrap)合并到 Phase 2
+- `POST /api/v1/channels/push/schedules`
+- `GET /api/v1/channels/push/schedules`
+- `DELETE /api/v1/channels/push/schedules/{id}`
 
-### 16.5 业务场景占位(D2=B 用户判定但未补)
+兼容要求:
 
-> 本期 plan 价值 anchor 由业务侧提供。Outside voice OV10 关切是合理的:`scheduled_pushes` 历史表 0 行用,本期 plan 上线后避免重蹈需要 1-2 个验证过的真实场景。
->
-> 实施工程师在 PR 描述中补充:"本 PR 解决场景 X(描述)+ 场景 Y(描述),用户故事:____。"
+- 响应结构保持旧测试期望。
+- 内部转成 `target_type='im_push'`。
+- 增加 `Deprecation: true` header。
+- 旧接口仍要求原来的 admin + `push:write` 权限。
 
----
+### 7.3 用户隔离
 
+普通用户:
 
----
+- list 只查 `created_by = user.ID`
+- get/update/delete/run-now/toggle 先按 id 查,再校验 owner;不匹配返回 404,不泄漏存在性
 
-## 17. Eng Review 决策清单(2026-05-05 /plan-eng-review)
+Admin:
 
-本节由 `/plan-eng-review` 在 2026-05-05 追加,验证 §16 决议在代码层的可行性。
+- `/api/v1/admin/scheduled-tasks` 可看全部
+- 普通 `/api/v1/scheduled-tasks` 仍按当前用户过滤
 
-### 17.1 已发现的代码层假设错误(已修)
+### 7.4 输入校验
 
-| ID | 假设错误 | 真实情况 | 修订 |
-|---|---|---|---|
-| **ER-A1** | OV3 写"注册表"+OV8 写"直接 switch",**plan 内部矛盾** | — | D1=B 拍定 → 保留 OV8,**§16.2-OV3 已重写为 switch 实现**(见上方修订)|
-| **ER-A2** | `auth.WithUserID(ctx, string)` 不存在 | `internal/auth/middleware.go:125` 实际是 `auth.WithUser(ctx, *auth.User)` | §16.2-OV3 dispatcher 代码已修 |
-| **ER-A3** | `SessionRequest` 含 `OwnerUserID` 字段 | `session.go:125` 真实字段是 `SessionID/Input/Command/...`,user 走 ctx 注入 | §16.2-OV3 dispatcher 代码已修 |
-| **ER-A4** | cron map 改 by ID | `cron.go:49` 现状 by `Name`,**不需改** — 用 `Name: "scheduled-task-" + task.ID` 即可 | 唯一性策略:**`(created_by, name)` 复合唯一**,plan §6.3 form 校验 |
-| **ER-A5** | robfig/cron/v3 引入但 §16.4 checklist 没列 `go get` | `go.sum` 0 hits | 见 17.3 checklist 补 |
+创建/更新时校验:
 
-### 17.2 Code Quality 修订
+- `name`: trim 后非空,同一 `created_by` 下唯一
+- `target_type`: 只能 `im_push` / `session`
+- `prompt`: trim 后非空,最大 8000 字符
+- `interval_sec` 与 `cron_expr` 二选一
+- 普通用户 `interval_sec >= 60`; admin 可配置最低 10 秒
+- `cron_expr`: robfig cron 预解析通过
+- `cron_expr`: 预计算连续两次触发间隔,低于当前用户最小 interval 时拒绝
+- `timezone`: `time.LoadLocation` 通过,默认浏览器时区或 `UTC`
+- `target_config`: 按 target type 校验必填字段
+- per-user 任务上限 100,admin 不受限
 
-| ID | 修订 |
+配额错误体:
+
+```json
+{
+  "error": "scheduled_tasks_quota_exceeded",
+  "code": 429,
+  "limit": 100,
+  "current": 100,
+  "message": "已达到每用户 100 个定时任务上限,请删除旧任务或联系管理员"
+}
+```
+
+## 8. 后端实施阶段
+
+### Phase 1: Store + schema
+
+Files:
+
+- Modify: `internal/store/postgres_migrate.go`
+- Modify: `internal/store/types.go`
+- Modify: `internal/store/postgres.go`
+- Modify: `internal/store/memory_store.go`
+- Create: `internal/store/scheduled_task_store_test.go`
+
+Tasks:
+
+- [ ] 在 `scheduled_pushes` 上新增字段,不 rename。
+- [ ] 新增 `scheduled_task_runs` 分区表初始化与当前周/下周分区创建。
+- [ ] 约束迁移 guard 用 `conrelid = 'scheduled_pushes'::regclass`,并测试同名约束在其他表存在时不误判。
+- [ ] 创建 `(created_by, name)` 唯一索引前做重复 preflight,发现重复 fail-fast,不自动改用户数据。
+- [ ] 新增 `ScheduledTask` / `ScheduledTaskRun` 类型。
+- [ ] 新增 store 方法:
+  - `SaveScheduledTask`
+  - `GetScheduledTask`
+  - `ListScheduledTasksByUser`
+  - `ListAllScheduledTasks`
+  - `ListEnabledScheduledTasks`
+  - `DeleteScheduledTask`
+  - `EnsureScheduledTaskRunPartition`
+  - `ClaimDueScheduledTaskRun`
+  - `ClaimManualScheduledTaskRun`
+  - `FinishScheduledTaskRun`
+  - `ListScheduledTaskRuns`
+  - `BulkMarkScheduledTaskReloadFailures`
+- [ ] 保留旧 `SaveScheduledPush/GetScheduledPush/...` 方法,内部可委托新 store。
+- [ ] `ClaimDueScheduledTaskRun` / `ClaimManualScheduledTaskRun` 插入 run 前都必须确保对应周分区存在。
+- [ ] `FinishScheduledTaskRun` 单事务先更新 run row,再按 `active_run_id` 条件清 task lease;清 lease 0 行不是错误。
+- [ ] 单测覆盖 CRUD、用户隔离、唯一 name、claim 竞态、manual claim、partition ensure、finish 清 lease、旧 run 被新 run 接管。
+
+### Phase 2: cron + bootstrap reload
+
+Files:
+
+- Modify: `internal/master/cron.go`
+- Modify: `internal/master/cron_test.go`
+- Modify: `internal/bootstrap/helpers.go`
+- Modify: `internal/bootstrap/server.go`
+- Add dependency: `github.com/robfig/cron/v3`
+
+Tasks:
+
+- [ ] 增加 `ScheduleSpec`。
+- [ ] `CronCreate` 支持 interval 和 cron expr。
+- [ ] `runCronJob` 不吞错误,至少记录 error log。
+- [ ] 校验最小 interval:普通用户 60s,admin 配置可低至 10s;cron 等价高频调度要拒绝。
+- [ ] `restoreFeishuPushSchedules` 替换为 `restoreScheduledTasksAsync`。
+- [ ] reload 异步执行,健康检查不等待。
+- [ ] 单条任务 reload 失败不影响其他任务。
+- [ ] reload 失败批量写 `last_error` 并禁用该任务。
+- [ ] emit 最小 metrics/logs: claim、run finalize、reload、partition ensure。
+- [ ] 测试 interval 兼容、cron 时区、非法 cron、reload 不阻塞。
+
+### Phase 3: dispatcher
+
+Files:
+
+- Create: `internal/master/scheduled_task_dispatch.go`
+- Modify: `internal/master/master.go`
+- Modify: `internal/bootstrap/server.go`
+
+Tasks:
+
+- [ ] 新增 `scheduledTaskUserResolver` 和 `scheduledPushService` 小接口。
+- [ ] `Master` 新增 `SetScheduledTaskUserResolver` 和 `SetScheduledTaskPushService`,不要修改 `NewMaster` 签名。
+- [ ] bootstrap 通过上述 setter 把 `authEngine` 和 `pushService` 注入 Master。
+- [ ] `im_push` 分支兼容旧 `scheduled_push:` prompt 和新 `target_config`。
+- [ ] `session` 分支通过 `auth.WithUser(ctx, user)` 注入身份。
+- [ ] user resolver 或 push service 未注入时返回明确错误,不要 panic。
+- [ ] unsupported target 返回明确错误。
+- [ ] 单测覆盖 owner missing/inactive、im_push、session、unsupported target。
+
+### Phase 4: REST API
+
+Files:
+
+- Create: `internal/api/scheduled_tasks_handler.go`
+- Create: `internal/api/scheduled_tasks_handler_test.go`
+- Modify: `internal/api/routes.go`
+- Modify: `internal/api/push_schedule_handler.go`
+- Modify: `frontend/src/types/api.ts` after frontend contract lands
+
+Tasks:
+
+- [ ] 实现 8 个用户 API + 1 个 admin API。
+- [ ] 旧 push schedule handler 委托新逻辑。
+- [ ] 创建/更新时同步内存 cron: 先写 DB,再 `Master.CronCreate`;失败则回滚或禁用并返回 400。
+- [ ] 删除时先 DB delete,再 `StopCron("scheduled-task-"+id)`。
+- [ ] `run-now` 调用 `ClaimManualScheduledTaskRun`,执行/finalize 复用普通路径,`scheduled_at=now`,不修改 `next_run_at`。
+- [ ] 旧接口响应增加 `Deprecation: true` header,旧测试期望保持不变。
+- [ ] handler 单测覆盖权限、跨用户 404、429、cron 校验、旧接口回归。
+
+### Phase 5: history partition GC
+
+Files:
+
+- Create: `internal/master/scheduled_task_history_gc.go`
+- Create: `internal/master/scheduled_task_history_gc_test.go`
+
+Tasks:
+
+- [ ] 每周一 03:00 创建下周分区。
+- [ ] Drop 4 周前分区。
+- [ ] `CREATE TABLE IF NOT EXISTS` 和 `DROP TABLE IF EXISTS` 必须幂等。
+- [ ] 测试 week key、分区 SQL、重复运行幂等。
+
+## 9. 前端 UI
+
+### 9.1 路由与入口
+
+Files:
+
+- Create: `frontend/src/pages/ScheduledTasks.tsx`
+- Create: `frontend/src/components/scheduled-tasks/TaskTable.tsx`
+- Create: `frontend/src/components/scheduled-tasks/TaskForm.tsx`
+- Create: `frontend/src/components/scheduled-tasks/RunHistoryDrawer.tsx`
+- Create: `frontend/src/store/scheduledTasks.ts`
+- Modify: `frontend/src/api/node-client.ts`
+- Modify: `frontend/src/App.tsx`
+- Modify: `frontend/src/layouts/AdminSidebar.tsx`
+- Modify: `frontend/src/i18n/locales/en.json`
+- Modify: `frontend/src/i18n/locales/zh.json`
+- Add dependency: `cronstrue`
+
+Route:
+
+- `/admin/scheduled-tasks`
+- Sidebar label key: `nav.adminScheduledTasks`
+- Icon: `CalendarClock` from `lucide-react`
+
+### 9.2 组件依赖
+
+仓库没有 `frontend/src/components/ui/Table.tsx` / `Sheet.tsx` / `Badge.tsx`,也没有 `react-hook-form`。本期前端按以下规则实现:
+
+- 表格: 在 `TaskTable.tsx` 用原生 `<table>` + DESIGN.md token class。
+- drawer: 在 `RunHistoryDrawer.tsx` 实现本地 fixed right panel,`role="dialog"`,不新增 Sheet primitive。
+- badge/button/select: 可以复用 `frontend/src/components/ai-elements/ui/badge.tsx`、`button.tsx`、`select.tsx` 这些 leaf primitives,业务状态逻辑留在 `scheduled-tasks/` 组件内。
+- 表单: 使用 React `useState` 受控表单,不引入 `react-hook-form`。
+- cron 翻译: 新增 `cronstrue`。
+
+### 9.3 UI 状态
+
+五态必须实现:
+
+| 状态 | 渲染 |
 |---|---|
-| **ER-Q1** | 文件命名:**`internal/master/scheduled_task_dispatch.go`**(单文件 + switch),不分 dispatcher_im_push.go / dispatcher_session.go |
-| **ER-Q2** | `scheduled_tasks.last_error` schema COMMENT 添加:`'最近一次 run 的最终错误,展示用,不驱动调度逻辑(参 OV7 重试与调度解耦)'` |
+| loading | 3 行 skeleton |
+| empty | lucide `CalendarPlus`,标题"还没有定时任务",CTA"新建任务" |
+| success | table |
+| error | 红条"加载失败" + 重试 |
+| partial | 黄条"调度服务异常,N 个任务可能未按时执行" |
 
-### 17.3 Eng Review 补 checklist(累加到 §16.4)
+### 9.4 表格规格
 
-- [ ] `go get github.com/robfig/cron/v3 && go mod tidy`(ER-A5)
-- [ ] dispatcher 改成 `internal/master/scheduled_task_dispatch.go` 单文件 + switch(ER-A1=B / ER-Q1)
-- [ ] dispatcher 用 `auth.WithUser(ctx, *auth.User)`,不是 `auth.WithUserID`(ER-A2)
-- [ ] dispatcher 不传 `OwnerUserID` 到 SessionRequest,user 走 ctx(ER-A3)
-- [ ] cron job `Name` 用 `"scheduled-task-" + task.ID` 模式(ER-A4)
-- [ ] form 校验 `(created_by, name)` 复合唯一,违反返回 400 + 明确错误体(ER-A4)
-- [ ] `last_error` 字段 COMMENT 加注释说明语义变化(ER-Q2)
+列:
 
-### 17.4 Test 覆盖矩阵
+- enabled: 40px switch
+- name: flex, truncate + title tooltip
+- schedule: 200px,显示 cronstrue 文案 + timezone
+- target: 140px,`im_push` / `session`
+- last run: 120px,成功/失败/运行中/从未
+- actions: 60px,MoreVertical 菜单
 
-```
-NEW CODEPATHS                                                        TESTS
-[+] internal/store/scheduled_task_store.go
-    ├── SaveScheduledTask + (created_by,name) 复合唯一               unit
-    ├── ListScheduledTasksByUser → 仅返回 created_by=user            unit + e2e 跨用户隔离
-    ├── GetScheduledTask + ownership 校验 → 404 不漏存在性          unit
-    ├── 两阶段 migration v_N → v_N+1 view alias                     [→E2E] integration
-    └── BulkMarkScheduledTaskFailures(OV4)                         unit
-[+] internal/master/cron.go(升级)
-    ├── ScheduleSpec.Next() — cron + interval + timezone 三路径      table-driven unit
-    ├── advisory lock 双 key namespace=0x5C8E                       [→E2E] 多实例并发
-    ├── 重启后 reload 异步 + per-task recover + /health 不阻塞       [→E2E] startup
-    └── parseSchedule cron_or_interval 互斥校验                      unit
-[+] internal/master/scheduled_task_dispatch.go(switch)
-    ├── case im_push → push.SendChannelMessage                     mock
-    ├── case session → ProcessRequestWithResponse + WithUser        [→E2E]
-    ├── case unsupported → fmt.Errorf                              unit
-    └── user 不存在时 fail-fast(ER-A2)                            unit
-[+] internal/api/scheduled_tasks_handler.go
-    ├── 7 endpoints(create/list/get/update/delete/toggle/run-now) handler unit
-    ├── ownership middleware 跨用户访问 → 404 不漏存在性             [→E2E] cross-user
-    ├── per-user 100 上限 → 429 错误体格式 OV5 标准                  unit
-    └── (created_by,name) 复合唯一冲突 → 400                         unit
-[+] internal/master/scheduled_task_history_gc.go
-    ├── DROP PARTITION 老周分区                                    integration
-    └── CREATE PARTITION 下周 idempotent                           unit
+点击行展开最近 5 条 runs。完整历史从菜单打开右侧 drawer,分页 20 条。
 
-REGRESSION 关键(IRON RULE):
-[+] 老 /api/v1/channels/push/schedules 三接口语义不变               REG-CRITICAL
-[+] 老 scheduled_pushes view alias 仍可读(阶段二)                 REG-CRITICAL
-[+] 现有 sessiontodo_gc cron job(by Name)启动后正常工作          REG-CRITICAL
-[+] 老 scheduled_pushes 数据自动 target_type='im_push'            REG-CRITICAL
+### 9.5 a11y 与响应式
 
-COVERAGE 目标: 0/24 paths → 24/24(100%)
-GAPS: 24(4 E2E)
-```
+- `<table role="table">`,所有 `<th>` 加 `scope="col"`。
+- 行可 keyboard focus。
+- `Enter` 展开行。
+- `E` 编辑,`R` 立即运行,`Delete` 删除并弹确认。
+- run-now 状态变化写入 `aria-live="polite"`。
+- `<768px` 不渲染主表,显示"请在桌面浏览器使用定时任务管理"。
 
-### 17.5 Worktree 并行化
+## 10. 测试矩阵
 
-```
-Lane A (数据 + cron 升级)          独立模块,无依赖
-  Phase 1: store + 两阶段 migration
-  Phase 2: cron.go 升级 + bootstrap reload + advisory lock
-  ↓ 提供 sessiontodo.Store + cron + reload 给 Lane B/C/D
+### 10.1 后端
 
-Lane B (REST API)                 等 Lane A Phase 1 store 接口 ready
-  Phase 4: scheduled_tasks_handler.go 7 endpoints + ownership
-  ↓ 暴露给 Lane D 前端
+```text
+store:
+  SaveScheduledTask
+  (created_by, name) unique
+  migration constraint guard scopes pg_constraint by conrelid
+  migration duplicate (created_by, name) preflight fails clearly
+  EnsureScheduledTaskRunPartition creates current/manual scheduled_at week
+  EnsureScheduledTaskRunPartition is idempotent under concurrent callers
+  ListScheduledTasksByUser only returns owner rows
+  ClaimDueScheduledTaskRun only one caller wins
+  ClaimDueScheduledTaskRun skips active non-expired lease
+  ClaimDueScheduledTaskRun ensures partition before insert
+  ClaimManualScheduledTaskRun uses scheduled_at=now
+  ClaimManualScheduledTaskRun does not modify next_run_at
+  ClaimManualScheduledTaskRun returns conflict while active lease exists
+  FinishScheduledTaskRun updates run row before clearing task lease
+  FinishScheduledTaskRun clears active_run_id
+  FinishScheduledTaskRun records old run result without clearing new active_run_id after takeover
+  ListScheduledTaskRuns returns newest first
+  auto-disable requires exactly 5 recent failed/timeout runs
+  1-4 failed/timeout runs do not auto-disable
 
-Lane C (dispatcher)               等 Lane A Phase 2 cron callback signature
-  Phase 3: scheduled_task_dispatch.go 单文件 + switch
-  ↓ 与 Lane B 测试整合
+cron:
+  interval path still works
+  normal user interval below 60s is rejected
+  admin configured interval below 10s is rejected
+  cron_expr 0 9 * * * with Asia/Shanghai computes next run
+  cron_expr equivalent high-frequency schedule is rejected
+  invalid timezone returns validation error
+  invalid cron returns validation error
+  reload failure disables only bad task
+  reload emits scheduled_task.reload_total
 
-Lane D (前端 UI)                   等 Lane B API 契约 ready
-  Phase 5: ScheduledTasks.tsx + form + history drawer + i18n
-  ↓ e2e 测试串起来
+dispatcher:
+  im_push old scheduled_push prompt works
+  im_push target_config works
+  session injects auth.WithUser
+  missing owner fails fast
+  inactive owner fails fast
+  nil scheduledTaskUserResolver returns explicit error
+  nil scheduledPushService returns explicit error
+  dispatch emits run_total status metrics
 
-Lane E (GC + 历史清理)             Phase 6 收尾
-  分区 GC + 历史 cron + 周分区 rotate
+api:
+  create/list/get/update/delete/toggle/run-now/runs
+  cross-user get/update/delete returns 404
+  cross-user run-now/toggle/runs returns 404
+  per-user quota returns 429 standard body
+  run-now before next_run_at executes immediately
+  run-now active lease conflict returns recoverable error
+  old push schedule API returns Deprecation header
+  old push schedule API still passes existing tests
 
-执行顺序:
-  Step 1: Lane A 起,~3 天(2 个 phase)
-  Step 2: Lane B + C 并发(等 Lane A Phase 1 / Phase 2 各自 ready)
-  Step 3: Lane D 等 Lane B → 1 天后启动
-  Step 4: Lane E 收尾
-  Step 5: 全部合并 + e2e 集成测试
-```
+gc:
+  create current/next partition idempotent
+  drop old partition idempotent
+  missing partition during claim is handled by EnsureScheduledTaskRunPartition, not by GC timing
 
-### 17.6 Eng Review 完成总结
-
-```
-+====================================================================+
-|         ENG REVIEW — Agent 定时任务系统                            |
-+====================================================================+
-| Mode                | FULL_REVIEW                                  |
-| Architecture        | 5 issues, 1 必修拍板(ER-A1 dispatcher)     |
-| Code Quality        | 2 findings,实施层修正                       |
-| Test Review         | 24 paths,4 E2E 关键,4 REGRESSION CRITICAL  |
-| Performance         | No issues — 分区 GC + advisory lock 都已优化 |
-| Outside Voice       | CEO review 已跑(10 项发现已并入 §16)        |
-| Critical Gaps       | 0(plan 内部矛盾已通过 ER-A1=B 解决)         |
-+====================================================================+
+observability:
+  claim_total result=claimed/skipped/error
+  run_total status=succeeded/failed/timeout
+  partition_ensure_total result=ok/failed
+  structured finalize log includes lease_cleared
 ```
 
+Commands:
 
----
-
-## 18. Design Review 决策清单(2026-05-06 /plan-design-review)
-
-由 `/plan-design-review` 在 2026-05-06 追加。整体评分 **5/10 → 8/10**。
-
-### 18.1 7-Pass 评分
-
-| Pass | 维度 | 初始 | 终评 |
-|---|---|---|---|
-| 1 | Information Architecture | 6 | 8 |
-| 2 | Interaction State Coverage | 8 | 9 |
-| 3 | User Journey & 情感弧 | 4 | 8 |
-| 4 | AI Slop Risk | 7 | 9 |
-| 5 | DESIGN.md 对齐 | 5 | 9 |
-| 6 | Responsive & A11y | 1 | 8(desktop only)|
-| 7 | Unresolved Decisions | — | 4 全 resolved |
-
-### 18.2 4 项 Design 决策(DR-D1 ~ DR-D4)
-
-**DR-D1 (DD1)**:cron 表达式输入 = **纯字符串 + cronstrue 实时翻译**(power user 快,简单任务走 interval fallback,与 Q1 一致)
-
-**DR-D2 (DD2)** — 默认采纳:**失败行 = 状态 dot red-500 + 文字 "Failed"**,hover tooltip 显示 last_error 截断;**不**整行 bg 染色(避免视觉压迫,DESIGN.md calm 工业风一致)
-
-**DR-D3 (DD3)** — 默认采纳:**历史展示双层** —
-- 点击行 → 行内展开摘要 5 条(succeeded/failed dot + started_at + 截断 output)
-- 操作菜单 → "查看完整历史" → 右侧 drawer(分页 20 条,完整 output + error)
-
-**DR-D4 (DD4)**:**desktop only 本期**,移动端进 follow-up — 手机访问 `/scheduled-tasks` 显示引导页 "请在桌面浏览器使用定时任务管理"(>768px 才渲染主界面)。a11y 基本项 desktop 仍达标。
-
-### 18.3 详细 UI 规格(写入 Phase 5)
-
-#### 表格列宽 + 字体(对齐 DESIGN.md Geist/DM Sans)
-
-```
-启用 toggle    │ 40px  │ Switch 16px,checked=emerald-500
-名称           │ flex  │ DM Sans Medium 14px,truncate + tooltip
-调度           │ 200px │ DM Sans 13px + cronstrue 中文翻译(浅色)
-                          示例:"0 9 * * *" → "每天 9:00 (Asia/Shanghai)"
-目标           │ 140px │ Badge 组件:
-                          ├ im_push  →  bg-blue-50 text-blue-900 "IM 飞书"
-                          ├ session  →  bg-zinc-100 text-zinc-700 "Web Session"
-                          └ skill    →  bg-amber-50 text-amber-900 "Skill"(未来)
-上次执行       │ 120px │ DM Sans 13px text-zinc-500
-                          ├ 成功  → "2 小时前"
-                          ├ 失败  → 状态 dot red-500 + "2 小时前 失败"(hover 看 error)
-                          ├ 运行中 → dot blue-500 animate-pulse + "执行中"
-                          └ 从未  → "—"
-操作           │ 60px  │ MoreVertical icon dropdown(编辑/立即运行/复制/删除)
+```bash
+env GOCACHE=/tmp/go-build go test ./internal/store ./internal/master ./internal/api ./internal/bootstrap -run 'Scheduled|Cron|PushSchedule' -count=1
+env GOCACHE=/tmp/go-build go test ./internal/channel/push -count=1
 ```
 
-#### 状态 dot 规格(DR-D2)
+### 10.2 前端
 
-```
-pending     #94a3b8 (slate-400)   │ 静止
-in_progress #3b82f6 (blue-500)    │ animate-pulse 2s
-succeeded   #10b981 (emerald-500) │ 静止 + Check glyph(可选)
-failed      #ef4444 (red-500)     │ 静止 + hover tooltip 显示 last_error 截断
-disabled    row opacity-60 + dot slate-400
+```bash
+cd frontend && npm test -- --run src
+cd frontend && npm run lint
+cd frontend && npm run build
 ```
 
-#### 行展开历史(DR-D3 摘要)
+E2E acceptance:
 
-```
-点击行 → 折叠展开 → 显示最近 5 条 run:
+1. 创建 interval `session` task。
+2. list 能看到。
+3. 在 `next_run_at` 到达前点击 run-now,仍立即出现 running/succeeded run,且下一次自动触发时间不被改写。
+4. history drawer 能看到 output/session_id。
+5. 删除后 list 不再显示。
+6. 用户 B 拿用户 A 的 id 请求返回 404。
+7. 连续 1-4 次失败不自动停用,第 5 次失败后 disabled 且展示明确 last_error。
+8. 调度服务异常时页面进入 partial state,可重试加载。
 
-  ▼ Lint 巡检                 每 2 小时        Web Session    23 分钟前      ⋮
-    ┌────────────────────────────────────────────────────────────────────┐
-    │ Recent runs:                                                        │
-    │ ● 23 min ago    succeeded   "已扫描 47 个文件,无 lint error"        │
-    │ ● 2h ago        succeeded   "已扫描 47 个文件..."                  │
-    │ ● 4h ago        failed      "API timeout after 30s [详情 →]"      │
-    │ ● 6h ago        succeeded   "..."                                  │
-    │ ● 8h ago        succeeded   "..."                                  │
-    │                                                              [查看完整历史 →]
-    └────────────────────────────────────────────────────────────────────┘
-```
+## 11. 验收标准
 
-操作菜单 "查看完整历史" → 右侧 drawer 分页 20 条,展示完整 output / error / session_id 链接。
-
-#### Empty 状态(反 AI slop)
-
-```
-icon:        lucide CalendarPlus 64px text-zinc-300
-            (不是 emoji,不是彩色圆圈,不是 SaaS 模板插图)
-标题:        DM Sans 16px Medium "还没有定时任务"
-副标题:      DM Sans 14px text-zinc-500
-            "用 agent 自动跑代码审查、生成日报、推送提醒等"
-CTA:         Button "新建任务" Geist Medium,主色按钮
-```
-
-#### plan banner 与状态(类比 sessiontodo plan_runtime banner 模式)
-
-```
-- success/empty 默认无顶部 banner
-- error(API 加载失败):红条 "加载失败 [重试]" + 缓存内容灰度
-- partial(WS 调度服务异常):
-  触发条件 = 启动后 reload 失败任务数 > 0,或 metrics 指标 cron_tick_drift > 30s
-  渲染 = 黄条 "调度服务异常,N 个任务可能未按时执行 [查看详情 →]"
-```
-
-#### a11y 完整规格(desktop)
-
-- `<table role="table">` + `<th scope="col">`
-- 行可键盘聚焦:`Tab` → 当前行,`Enter` 展开摘要,`E` 编辑,`R` 立即运行,`Del` 删除(带确认)
-- 状态 dot 同时带 `aria-label="运行中"` / `"上次失败,错误:..."`
-- `aria-live="polite"` 区域同步运行状态变化(立即运行后)
-- 触摸目标 ≥ 44px(行 44px,操作按钮 44×44)
-- 对比度 DM Sans 14px 用 `#1a1a1a` on `#fafafa`(>7:1) — DESIGN.md 默认
-
-#### 响应式断点(DR-D4 desktop only)
-
-| 断点 | 行为 |
+| 场景 | 期望 |
 |---|---|
-| `>=1024px` desktop | full table 渲染 |
-| `768-1023px` tablet | full table,操作菜单收紧文案 |
-| `<768px` mobile | **不渲染主界面**,显示引导页 `<EmptyState icon="MonitorSmartphone" title="请在桌面浏览器使用" subtitle="定时任务管理需要更宽的屏幕" />` |
+| 用户 A 创建任务 | 用户 A list 可见 |
+| 用户 B 请求 A 的任务 | 404 |
+| admin list | 可见全部任务 |
+| `0 9 * * *` + `Asia/Shanghai` | 下一次触发是北京时间 09:00 |
+| 两个 master 同时到点 | 只有一个 `ClaimDueScheduledTaskRun` 成功 |
+| 用户手动 run-now | 走 `ClaimManualScheduledTaskRun`,不改变 `next_run_at` |
+| 上次 run 还在 active lease 内 | 新 tick skipped,不并发执行 |
+| 旧 run 超时后新 run 接管 | 旧 run finalize 只更新自己的 run row,不清新 run lease |
+| `im_push` 旧 prompt | 继续走 `DispatchScheduledPrompt` |
+| `session` target | Web 里出现 `scheduled-{taskID}-{runID}` session |
+| owner 不存在或 disabled | run failed,不 fallback admin |
+| 最近失败 run 少于 5 条 | 不自动停用 |
+| 最近 5 条 run 全失败/timeout | 自动 disabled + last_error |
+| cron reload 坏任务 | 坏任务 disabled + last_error,其他任务继续 |
+| run history 周分区缺失 | claim 前 ensure 分区,不会因缺分区插入失败 |
+| run history 超 4 周 | drop old weekly partition |
+| 普通用户配置 1 秒 interval | 返回 validation error |
+| `<768px` | 显示桌面提示,不挤压表格 |
 
-#### 复用现有组件
+## 12. 风险与处理
 
-- `frontend/src/components/ui/Table.tsx` — 表格(已有)
-- `frontend/src/components/ui/Sheet.tsx` — 历史 drawer(已有,跟 sessiontodo TodosList 同模式)
-- `frontend/src/components/ui/Badge.tsx` — target 标识(已有)
-- react-hook-form — 表单(仓库已用)
-- `cronstrue` — npm install,~10KB,实时 cron 翻译
-- `Intl.supportedValuesOf('timeZone')` — 浏览器原生,无依赖
+| 风险 | 处理 |
+|---|---|
+| 高频 interval 任务写 run 太多 | 普通用户最小 60s,admin 配置最低 10s,cron 等价高频调度拒绝 |
+| session run 卡住 | 30 分钟 timeout + lease 过期后可接管 |
+| 多实例重复执行 | `ClaimDueScheduledTaskRun` 短事务 row lock + active lease |
+| run history 缺少目标周分区 | claim/manual-claim 前 `EnsureScheduledTaskRunPartition` |
+| 旧 run finalize 覆盖新 run lease | finalize 单事务先写 run row,再按 `active_run_id` 条件清 lease |
+| prompt 存 PG 含敏感内容 | 本期沿用 sessions/messages 同级存储假设,不新增加密 |
+| 旧 API 破坏 | 旧 handler 测试作为 REG-CRITICAL |
+| 前端组件路径误用 | 不引用不存在的 `components/ui/*`,不引入 `react-hook-form` |
 
-### 18.4 follow-up(进 TODOS.md)
+## 13. 实施顺序
 
-- **P3 scheduled-tasks: 移动端响应式 UI** — DR-D4 决议本期 desktop only,follow-up 做 table→card list + bottom sheet form。触发条件:产品反馈 ≥ 3 次"想在手机管理"。
+1. Phase 1: Store + schema。
+2. Phase 2: cron + bootstrap reload。
+3. Phase 3: dispatcher。
+4. Phase 4: REST API。
+5. Phase 5: history partition GC。
+6. Phase 6: frontend UI。
+7. 全链路 e2e + 旧 push schedule regression。
 
-### 18.5 Phase 5 实施 checklist(给前端工程师)
+不要并行修改同一文件。可以并行的 lane:
 
-- [ ] `<768px` 引导页 + `>=768px` 才渲染主界面(DR-D4)
-- [ ] cron_expr 输入 + cronstrue 实时翻译 + 错误体提示(DR-D1)
-- [ ] 失败行状态 dot red-500 + hover last_error tooltip(DR-D2)
-- [ ] 行点击展开 5 条历史摘要(DR-D3)
-- [ ] 操作菜单 "查看完整历史" → drawer 分页 20 条(DR-D3)
-- [ ] empty 状态用 lucide `CalendarPlus`,不要 emoji / 彩色圆圈
-- [ ] 5 个 banner / Toast 文案 i18n 进 `frontend/src/i18n/locales/`
-- [ ] 列宽固定(40 / flex / 200 / 140 / 120 / 60)
-- [ ] 状态 dot 颜色走 DESIGN.md token,不写死 hex
-- [ ] keyboard nav:Tab/Enter/E/R/Del 全键盘可达
-- [ ] `aria-live` 区域绑运行状态变化
-- [ ] e2e:create / list / run-now / 看历史 / delete 全链路
+- Lane A: store/schema。
+- Lane B: frontend 静态页面骨架,等 API contract 后接线。
+- Lane C: dispatcher 单测,等 store claim 接口后整合。
 
----
+## 14. Review 决策摘要
+
+已合并进正文的决策:
+
+- CEO review: 业务场景必须补齐,不能只做没人用的基础设施。
+- Eng review: 不做 `skill` target,不做 dispatcher 注册表,不假设 `auth.WithUserID` 或 `OwnerUserID`。
+- Design review: desktop only,状态 dot + 行展开 + drawer history,不做移动端完整管理。
+- 本次 Codex 修订: 不用长事务 advisory lock,改为短事务 claim/finalize;不引用不存在的前端组件/库。
+- 2026-05-08 plan-eng-review D2-D11: 完整方案保留,但分阶段实施;run-now 独立 manual claim;claim 前 ensure 分区;迁移 guard 绑定 `conrelid`;唯一索引 preflight;finalize 顺序固定;自动禁用必须满 5 次失败;首版最小 metrics/logs;Master 用专用 setter 注入 scheduled task 依赖;测试矩阵补齐边界;普通用户最小 interval 60s。
+
+## 15. What already exists
+
+| 已有能力 | 位置 | 本计划处理 |
+|---|---|---|
+| 旧 push schedule CRUD/API 权限测试 | `internal/api/push_handler_test.go` | 保留旧接口,作为兼容回归基线 |
+| 旧 `scheduled_pushes` schema/store 方法 | `internal/store/postgres_migrate.go`, `internal/store/postgres.go` | 物理表沿用,旧方法委托新 ScheduledTask store |
+| 进程内 interval cron | `internal/master/cron.go` | 原地扩展 `ScheduleSpec`,不引入独立调度服务 |
+| 启动恢复 Feishu push schedule | `internal/bootstrap/helpers.go` | 替换为通用 `restoreScheduledTasksAsync` |
+| `auth.WithUser(ctx, *auth.User)` / `auth.Engine.GetUserByID` | `internal/auth` | session target 复用 owner 身份,不新增伪接口 |
+| push `Service.Push` / `DispatchScheduledPrompt` | `internal/channel/push/service.go` | im_push target 直接复用 |
+| Master metrics/log 队列 | `internal/master/master.go` | scheduled task observability 复用 `enqueueMetric`/zap |
+| frontend Vitest / Playwright | `frontend/vitest.config.ts`, `frontend/playwright.config.ts` | UI 与 E2E acceptance 使用现有测试栈 |
+
+## 16. NOT in scope
+
+- 物理表 rename: 延后到 scheduled task 真实使用稳定后单独 cleanup,避免滚动部署风险。
+- `skill` target / dispatcher registry: 本期只支持 `im_push` 和 `session`,用显式 switch 保持边界清楚。
+- 秒级普通用户任务: 普通用户最小 60s,admin 特例最低 10s,保护 run history 写入量。
+- dashboard / alert: 首版只做 metrics 和结构化日志,可视化告警等生产高频后再补。
+- DEFAULT partition 数据迁移: 选择 claim 前 ensure 周分区,不引入 default partition 后续搬迁成本。
+- 自动重命名重复任务: 迁移发现重复 name 时 fail-fast,不静默改用户可见字段。
+- 移动端完整管理 UI: `<768px` 显示桌面提示。
+
+## 17. Failure modes
+
+| Codepath | 生产失败方式 | 计划内处理 |
+|---|---|---|
+| `ClaimDueScheduledTaskRun` | 多实例同时触发同一 tick | row lock + unique `(scheduled_at, task_id)` + claim 竞态测试 |
+| `ClaimManualScheduledTaskRun` | 用户在下一次自动触发前点击 run-now 不执行 | 独立 manual claim,`scheduled_at=now`,不改 `next_run_at` |
+| 分区写入 | 目标周分区不存在导致 insert fail | claim 前 `EnsureScheduledTaskRunPartition`,记录 partition metric |
+| `FinishScheduledTaskRun` | 旧 run 超时后覆盖新 run lease | 单事务先写 run row,再按 `active_run_id` 条件清 lease |
+| 自动禁用 | 新任务第一次失败就被停 | 必须 recent runs 满 5 条且全失败/timeout |
+| reload | 单条坏任务阻塞所有任务恢复 | 单任务失败隔离,坏任务 disabled + last_error |
+| session dispatch | owner 缺失或禁用时 fallback admin | fail-fast 写 run error,不 fallback |
+| 高频 interval | run history 写入量爆炸 | 普通用户 60s 最小间隔,admin 配置最低 10s |
+
+## 18. Worktree parallelization
+
+| Step | Modules touched | Depends on |
+|---|---|---|
+| Store/schema | `internal/store` | - |
+| Cron/reload | `internal/master`, `internal/bootstrap` | Store types |
+| Dispatcher | `internal/master`, `internal/bootstrap`, `internal/channel/push` | Store types |
+| REST API | `internal/api`, `internal/master`, `internal/store` | Store + dispatcher |
+| History GC | `internal/master`, `internal/store` | Store partition helper |
+| Frontend UI | `frontend/src` | API contract |
+
+Parallel lanes:
+
+- Lane A: Store/schema -> REST API (sequential, shared store/API contract).
+- Lane B: Dispatcher tests and shell implementation after store types land.
+- Lane C: Frontend static page skeleton can start after API contract is stable, but API wiring waits for Lane A.
+- Lane D: History GC can start after `EnsureScheduledTaskRunPartition` exists.
+
+Execution order: finish Phase 1 first, then run Lane B + D in parallel while API starts. Frontend skeleton may proceed in parallel only if it does not edit generated `internal/webui/dist`.
 
 ## GSTACK REVIEW REPORT
 
-| Review | Trigger | Why | Runs | Status | Findings |
-|--------|---------|-----|------|--------|----------|
-| CEO Review | `/plan-ceo-review` | Scope & strategy | 1 | clean (PLAN) | SELECTIVE EXPANSION, 3 proposals accepted, OV10 业务场景占位 |
-| Codex Review | `/codex review` | Independent 2nd opinion | 0 | — | not run (codex CLI unavailable, claude subagent ran in CEO+eng review) |
-| Eng Review | `/plan-eng-review` | Architecture & tests (required) | 1 | clean (PLAN) | FULL_REVIEW, 7 issues addressed, 5 ER findings 全修 |
-| Design Review | `/plan-design-review` | UI/UX gaps | 1 | clean (PLAN) | score 5/10 → 8/10, 4 design decisions resolved, full UI specs |
-| DX Review | `/plan-devex-review` | Developer experience gaps | 0 | — | not applicable (internal admin UI, no external API) |
+| Review | Status | Findings |
+|---|---|---|
+| CEO Review | merged | 业务场景 anchor、scope cut、两 target 收敛 |
+| Eng Review | merged | D2-D11 全部确认并合并: manual claim、partition ensure、migration guards、finalize 顺序、observability、测试矩阵、interval guard |
+| Design Review | merged | desktop UI、a11y、状态与 history 规格 |
+| Codex follow-up | merged | run claim 模型、前端真实依赖、正文/附录冲突清理 |
 
-- **OUTSIDE VOICE (CEO):** 10 findings,9 已并入主体 + 1 战略 OV10 业务场景占位
-- **OUTSIDE VOICE (Eng):** 5 ER findings,plan §16 OV3/OV8 内部矛盾通过 ER-A1=B 解决
-- **CROSS-MODEL:** CEO + Eng outside voices independently flagged Phase 4/5 sequencing 与 advisory lock namespace,strong signal validating ER-A2/ER-A3
-- **UNRESOLVED:** 0
-- **VERDICT:** CEO + ENG + DESIGN ALL CLEARED — ready to implement. Lane A 可独立启动。
+**VERDICT:** ready to implement in phases. Start with Phase 1 store/schema; keep the complete B scope, but do not skip the D2-D11 reliability/test requirements.

@@ -1,0 +1,23 @@
+{
+  "id": "mc14_scope_workspace_cross_owner",
+  "name": "Workspace scope 拒绝非 owner 用户",
+  "query": "工作区决策是什么",
+  "user_id": "u1",
+  "skip_injection": true,
+  "runtime_context": {"user_id": "u1", "workspace_id": "w1"},
+  "memories": [
+    {
+      "id": 1014,
+      "user_id": "u2",
+      "type": "project",
+      "content": "其他 owner 的 workspace 记忆",
+      "target_scope": "workspace",
+      "workspace_id": "w1",
+      "confidence": 0.95
+    }
+  ],
+  "scope_assertions": [
+    {"memory_id": 1014, "runtime_context": {"user_id": "u1", "workspace_id": "w1"}, "allowed": false, "reason": "membership_unavailable"}
+  ],
+  "required": true
+}

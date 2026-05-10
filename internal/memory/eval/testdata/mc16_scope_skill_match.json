@@ -1,0 +1,24 @@
+{
+  "id": "mc16_scope_skill_match",
+  "name": "Skill scope 仅允许同 skill",
+  "query": "skill 习惯是什么",
+  "user_id": "u1",
+  "skip_injection": true,
+  "runtime_context": {"user_id": "u1", "skill_name": "plan-eng-review"},
+  "memories": [
+    {
+      "id": 1016,
+      "user_id": "u1",
+      "type": "procedural",
+      "content": "plan-eng-review 必须覆盖 failure modes",
+      "target_scope": "skill",
+      "skill_name": "plan-eng-review",
+      "confidence": 0.95
+    }
+  ],
+  "scope_assertions": [
+    {"memory_id": 1016, "runtime_context": {"user_id": "u1", "skill_name": "plan-eng-review"}, "allowed": true, "reason": "same_skill"},
+    {"memory_id": 1016, "runtime_context": {"user_id": "u1", "skill_name": "plan-ceo-review"}, "allowed": false, "reason": "skill_scope_mismatch"}
+  ],
+  "required": true
+}

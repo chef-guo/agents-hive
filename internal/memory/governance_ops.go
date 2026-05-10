@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -142,6 +143,10 @@ func PlanGovernancePrune(records []MemoryRecord, opts GovernancePruneOptions) Go
 	seenDelete := map[int64]bool{}
 	for _, rec := range records {
 		g := DecodeGovernance(rec.Metadata)
+		if isManualHighConfidence(g) {
+			keep = append(keep, rec)
+			continue
+		}
 		if !g.ExpiresAt.IsZero() && opts.Now.After(g.ExpiresAt) {
 			addPrune(&plan, seenDelete, rec.ID, "expired")
 			continue
@@ -150,20 +155,49 @@ func PlanGovernancePrune(records []MemoryRecord, opts GovernancePruneOptions) Go
 			addPrune(&plan, seenDelete, rec.ID, "low_confidence")
 			continue
 		}
+		if rec.UserID != "" && g.SourceUserID != "" && rec.UserID != g.SourceUserID {
+			addPrune(&plan, seenDelete, rec.ID, "cross_user_risk")
+			continue
+		}
 		keep = append(keep, rec)
 	}
 	if opts.MaxMemories > 0 && len(keep) > opts.MaxMemories {
+		capacityCandidates := make([]MemoryRecord, 0, len(keep))
+		manualProtected := 0
+		for _, rec := range keep {
+			if isManualHighConfidence(DecodeGovernance(rec.Metadata)) {
+				manualProtected++
+				continue
+			}
+			capacityCandidates = append(capacityCandidates, rec)
+		}
+		allowedCandidates := opts.MaxMemories - manualProtected
+		if allowedCandidates < 0 {
+			allowedCandidates = 0
+		}
+		if len(capacityCandidates) <= allowedCandidates {
+			return plan
+		}
+		keep = capacityCandidates
 		sort.SliceStable(keep, func(i, j int) bool {
 			if keep[i].AccessCount != keep[j].AccessCount {
 				return keep[i].AccessCount > keep[j].AccessCount
 			}
 			return keep[i].UpdatedAt.After(keep[j].UpdatedAt)
 		})
-		for _, rec := range keep[opts.MaxMemories:] {
+		for _, rec := range keep[allowedCandidates:] {
 			addPrune(&plan, seenDelete, rec.ID, "capacity")
 		}
 	}
 	return plan
+}
+
+func isManualHighConfidence(g Governance) bool {
+	if g.Confidence < 0.9 {
+		return false
+	}
+	source := strings.ToLower(strings.TrimSpace(g.Source))
+	return source == "manual" || source == "human" || source == "admin"
 }
 
 func addPrune(plan *GovernancePrunePlan, seen map[int64]bool, id int64, reason string) {

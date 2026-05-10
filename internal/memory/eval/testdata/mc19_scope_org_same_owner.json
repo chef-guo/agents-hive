@@ -1,0 +1,40 @@
+{
+  "id": "mc19_scope_org_same_owner",
+  "name": "ScopePolicy org 私有记忆同 owner fail-closed 允许",
+  "query": "组织默认 PR 规则是什么",
+  "user_id": "u1",
+  "runtime_context": {
+    "user_id": "u1",
+    "tenant_id": "org-a"
+  },
+  "memories": [
+    {
+      "id": 26,
+      "user_id": "u1",
+      "type": "reference",
+      "content": "组织默认 PR 规则是必须列出测试命令",
+      "confidence": 0.9,
+      "score": 0.88,
+      "target_scope": "org",
+      "target_id": "org-a",
+      "visibility": "private",
+      "target_user_id": "u1",
+      "tenant_id": "org-a",
+      "memory_kind": "reference",
+      "subject_type": "policy",
+      "source": "manual"
+    }
+  ],
+  "want_injected_ids": [26],
+  "scope_assertions": [
+    {
+      "memory_id": 26,
+      "runtime_context": {
+        "user_id": "u1"
+      },
+      "allowed": true,
+      "reason": "same_owner_fail_closed"
+    }
+  ],
+  "required": true
+}

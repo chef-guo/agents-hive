@@ -11,6 +11,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/chef-guo/agents-hive/internal/mcphost"
+	"github.com/chef-guo/agents-hive/internal/router"
 )
 
 // toolSearchInput 是 tool_search 的入参。
@@ -27,6 +28,11 @@ type toolSearchHit struct {
 	RequiresApproval  bool    `json:"requires_approval"`
 	IsConcurrencySafe bool    `json:"is_concurrency_safe"`
 	Core              bool    `json:"core,omitempty"`
+	Kind              string  `json:"kind"`
+	Domain            string  `json:"domain,omitempty"`
+	Source            string  `json:"source"`
+	Invocation        string  `json:"invocation"`
+	RouteStatus       string  `json:"route_status"`
 	Score             float64 `json:"score"`
 }
 
@@ -54,7 +60,7 @@ func registerToolSearch(host *mcphost.Host, logger *zap.Logger) {
 	host.RegisterTool(
 		mcphost.ToolDefinition{
 			Name:              "tool_search",
-			Description:       "搜索/列出当前已注册工具的名称、描述和可用安全元数据。只读，不执行、不隐藏、不改变工具注册表。",
+			Description:       "搜索/列出当前已注册工具的名称、描述和可用安全元数据。仅用于 discovery，不授权执行；搜索结果不会让工具变成可调用。只读，不执行、不隐藏、不改变工具注册表。",
 			InputSchema:       schema,
 			Core:              true,
 			IsConcurrencySafe: true,
@@ -79,13 +85,20 @@ func handleToolSearch(host *mcphost.Host, raw json.RawMessage) (*mcphost.ToolRes
 	hits := make([]toolSearchHit, 0, len(recalls))
 	for _, recall := range recalls {
 		def := recall.Tool
+		profile := router.InferToolProfile(def, router.ProfileHint{})
+		kind, domain, source, invocation, routeStatus := inferToolSearchMetadata(profile, qLower)
 		hits = append(hits, toolSearchHit{
 			Name:              def.Name,
 			Description:       def.Description,
-			DangerLevel:       inferToolDangerLevel(def),
-			RequiresApproval:  false,
+			DangerLevel:       inferToolDangerLevel(profile),
+			RequiresApproval:  router.ProfileHasSideEffect(profile) && !def.IsConcurrencySafe,
 			IsConcurrencySafe: def.IsConcurrencySafe,
 			Core:              def.Core,
+			Kind:              kind,
+			Domain:            domain,
+			Source:            source,
+			Invocation:        invocation,
+			RouteStatus:       routeStatus,
 			Score:             recall.Score,
 		})
 	}
@@ -97,11 +110,39 @@ func handleToolSearch(host *mcphost.Host, raw json.RawMessage) (*mcphost.ToolRes
 	return textResult(string(out)), nil
 }
 
-func inferToolDangerLevel(def mcphost.ToolDefinition) string {
-	if def.IsConcurrencySafe {
-		return "safe"
+func inferToolDangerLevel(profile router.ToolProfile) string {
+	if router.IsMixedReadWriteTool(profile.Name) {
+		return "mixed"
+	}
+	if profile.OpenWorld || profile.Destructive || profile.Risk == router.RiskDestructive {
+		return "dangerous"
+	}
+	switch profile.Risk {
+	case router.RiskReadOnly:
+		return "read_only"
+	case router.RiskLocalWrite:
+		return "local_write"
+	case router.RiskExternalWrite:
+		return "external_write"
+	case router.RiskRuntimeExec:
+		return "runtime_exec"
+	case router.RiskUnknown:
+		return "unknown"
 	}
 	return "unknown"
+}
+
+func inferToolSearchMetadata(profile router.ToolProfile, queryLower string) (kind, domain, source, invocation, routeStatus string) {
+	kind = string(profile.Kind)
+	domain = profile.Domain
+	source = string(profile.Source)
+	invocation = string(profile.Invocation)
+	if queryLower == "" {
+		routeStatus = "discoverable"
+	} else {
+		routeStatus = "recommended"
+	}
+	return kind, domain, source, invocation, routeStatus
 }
 
 // RecallToolCatalog 基于工具 name/description/schema 召回当前 query 相关工具。
@@ -113,7 +154,7 @@ func RecallToolCatalog(catalog []mcphost.ToolDefinition, query string, limit int
 	qLower := strings.ToLower(strings.TrimSpace(query))
 	hits := make([]ToolRecallHit, 0, len(catalog))
 	for _, def := range catalog {
-		schemaTerms := toolSearchSchemaTerms(def.InputSchema)
+		schemaTerms := router.SanitizedSchemaTerms(def.InputSchema).Terms
 		score := scoreToolSearchHit(qLower, def, schemaTerms)
 		if score <= 0 {
 			continue
@@ -182,31 +223,6 @@ func scoreToolSearchTerms(qLower string, terms []string) float64 {
 	return score
 }
 
-func toolSearchSchemaTerms(schema json.RawMessage) []string {
-	if len(schema) == 0 {
-		return nil
-	}
-	var v any
-	if err := json.Unmarshal(schema, &v); err != nil {
-		return nil
-	}
-	terms := make([]string, 0, 16)
-	collectToolSearchSchemaTerms(v, &terms)
-	return terms
-}
-
-var toolSearchSchemaKeyBlacklist = map[string]bool{
-	"$schema":              true,
-	"additionalproperties": true,
-	"anyof":                true,
-	"default":              true,
-	"items":                true,
-	"oneof":                true,
-	"properties":           true,
-	"required":             true,
-	"type":                 true,
-}
-
 var toolSearchTermSeparator = regexp.MustCompile(`[^a-z0-9\p{Han}]+`)
 
 var toolSearchQueryAliases = map[string][]string{
@@ -229,25 +245,6 @@ var toolSearchQueryAliases = map[string][]string{
 
 var toolSearchQueryStopwords = map[string]bool{
 	"a": true, "an": true, "and": true, "for": true, "of": true, "the": true, "to": true,
-}
-
-func collectToolSearchSchemaTerms(v any, terms *[]string) {
-	switch x := v.(type) {
-	case map[string]any:
-		for key, value := range x {
-			keyNorm := normalizeToolSearchTerm(key)
-			if !toolSearchSchemaKeyBlacklist[keyNorm] {
-				appendToolSearchTermVariants(terms, key)
-			}
-			collectToolSearchSchemaTerms(value, terms)
-		}
-	case []any:
-		for _, item := range x {
-			collectToolSearchSchemaTerms(item, terms)
-		}
-	case string:
-		appendToolSearchTermVariants(terms, x)
-	}
 }
 
 func appendToolSearchTermVariants(terms *[]string, raw string) {

@@ -116,6 +116,18 @@ func memorySave(ctx context.Context, store memory.MemoryStore, params memoryInpu
 		SessionID: params.SessionID,
 		UserID:    auth.UserIDFrom(ctx),
 	}
+	record.Metadata = memory.EncodeGovernance(nil, memory.Governance{
+		Source:        "memory_tool",
+		Evidence:      params.Content,
+		Confidence:    0.9,
+		ExtractedBy:   "memory_tool",
+		SourceUserID:  record.UserID,
+		SourceMessage: params.SessionID,
+		RunID:         params.SessionID,
+	})
+	if record.Type == memory.MemoryTypeFeedback {
+		record.Metadata = memory.EncodeMemoryKind(record.Metadata, memory.MemoryKind("feedback"))
+	}
 	id, err := store.Save(ctx, record)
 	if err != nil {
 		return errorResult(fmt.Sprintf("保存记忆失败: %v", err)), nil
@@ -128,6 +140,10 @@ func memorySave(ctx context.Context, store memory.MemoryStore, params memoryInpu
 	}
 	if len(params.Tags) > 0 {
 		result["tags"] = params.Tags
+	}
+	result["governance"] = map[string]any{
+		"source":     "memory_tool",
+		"confidence": 0.9,
 	}
 	data, _ := json.Marshal(result)
 	return textResult(string(data)), nil

@@ -1,0 +1,50 @@
+{
+  "id": "mc08_score_conflict_sorting",
+  "name": "冲突记忆按 score 降序排序并先注入更高相关项",
+  "query": "现在应该使用哪个部署环境",
+  "user_id": "u1",
+  "target": "project",
+  "kind": "fact",
+  "subject_type": "deployment",
+  "memories": [
+    {
+      "id": 12,
+      "user_id": "u1",
+      "type": "project",
+      "content": "部署环境是 staging-old",
+      "confidence": 0.9,
+      "score": 0.22,
+      "target": "project",
+      "kind": "fact",
+      "subject_type": "deployment",
+      "source": "summary"
+    },
+    {
+      "id": 13,
+      "user_id": "u1",
+      "type": "project",
+      "content": "部署环境是 production-v2",
+      "confidence": 0.9,
+      "score": 0.96,
+      "target": "project",
+      "kind": "fact",
+      "subject_type": "deployment",
+      "source": "user_correction"
+    },
+    {
+      "id": 14,
+      "user_id": "u1",
+      "type": "project",
+      "content": "部署环境候选是 preview",
+      "confidence": 0.9,
+      "score": 0.55,
+      "target": "project",
+      "kind": "fact",
+      "subject_type": "deployment",
+      "source": "summary"
+    }
+  ],
+  "want_injected_ids": [12, 13, 14],
+  "want_order_ids": [13, 14, 12],
+  "required": true
+}

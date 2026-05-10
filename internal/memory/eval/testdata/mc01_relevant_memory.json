@@ -3,6 +3,10 @@
   "name": "相关可信记忆应注入",
   "query": "我的默认 Go 测试命令是什么",
   "user_id": "u1",
+  "session_id": "session-eval-1",
+  "target": "user",
+  "kind": "preference",
+  "subject_type": "tooling",
   "memories": [
     {
       "id": 1,
@@ -10,6 +14,12 @@
       "type": "user",
       "content": "默认 Go 测试命令是 env GOCACHE=/tmp/go-build go test ./... -count=1",
       "confidence": 0.95,
+      "score": 0.82,
+      "tags": ["go", "test"],
+      "session_id": "session-eval-1",
+      "target": "user",
+      "kind": "preference",
+      "subject_type": "tooling",
       "source": "user_message"
     }
   ],

@@ -77,9 +77,35 @@ func ValidateCase(c Case) error {
 		if mem.Content == "" {
 			return fmt.Errorf("%s: memory %d content missing", c.ID, mem.ID)
 		}
+		if mem.Score != nil && (*mem.Score < -1 || *mem.Score > 1) {
+			return fmt.Errorf("%s: memory %d score out of range", c.ID, mem.ID)
+		}
+	}
+	if c.MinScore != nil && (*c.MinScore < 0 || *c.MinScore > 1) {
+		return fmt.Errorf("%s: min_score out of range", c.ID)
+	}
+	if c.Hybrid != nil {
+		for _, result := range c.Hybrid.VectorResults {
+			if result.ID <= 0 {
+				return fmt.Errorf("%s: hybrid vector result id missing", c.ID)
+			}
+			if result.Score < -1 || result.Score > 1 {
+				return fmt.Errorf("%s: hybrid vector result %d score out of range", c.ID, result.ID)
+			}
+		}
 	}
 
-	for _, id := range append(c.WantInjectedIDs, c.WantSkippedIDs...) {
+	expectedIDs := append([]int64{}, c.WantInjectedIDs...)
+	expectedIDs = append(expectedIDs, c.WantSkippedIDs...)
+	expectedIDs = append(expectedIDs, c.WantOrderIDs...)
+	expectedIDs = append(expectedIDs, c.WantBatchGetIDs...)
+	for _, want := range c.WantMetadata {
+		expectedIDs = append(expectedIDs, want.MemoryID)
+	}
+	for _, want := range c.ScopeAssertions {
+		expectedIDs = append(expectedIDs, want.MemoryID)
+	}
+	for _, id := range expectedIDs {
 		if !seen[id] {
 			return fmt.Errorf("%s: expected memory id %d not in fixtures", c.ID, id)
 		}

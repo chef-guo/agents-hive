@@ -10,6 +10,7 @@ import (
 
 	"github.com/chef-guo/agents-hive/internal/errs"
 	"github.com/chef-guo/agents-hive/internal/mcphost"
+	"github.com/chef-guo/agents-hive/internal/router"
 )
 
 // taskInput 是 task 工具的输入参数
@@ -17,15 +18,6 @@ type taskInput struct {
 	AgentID     string                 `json:"agent_id"`          // SubAgent ID（如 "research", "code-review"）
 	Instruction string                 `json:"instruction"`       // 任务描述
 	Context     map[string]interface{} `json:"context,omitempty"` // 可选的上下文信息
-}
-
-// systemAgentDenyList 系统服务 Agent 黑名单，禁止用户通过 task/parallel_dispatch 路由到这些 Agent。
-// 这些 Agent 仅供内部系统调用（如上下文压缩、标题生成），不应处理用户任务。
-var systemAgentDenyList = map[string]bool{
-	"codereview":  true,
-	"compaction":  true,
-	"title-agent": true,
-	"summary":     true,
 }
 
 // TaskExecutor 接口定义执行任务的能力
@@ -110,7 +102,7 @@ func registerTask(host *mcphost.Host, executor TaskExecutor, logger *zap.Logger,
 			if params.AgentID == "" {
 				return errorResult("agent_id 不能为空，请指定目标 Agent（如 explore）或使用 spawn_agent 创建临时 Agent"), nil
 			}
-			if systemAgentDenyList[params.AgentID] {
+			if router.IsSystemDelegationAgent(params.AgentID) {
 				return errorResult(fmt.Sprintf("agent_id %q 是系统服务 Agent，不接受用户任务委派。请使用 explore 或 spawn_agent 创建临时 Agent", params.AgentID)), nil
 			}
 			if params.Instruction == "" {

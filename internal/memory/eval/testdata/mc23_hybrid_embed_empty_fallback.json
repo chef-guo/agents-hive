@@ -1,0 +1,32 @@
+{
+  "id": "mc23_hybrid_embed_empty_fallback",
+  "name": "hybrid embedding 不可用时回退 FTS",
+  "query": "embedding 失败时如何检索记忆",
+  "user_id": "u1",
+  "hybrid": {
+    "enabled": true,
+    "embed_error": "embedding provider unavailable"
+  },
+  "memories": [
+    {
+      "id": 31,
+      "user_id": "u1",
+      "type": "project",
+      "content": "embedding provider 不可用时必须回退 FTS",
+      "confidence": 0.9,
+      "score": 0.87,
+      "source": "summary"
+    }
+  ],
+  "want_injected_ids": [31],
+  "want_batch_get_ids": [31],
+  "want_metrics": [
+    {
+      "name": "memory_hybrid_search_fallback_total",
+      "labels": {
+        "reason": "embed_error"
+      }
+    }
+  ],
+  "required": true
+}

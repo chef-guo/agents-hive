@@ -130,15 +130,21 @@ type SpecPlannerConfig struct {
 
 // MemoryConfig 记忆系统配置
 type MemoryConfig struct {
-	Enabled          bool   `json:"enabled"`                     // 主开关，默认 true
-	MaxMemories      int    `json:"max_memories,omitempty"`      // 最大记忆数量，默认 10000
-	RetentionDays    int    `json:"retention_days,omitempty"`    // 记忆保留天数，默认 90
-	AutoExtract      bool   `json:"auto_extract,omitempty"`      // 自动提取记忆，默认 true
-	InjectMaxTokens  int    `json:"inject_max_tokens,omitempty"` // 注入上下文的最大 token 数，默认 2000
-	InjectTopK       int    `json:"inject_top_k,omitempty"`      // 注入上下文的最大记忆条数，默认 5
-	EmbeddingEnabled bool   `json:"embedding_enabled,omitempty"` // 启用向量嵌入搜索
-	EmbeddingModel   string `json:"embedding_model,omitempty"`   // 嵌入模型名称
-	VectorStoreType  string `json:"vector_store_type,omitempty"` // 向量索引类型："auto"(默认) | "memory" | "pgvector"
+	Enabled             bool    `json:"enabled"`                         // 主开关，默认 true
+	MaxMemories         int     `json:"max_memories,omitempty"`          // 最大记忆数量，默认 10000
+	RetentionDays       int     `json:"retention_days,omitempty"`        // 记忆保留天数，默认 90
+	AutoExtract         bool    `json:"auto_extract,omitempty"`          // 自动提取记忆，默认 true
+	InjectMaxTokens     int     `json:"inject_max_tokens,omitempty"`     // 注入上下文的最大 token 数，默认 2000
+	InjectTopK          int     `json:"inject_top_k,omitempty"`          // 注入上下文的最大记忆条数，默认 5
+	InjectMinConfidence float64 `json:"inject_min_confidence,omitempty"` // 注入最低治理置信度，默认 0.5
+	InjectMinScore      float64 `json:"inject_min_score,omitempty"`      // 注入最低相关性分数，默认 0
+	FeedbackTopK        int     `json:"feedback_top_k,omitempty"`        // feedback 记忆最大条数，默认 3
+	MemoryTopK          int     `json:"memory_top_k,omitempty"`          // 普通记忆最大条数，默认 8
+	FeedbackMaxTokens   int     `json:"feedback_max_tokens,omitempty"`   // feedback 记忆 token 预算，默认 600
+	MemoryMaxTokens     int     `json:"memory_max_tokens,omitempty"`     // 普通记忆 token 预算，默认 1800
+	EmbeddingEnabled    bool    `json:"embedding_enabled,omitempty"`     // 启用向量嵌入搜索
+	EmbeddingModel      string  `json:"embedding_model,omitempty"`       // 嵌入模型名称
+	VectorStoreType     string  `json:"vector_store_type,omitempty"`     // 向量索引类型："auto"(默认) | "memory" | "pgvector"
 }
 
 // RemoteAgentConfig 远程 ACP Agent 配置
@@ -840,6 +846,7 @@ func (c *Config) Resolve() {
 		c.Agent.MaxSessionCost = 0
 	}
 	c.Agent.ToolRecall = NormalizeToolRecallConfig(c.Agent.ToolRecall)
+	c.Memory = NormalizeMemoryConfig(c.Memory)
 }
 
 func DefaultToolRecallConfig() ToolRecallConfig {
@@ -876,6 +883,62 @@ func NormalizeToolRecallConfig(cfg ToolRecallConfig) ToolRecallConfig {
 	}
 	if cfg.SideEffectMinScore < cfg.MinScore {
 		cfg.SideEffectMinScore = cfg.MinScore
+	}
+	return cfg
+}
+
+func NormalizeMemoryConfig(cfg MemoryConfig) MemoryConfig {
+	def := DefaultMemoryConfig
+	if cfg.MaxMemories <= 0 {
+		cfg.MaxMemories = def.MaxMemories
+	}
+	if cfg.RetentionDays < 0 {
+		cfg.RetentionDays = def.RetentionDays
+	}
+	if cfg.InjectMaxTokens <= 0 {
+		cfg.InjectMaxTokens = def.InjectMaxTokens
+	}
+	if cfg.InjectMaxTokens > 12000 {
+		cfg.InjectMaxTokens = 12000
+	}
+	if cfg.InjectTopK <= 0 {
+		cfg.InjectTopK = def.InjectTopK
+	}
+	if cfg.InjectTopK > 50 {
+		cfg.InjectTopK = 50
+	}
+	if cfg.InjectMinConfidence <= 0 || cfg.InjectMinConfidence > 1 {
+		cfg.InjectMinConfidence = def.InjectMinConfidence
+	}
+	if cfg.InjectMinScore < 0 {
+		cfg.InjectMinScore = 0
+	}
+	if cfg.FeedbackTopK <= 0 {
+		cfg.FeedbackTopK = def.FeedbackTopK
+	}
+	if cfg.FeedbackTopK > 20 {
+		cfg.FeedbackTopK = 20
+	}
+	if cfg.MemoryTopK <= 0 {
+		cfg.MemoryTopK = def.MemoryTopK
+	}
+	if cfg.MemoryTopK > 50 {
+		cfg.MemoryTopK = 50
+	}
+	if cfg.FeedbackMaxTokens <= 0 {
+		cfg.FeedbackMaxTokens = def.FeedbackMaxTokens
+	}
+	if cfg.FeedbackMaxTokens > 4000 {
+		cfg.FeedbackMaxTokens = 4000
+	}
+	if cfg.MemoryMaxTokens <= 0 {
+		cfg.MemoryMaxTokens = def.MemoryMaxTokens
+	}
+	if cfg.MemoryMaxTokens > 12000 {
+		cfg.MemoryMaxTokens = 12000
+	}
+	if strings.TrimSpace(cfg.VectorStoreType) == "" {
+		cfg.VectorStoreType = def.VectorStoreType
 	}
 	return cfg
 }

@@ -1,0 +1,36 @@
+name: route-eval
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'internal/router/**'
+      - 'internal/agentquality/**'
+      - 'internal/master/tool_visibility.go'
+      - 'internal/master/react_processor.go'
+      - 'internal/master/quality_events.go'
+      - 'internal/master/session.go'
+      - 'skills/**'
+      - 'docs/架构设计/Tool-Routing.md'
+      - '.github/workflows/route-eval.yml'
+      - 'go.mod'
+      - 'go.sum'
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  route-eval:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.1'
+          cache: true
+      - name: Run route eval gate
+        run: go test ./internal/router ./internal/agentquality ./internal/master ./internal/tools ./internal/skills -run 'RouteEval|PromptInjection|FalseMatch|RouteDecision|ToolRecall|ToolSearch|Skill|Sanitize|ToolNamePolicy|Capability|Gate|Reflection|DecisionSpan|Replay|IntentClassifier|IntentCache|IntentBudget|ModelVisibleTools' -count=1

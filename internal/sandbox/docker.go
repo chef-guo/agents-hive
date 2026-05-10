@@ -99,7 +99,7 @@ func (e *DockerExecutor) createContainer() error {
 		"-v", workDirMount,
 		// tmpfs 挂载
 		"--tmpfs", fmt.Sprintf("/tmp:rw,size=%s,noexec,nosuid,nodev", e.config.TmpfsSize),
-		"--tmpfs", "/home/sandbox:rw,size=64m,noexec,nosuid,nodev",
+		"--tmpfs", homeSandboxTmpfs(uid, gid),
 		e.config.Image,
 	)
 
@@ -170,14 +170,15 @@ func (e *DockerExecutor) dockerExec(ctx context.Context, containerID string, req
 
 	stdout, stderr, exitCode, err := dockerCmd(ctx, args...)
 	if err != nil {
-		return ExecResult{}, err
+		return attachExecDiagnostic(req, ExecResult{Stdout: stdout, Stderr: stderr, ExitCode: exitCode}, err), err
 	}
 
-	return ExecResult{
+	result := ExecResult{
 		Stdout:   stdout,
 		Stderr:   stderr,
 		ExitCode: exitCode,
-	}, nil
+	}
+	return attachExecDiagnostic(req, result, nil), nil
 }
 
 // rebuild 重建容器（自愈机制）。
@@ -250,6 +251,10 @@ func getUIDGID() (string, string) {
 		return "1000", "1000"
 	}
 	return u.Uid, u.Gid
+}
+
+func homeSandboxTmpfs(uid, gid string) string {
+	return fmt.Sprintf("/home/sandbox:rw,size=64m,uid=%s,gid=%s,mode=1777,noexec,nosuid,nodev", uid, gid)
 }
 
 func randomSuffix() string {

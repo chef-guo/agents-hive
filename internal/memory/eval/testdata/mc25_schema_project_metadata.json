@@ -1,0 +1,40 @@
+{
+  "id": "mc25_schema_project_metadata",
+  "name": "schema metadata 可推导 project 一等列语义",
+  "query": "Agent 记忆系统计划的状态是什么",
+  "user_id": "u1",
+  "runtime_context": {
+    "user_id": "u1",
+    "project_id": "agent-memory-plan"
+  },
+  "memories": [
+    {
+      "id": 33,
+      "user_id": "u1",
+      "type": "project",
+      "content": "Agent 记忆系统计划要求 memory-eval required pass rate 为 100%",
+      "confidence": 0.95,
+      "score": 0.93,
+      "target_scope": "project",
+      "visibility": "private",
+      "project_id": "agent-memory-plan",
+      "memory_kind": "semantic",
+      "subject_type": "plan",
+      "source": "manual"
+    }
+  ],
+  "want_injected_ids": [33],
+  "want_metadata": [
+    {
+      "memory_id": 33,
+      "target_scope": "project",
+      "target_id": "agent-memory-plan",
+      "visibility": "private",
+      "project_id": "agent-memory-plan",
+      "kind": "semantic",
+      "subject_type": "plan",
+      "source": "manual"
+    }
+  ],
+  "required": true
+}

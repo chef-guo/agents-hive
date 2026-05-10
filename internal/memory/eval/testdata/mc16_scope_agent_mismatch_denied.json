@@ -1,0 +1,30 @@
+{
+  "id": "mc16_scope_agent_mismatch_denied",
+  "name": "ScopePolicy agent mismatch 不得注入",
+  "query": "Worker API 的执行约束是什么",
+  "user_id": "u1",
+  "runtime_context": {
+    "user_id": "u1",
+    "agent_name": "worker-api"
+  },
+  "memories": [
+    {
+      "id": 23,
+      "user_id": "u1",
+      "type": "procedural",
+      "content": "Worker Eval 的私有操作手册不应给 Worker API 使用",
+      "confidence": 0.95,
+      "score": 0.9,
+      "target_scope": "agent",
+      "visibility": "private",
+      "target_user_id": "u1",
+      "agent_name": "worker-eval",
+      "memory_kind": "procedural",
+      "subject_type": "procedure",
+      "source": "manual"
+    }
+  ],
+  "want_skipped_ids": [23],
+  "forbidden_text": ["Worker Eval 的私有操作手册"],
+  "required": true
+}

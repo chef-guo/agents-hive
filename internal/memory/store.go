@@ -11,6 +11,9 @@ type MemoryStore interface {
 	// Get 按 ID 获取记忆（同时更新 accessed_at 和 access_count）
 	Get(ctx context.Context, id int64) (*MemoryRecord, error)
 
+	// BatchGet 按 ID 批量获取记忆（异步合批更新访问计数，不改变 Get 语义）
+	BatchGet(ctx context.Context, ids []int64) ([]MemoryRecord, error)
+
 	// Update 更新已有记忆的内容、标签和元数据
 	Update(ctx context.Context, record *MemoryRecord) error
 

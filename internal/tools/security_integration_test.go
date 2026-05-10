@@ -137,6 +137,68 @@ func TestBash_SecurityAllow(t *testing.T) {
 	assert.False(t, result.IsError, "Command should execute successfully")
 }
 
+func TestBash_RuntimePermissionDiagnostic(t *testing.T) {
+	logger := zaptest.NewLogger(t)
+	host := mcphost.NewHost(logger)
+
+	old := globalExecutor
+	globalExecutor = &diagnosticExecutor{result: sandbox.ExecResult{
+		Stderr:   "go: could not create module cache: mkdir /home/sandbox/go: permission denied",
+		ExitCode: 1,
+		Diagnostic: &sandbox.ExecFailureDiagnostic{
+			FailureType:     sandbox.FailureTypePermissionDenied,
+			Summary:         "Go 模块缓存路径不可写，当前执行身份无法创建默认 GOPATH/GOMODCACHE 目录",
+			SuggestedAction: sandbox.ActionUseWritableGoCache,
+			SuggestedEnv: map[string]string{
+				"GOCACHE":    "/tmp/go-build-cache",
+				"GOMODCACHE": "/tmp/go-mod-cache",
+				"GOPATH":     "/tmp/go",
+			},
+		},
+	}}
+	t.Cleanup(func() { globalExecutor = old })
+
+	registerBash(host, logger, nil)
+
+	inputJSON, _ := json.Marshal(map[string]any{"command": "go test ./..."})
+	result, err := host.ExecuteTool(context.Background(), "bash", inputJSON)
+	require.NoError(t, err)
+	require.True(t, result.IsError)
+
+	content := mcphost.DecodeToolContent(result.Content)
+	assert.Contains(t, content, "诊断")
+	assert.Contains(t, content, "Go 模块缓存路径不可写")
+	assert.Contains(t, content, "GOMODCACHE=/tmp/go-mod-cache")
+	assert.Contains(t, content, "GOPATH=/tmp/go")
+}
+
+type diagnosticExecutor struct {
+	result sandbox.ExecResult
+	err    error
+}
+
+func (e *diagnosticExecutor) Execute(context.Context, sandbox.ExecRequest) (sandbox.ExecResult, error) {
+	return e.result, e.err
+}
+
+func (e *diagnosticExecutor) Close() error { return nil }
+
+func TestFormatCommandFailure_GenericPermissionAsksForApproval(t *testing.T) {
+	content := formatCommandFailure(sandbox.ExecResult{
+		ExitCode: 1,
+		Stderr:   "mkdir: cannot create directory '/var/lib/app': Permission denied",
+		Diagnostic: &sandbox.ExecFailureDiagnostic{
+			FailureType:          sandbox.FailureTypePermissionDenied,
+			Summary:              "当前执行身份或沙箱挂载没有足够权限完成命令",
+			RequiresUserApproval: true,
+			SuggestedAction:      sandbox.ActionRequestPrivilegedExecution,
+		},
+	})
+
+	assert.Contains(t, content, "需要用户批准切换到有权限的执行环境")
+	assert.Contains(t, content, "Permission denied")
+}
+
 // TestGrep_SecurityCheck 测试 grep 工具通过 SafeExecutorWrapper 的 deny 策略
 func TestGrep_SecurityCheck(t *testing.T) {
 	logger := zaptest.NewLogger(t)

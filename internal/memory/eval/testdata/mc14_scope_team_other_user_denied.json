@@ -1,0 +1,36 @@
+{
+  "id": "mc14_scope_team_other_user_denied",
+  "name": "ScopePolicy team 私有记忆跨 owner 拒绝",
+  "query": "团队发布窗口是什么",
+  "user_id": "u1",
+  "expose_cross_user": true,
+  "memories": [
+    {
+      "id": 21,
+      "user_id": "u2",
+      "type": "project",
+      "content": "u2 团队发布窗口是周五深夜",
+      "confidence": 0.9,
+      "score": 0.92,
+      "target_scope": "team",
+      "target_id": "team-b",
+      "visibility": "private",
+      "target_user_id": "u2",
+      "tenant_id": "tenant-b",
+      "source": "summary"
+    }
+  ],
+  "want_skipped_ids": [21],
+  "forbidden_text": ["u2 团队发布窗口"],
+  "scope_assertions": [
+    {
+      "memory_id": 21,
+      "runtime_context": {
+        "user_id": "u1"
+      },
+      "allowed": false,
+      "reason": "membership_unavailable"
+    }
+  ],
+  "required": true
+}

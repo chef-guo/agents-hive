@@ -165,13 +165,16 @@ type AgentProgressEvent struct {
 
 // ToolCallEvent 工具调用事件
 type ToolCallEvent struct {
-	ToolCallID string `json:"tool_call_id"` // 对应 LLM 工具调用 ID
-	ToolName   string `json:"tool_name"`
-	TurnID     string `json:"turn_id,omitempty"`
-	Status     string `json:"status"`               // "start", "success", "error"
-	Duration   int64  `json:"duration,omitempty"`   // 执行耗时（毫秒）
-	Error      string `json:"error,omitempty"`      // 错误信息（仅 error 状态）
-	SessionID  string `json:"session_id,omitempty"` // 关联会话 ID，用于前端过滤
+	ToolCallID           string `json:"tool_call_id"` // 对应 LLM 工具调用 ID
+	ToolName             string `json:"tool_name"`
+	TurnID               string `json:"turn_id,omitempty"`
+	Status               string `json:"status"`             // "start", "success", "error"
+	Duration             int64  `json:"duration,omitempty"` // 执行耗时（毫秒）
+	Error                string `json:"error,omitempty"`    // 错误信息（仅 error 状态）
+	FailureType          string `json:"failure_type,omitempty"`
+	RequiresUserApproval bool   `json:"requires_user_approval,omitempty"`
+	SuggestedAction      string `json:"suggested_action,omitempty"`
+	SessionID            string `json:"session_id,omitempty"` // 关联会话 ID，用于前端过滤
 }
 
 // AgentStartEvent Agent 启动事件
@@ -237,24 +240,25 @@ type Master struct {
 	toolBridge   *skills.ToolBridge // 工具桥接（复用 SubAgent 的工具执行路径）
 	masterFilter *skills.ToolFilter // Master 的工具过滤器（启动时由 toolPolicy 构建）
 
-	memoryInjector  *memory.Injector            // 记忆注入器（可选，用于将相关记忆注入 LLM 上下文）
-	costTracker     accounting.CostTracker      // 成本追踪器（可选，nil 时不记录）
-	asyncRecorder   *accounting.AsyncRecorder   // 异步写入包装器（channel+worker，shutdown 安全）
-	authEngine      *auth.Engine                // 认证引擎（可选，nil 时不检查配额）
-	journal         journal.Journal             // 开发日志（可选，nil 时不记录）
-	tracer          observability.Tracer        // 可观测性 Tracer（可选，nil 时不记录）
-	metricsWriter   observability.MetricsWriter // 可观测性 MetricsWriter（可选，nil 时不记录）
-	logWriter       observability.LogWriter     // 可观测性 LogWriter（可选，nil 时不记录）
-	trajectoryStore trajectory.Store            // 诊断级 step snapshot 存储（可选）
-	validationExec  ValidationExecutor          // test-driven shadow 验证执行器（可选）
-	reflectionEval  ReflectionEvaluator         // evaluator shadow 评估器（可选）
-	obsCh           chan observabilityEntry     // 异步 observability 写入队列
-	obsDone         chan struct{}               // observability worker 退出信号
-	spansDropped    atomic.Int64
-	metricsDropped  atomic.Int64
-	logsDropped     atomic.Int64
-	journalCh       chan journalEntry // 异步 journal 写入队列（支持 tool call / file change / decision）
-	journalDone     chan struct{}     // journal worker 退出信号
+	memoryInjector    *memory.Injector            // 记忆注入器（可选，用于将相关记忆注入 LLM 上下文）
+	feedbackExtractor memory.FeedbackExtractor    // feedback 记忆提取器（可选，用于质量反馈闭环）
+	costTracker       accounting.CostTracker      // 成本追踪器（可选，nil 时不记录）
+	asyncRecorder     *accounting.AsyncRecorder   // 异步写入包装器（channel+worker，shutdown 安全）
+	authEngine        *auth.Engine                // 认证引擎（可选，nil 时不检查配额）
+	journal           journal.Journal             // 开发日志（可选，nil 时不记录）
+	tracer            observability.Tracer        // 可观测性 Tracer（可选，nil 时不记录）
+	metricsWriter     observability.MetricsWriter // 可观测性 MetricsWriter（可选，nil 时不记录）
+	logWriter         observability.LogWriter     // 可观测性 LogWriter（可选，nil 时不记录）
+	trajectoryStore   trajectory.Store            // 诊断级 step snapshot 存储（可选）
+	validationExec    ValidationExecutor          // test-driven shadow 验证执行器（可选）
+	reflectionEval    ReflectionEvaluator         // evaluator shadow 评估器（可选）
+	obsCh             chan observabilityEntry     // 异步 observability 写入队列
+	obsDone           chan struct{}               // observability worker 退出信号
+	spansDropped      atomic.Int64
+	metricsDropped    atomic.Int64
+	logsDropped       atomic.Int64
+	journalCh         chan journalEntry // 异步 journal 写入队列（支持 tool call / file change / decision）
+	journalDone       chan struct{}     // journal worker 退出信号
 
 	stopOnce  sync.Once
 	closeOnce sync.Once // 保护 channel 关闭
@@ -690,6 +694,11 @@ func buildToolPolicy(cfg config.ToolPolicyConfig) *skills.ToolPolicy {
 // SetMemoryInjector 设置记忆注入器，使 Master 能在 LLM 调用前注入相关记忆
 func (m *Master) SetMemoryInjector(inj *memory.Injector) {
 	m.memoryInjector = inj
+}
+
+// SetFeedbackExtractor 设置 feedback 记忆提取器，使质量反馈能进入记忆闭环。
+func (m *Master) SetFeedbackExtractor(ext memory.FeedbackExtractor) {
+	m.feedbackExtractor = ext
 }
 
 // SetTrajectoryStore 设置诊断级 step snapshot 存储。

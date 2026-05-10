@@ -23,9 +23,21 @@ type ExecRequest struct {
 
 // ExecResult 封装命令执行的结果。
 type ExecResult struct {
-	Stdout   string
-	Stderr   string
-	ExitCode int
+	Stdout     string
+	Stderr     string
+	ExitCode   int
+	Diagnostic *ExecFailureDiagnostic
+}
+
+// ExecFailureDiagnostic 是命令运行失败后的机器可读诊断。
+// 预执行权限策略由 SafeExecutorWrapper/Master 处理；这里记录的是命令已经运行后，
+// 执行环境本身暴露出的权限、沙箱或资源类问题。
+type ExecFailureDiagnostic struct {
+	FailureType          string            `json:"failure_type"`
+	Summary              string            `json:"summary"`
+	RequiresUserApproval bool              `json:"requires_user_approval,omitempty"`
+	SuggestedAction      string            `json:"suggested_action,omitempty"`
+	SuggestedEnv         map[string]string `json:"suggested_env,omitempty"`
 }
 
 // DockerConfig Docker 沙箱的详细配置（sandbox 包内部使用，避免 import cycle）。

@@ -1,0 +1,25 @@
+{
+  "id": "mc19_hybrid_embed_fallback_metric",
+  "name": "Hybrid embed 失败时回退 FTS 并记录指标",
+  "query": "Go 测试缓存",
+  "user_id": "u1",
+  "hybrid": {
+    "enabled": true,
+    "embed_error": "provider down"
+  },
+  "memories": [
+    {
+      "id": 1023,
+      "user_id": "u1",
+      "type": "project",
+      "content": "Go 测试缓存需要使用 GOCACHE=/tmp/go-build",
+      "confidence": 0.95,
+      "score": 0.8
+    }
+  ],
+  "want_injected_ids": [1023],
+  "want_metrics": [
+    {"name": "memory_hybrid_search_fallback_total", "labels": {"reason": "embed_error"}}
+  ],
+  "required": true
+}

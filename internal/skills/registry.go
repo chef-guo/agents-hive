@@ -465,7 +465,8 @@ func (r *Registry) InvokeWithScripts(ctx context.Context, name string, rctx Rend
 }
 
 // InvokeFull 执行完整的 skill 调用流水线：
-// hooks (pre-invoke) → 渲染 + 动态上下文 + 脚本 → hooks (post-invoke)
+// hooks (pre-invoke) → 渲染 + 动态上下文 → hooks (post-invoke)
+// scripts/ 目录仅作为 bundled resources 编目，不在普通调用中自动执行。
 func (r *Registry) InvokeFull(ctx context.Context, name string, rctx RenderContext, executor ShellExecutor, runner *ScriptRunner, hookRunner *HookRunner) (string, error) {
 	start := time.Now()
 	result, err := r.invokeFull(ctx, name, rctx, executor, runner, hookRunner)
@@ -498,24 +499,6 @@ func (r *Registry) invokeFull(ctx context.Context, name string, rctx RenderConte
 	}
 	if err != nil {
 		return "", err
-	}
-
-	// 执行脚本
-	if runner != nil {
-		if loadErr := s.LoadBundledFiles(); loadErr != nil {
-			return rendered, loadErr
-		}
-		if len(s.Bundled.Scripts) > 0 {
-			results, scriptErr := runner.RunAllScripts(ctx, s.Path, s.Bundled.Scripts)
-			if scriptErr != nil {
-				return rendered, scriptErr
-			}
-			for _, script := range s.Bundled.Scripts {
-				if output, ok := results[script]; ok && output != "" {
-					rendered += fmt.Sprintf("\n\n--- Script output: %s ---\n%s", script, output)
-				}
-			}
-		}
 	}
 
 	// 运行 post-invoke hooks

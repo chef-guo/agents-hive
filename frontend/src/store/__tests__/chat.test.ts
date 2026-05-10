@@ -101,3 +101,111 @@ describe('chat store sendMessage fallback', () => {
     expect(useChatStore.getState().streamingMessageId).toBeNull();
   });
 });
+
+describe('chat store message normalization', () => {
+  beforeEach(() => {
+    useChatStore.setState({
+      messages: [],
+      sending: false,
+      streaming: false,
+      streamingMessageId: null,
+      agentStatus: null,
+      error: null,
+      currentSessionId: 'session-1',
+      inlineApprovals: [],
+      toolCallStatuses: {},
+      toolCallStartTimes: {},
+    });
+  });
+
+  it('keeps backend/history order instead of sorting by timestamp', () => {
+    useChatStore.getState().setMessages([
+      { role: 'user', content: '先发送的问题', timestamp: '2026-05-04T01:00:10.000Z' },
+      { role: 'assistant', content: '后产生的回答', timestamp: '2026-05-04T01:00:05.000Z' },
+    ]);
+
+    expect(useChatStore.getState().messages.map((m) => m.content)).toEqual([
+      '先发送的问题',
+      '后产生的回答',
+    ]);
+  });
+
+  it('merges duplicate assistant tool-call preview and final frames by tool_call id', () => {
+    useChatStore.getState().addMessage({
+      role: 'assistant',
+      content: '',
+      timestamp: '2026-05-04T01:00:00.000Z',
+      tool_call_preview: true,
+      tool_calls: [{
+        id: 'call-write',
+        name: 'write_file',
+        arguments: '{"content":"---\\nname: hello',
+      }],
+    });
+    useChatStore.getState().addMessage({
+      role: 'assistant',
+      content: '',
+      timestamp: '2026-05-04T01:00:20.000Z',
+      tool_calls: [{
+        id: 'call-write',
+        name: 'write_file',
+        arguments: '{"content":"---\\nname: hello-greet\\nversion: \\"1.0.0\\"","file_path":"/tmp/SKILL.md"}',
+      }],
+    });
+
+    const messages = useChatStore.getState().messages;
+    expect(messages).toHaveLength(1);
+    expect(messages[0].timestamp).toBe('2026-05-04T01:00:20.000Z');
+    expect(messages[0].tool_calls).toHaveLength(1);
+    expect(messages[0].tool_calls?.[0].arguments).toContain('/tmp/SKILL.md');
+  });
+
+  it('keeps assistant tool call and matching tool result as separate linked messages', () => {
+    useChatStore.getState().setMessages([
+      {
+        role: 'assistant',
+        content: '',
+        timestamp: '2026-05-04T01:00:00.000Z',
+        tool_calls: [{
+          id: 'call-write',
+          name: 'write_file',
+          arguments: '{"file_path":"/tmp/SKILL.md","content":"hello"}',
+        }],
+      },
+      {
+        role: 'tool',
+        content: '已写入 5 字节到 /tmp/SKILL.md',
+        timestamp: '2026-05-04T01:00:01.000Z',
+        tool_call_id: 'call-write',
+        tool_name: 'write_file',
+      },
+    ]);
+
+    const messages = useChatStore.getState().messages;
+    expect(messages).toHaveLength(2);
+    expect(messages[0].role).toBe('assistant');
+    expect(messages[1]).toMatchObject({ role: 'tool', tool_call_id: 'call-write' });
+  });
+
+  it('merges duplicate tool results by tool_call_id', () => {
+    useChatStore.getState().addMessage({
+      role: 'tool',
+      content: '写入中',
+      timestamp: '2026-05-04T01:00:00.000Z',
+      tool_call_id: 'call-write',
+      tool_name: 'write_file',
+    });
+    useChatStore.getState().addMessage({
+      role: 'tool',
+      content: '已写入 1194 字节到 /tmp/SKILL.md',
+      timestamp: '2026-05-04T01:00:01.000Z',
+      tool_call_id: 'call-write',
+      tool_name: 'write_file',
+    });
+
+    const toolMessages = useChatStore.getState().messages.filter((m) => m.role === 'tool');
+    expect(toolMessages).toHaveLength(1);
+    expect(toolMessages[0].content).toBe('已写入 1194 字节到 /tmp/SKILL.md');
+    expect(toolMessages[0].timestamp).toBe('2026-05-04T01:00:00.000Z');
+  });
+});

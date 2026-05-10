@@ -11,14 +11,20 @@ type InjectedMemory struct {
 
 // InjectionResult 让质量系统能解释 memory/context 的构成与过滤原因。
 type InjectionResult struct {
-	Text               string           `json:"text"`
-	Memories           []InjectedMemory `json:"memories"`
-	EstimatedTokens    int              `json:"estimated_tokens"`
-	SkippedExpired     int              `json:"skipped_expired"`
-	SkippedLowTrust    int              `json:"skipped_low_trust"`
-	SkippedCrossUser   int              `json:"skipped_cross_user"`
-	SkippedTokenBudget int              `json:"skipped_token_budget"`
-	SkippedMemoryIDs   []int64          `json:"skipped_memory_ids,omitempty"`
+	Text                  string           `json:"text"`
+	Memories              []InjectedMemory `json:"memories"`
+	EstimatedTokens       int              `json:"estimated_tokens"`
+	FeedbackCount         int              `json:"feedback_count"`
+	RegularCount          int              `json:"regular_count"`
+	SkippedExpired        int              `json:"skipped_expired"`
+	SkippedLowTrust       int              `json:"skipped_low_trust"`
+	SkippedCrossUser      int              `json:"skipped_cross_user"`
+	SkippedScope          int              `json:"skipped_scope"`
+	SkippedLowScore       int              `json:"skipped_low_score"`
+	SkippedTokenBudget    int              `json:"skipped_token_budget"`
+	SkippedFeedbackBudget int              `json:"skipped_feedback_budget"`
+	SkippedRegularBudget  int              `json:"skipped_regular_budget"`
+	SkippedMemoryIDs      []int64          `json:"skipped_memory_ids,omitempty"`
 }
 
 // MemoryIDs 返回实际注入的 memory id 列表。
@@ -37,7 +43,7 @@ func (r InjectionResult) MemoryIDs() []int64 {
 
 // SkippedTotal 返回因治理策略未进入 prompt 的 memory 总数。
 func (r InjectionResult) SkippedTotal() int {
-	return r.SkippedExpired + r.SkippedLowTrust + r.SkippedCrossUser + r.SkippedTokenBudget
+	return r.SkippedExpired + r.SkippedLowTrust + r.SkippedCrossUser + r.SkippedScope + r.SkippedLowScore + r.SkippedTokenBudget
 }
 
 // HasSignal 判断本次检索是否产生了可观测信息，包括注入或治理过滤。

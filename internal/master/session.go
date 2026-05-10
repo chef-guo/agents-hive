@@ -11,6 +11,7 @@ import (
 	"github.com/chef-guo/agents-hive/internal/imctx"
 	"github.com/chef-guo/agents-hive/internal/llm"
 	"github.com/chef-guo/agents-hive/internal/memory"
+	"github.com/chef-guo/agents-hive/internal/router"
 	"github.com/chef-guo/agents-hive/internal/sessiontodo"
 	"github.com/chef-guo/agents-hive/internal/specdriven"
 )
@@ -63,18 +64,32 @@ type SessionState struct {
 	specCtx atomic.Pointer[specdriven.Context] `json:"-"`
 
 	// 临时字段（仅在当前请求处理期间有效，不持久化）
-	pendingAttachments     []FileAttachment        `json:"-"`
-	pendingReasoningEffort string                  `json:"-"`
-	pendingModelOverride   string                  `json:"-"`
-	pendingIMContext       *imctx.IMMessageContext `json:"-"`
-	pendingMemoryInjection memory.InjectionResult  `json:"-"`
-	discoveredTools        map[string]bool         `json:"-"`
+	pendingAttachments     []FileAttachment             `json:"-"`
+	pendingReasoningEffort string                       `json:"-"`
+	pendingModelOverride   string                       `json:"-"`
+	pendingIMContext       *imctx.IMMessageContext      `json:"-"`
+	pendingMemoryInjection memory.InjectionResult       `json:"-"`
+	discoveredTools        map[string]bool              `json:"-"`
+	allowedToolInputs      map[string]map[string]string `json:"-"`
+	reflectionBlocks       []router.ReflectionBlock     `json:"-"`
 
 	// 终止态：用于阻止已取消任务的陈旧写回。
 	terminated         bool      `json:"-"`
 	terminationReason  string    `json:"-"`
 	terminatedAt       time.Time `json:"-"`
 	terminationJournal bool      `json:"-"`
+}
+
+const maxSessionReflectionBlocks = 10
+
+var structuralReflectionFailureKinds = map[string]struct{}{
+	"schema_invalid":      {},
+	"auth":                {},
+	"4xx":                 {},
+	"permission_denied":   {},
+	"permission":          {},
+	"invalid_credentials": {},
+	"policy_denied":       {},
 }
 
 // LoadSpecCtx 返回当前 spec-driven 上下文指针（可能为 nil——表示非 spec-driven 会话）。
@@ -278,6 +293,115 @@ func (s *SessionState) DiscoveredTools() []string {
 		out = append(out, name)
 	}
 	sort.Strings(out)
+	return out
+}
+
+func (s *SessionState) SetAllowedToolInputs(inputs map[string]map[string]string) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(inputs) == 0 {
+		s.allowedToolInputs = nil
+		return
+	}
+	s.allowedToolInputs = cloneAllowedToolInputs(inputs)
+}
+
+func (s *SessionState) AllowedToolInput(toolName, key string) (string, bool) {
+	if s == nil || toolName == "" || key == "" {
+		return "", false
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	values := s.allowedToolInputs[toolName]
+	if len(values) == 0 {
+		return "", false
+	}
+	value, ok := values[key]
+	return value, ok
+}
+
+func (s *SessionState) AllowedToolInputsSnapshot() map[string]map[string]string {
+	if s == nil {
+		return nil
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return cloneAllowedToolInputs(s.allowedToolInputs)
+}
+
+// AddReflectionBlock 记录结构性失败产出的会话级工具阻断；瞬态失败会被忽略。
+func (s *SessionState) AddReflectionBlock(block router.ReflectionBlock) bool {
+	if s == nil || strings.TrimSpace(block.ToolName) == "" || !isStructuralReflectionFailureKind(block.FailureKind) {
+		return false
+	}
+	block.ToolName = strings.TrimSpace(block.ToolName)
+	block.Mode = strings.TrimSpace(block.Mode)
+	block.Reason = strings.TrimSpace(block.Reason)
+	block.FailureKind = strings.TrimSpace(block.FailureKind)
+	if block.CreatedAt.IsZero() {
+		block.CreatedAt = time.Now()
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.reflectionBlocks = append(s.reflectionBlocks, block)
+	if overflow := len(s.reflectionBlocks) - maxSessionReflectionBlocks; overflow > 0 {
+		s.reflectionBlocks = append([]router.ReflectionBlock(nil), s.reflectionBlocks[overflow:]...)
+	}
+	return true
+}
+
+// ListReflectionBlocks 返回当前会话反思阻断快照，调用方可按 mode 传给 RouteDecision。
+func (s *SessionState) ListReflectionBlocks() []router.ReflectionBlock {
+	if s == nil {
+		return nil
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return append([]router.ReflectionBlock(nil), s.reflectionBlocks...)
+}
+
+func (s *SessionState) ClearReflectionBlocks() {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	s.reflectionBlocks = nil
+	s.mu.Unlock()
+}
+
+func isStructuralReflectionFailureKind(kind string) bool {
+	kind = strings.TrimSpace(strings.ToLower(kind))
+	if kind == "" {
+		return false
+	}
+	if _, ok := structuralReflectionFailureKinds[kind]; ok {
+		return true
+	}
+	return strings.HasPrefix(kind, "4") && strings.HasSuffix(kind, "xx")
+}
+
+func cloneAllowedToolInputs(in map[string]map[string]string) map[string]map[string]string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]map[string]string, len(in))
+	for tool, values := range in {
+		if len(values) == 0 {
+			continue
+		}
+		copied := make(map[string]string, len(values))
+		for key, value := range values {
+			copied[key] = value
+		}
+		out[tool] = copied
+	}
+	if len(out) == 0 {
+		return nil
+	}
 	return out
 }
 

@@ -3,7 +3,11 @@ package master
 import (
 	"context"
 
+	"go.uber.org/zap"
+
 	"github.com/chef-guo/agents-hive/internal/agentquality"
+	"github.com/chef-guo/agents-hive/internal/auth"
+	"github.com/chef-guo/agents-hive/internal/memory"
 )
 
 type ReflectionEvaluator interface {
@@ -65,6 +69,7 @@ func (m *Master) recordReflectionEvaluation(ctx context.Context, sessionID, trac
 			"should_optimize": verdict.ShouldOptimize,
 		},
 	})
+	m.recordFeedbackMemory(ctx, sessionID, traceID, spanID, verdict)
 }
 
 func (m *Master) recordReflectionEvaluationShadow(ctx context.Context, sessionID, traceID, spanID string, input agentquality.EvaluationInput) {
@@ -82,4 +87,39 @@ func (m *Master) recordReflectionEvaluationShadow(ctx context.Context, sessionID
 		evaluator = agentquality.HeuristicReflectionEvaluator{}
 	}
 	m.recordReflectionEvaluation(ctx, sessionID, traceID, spanID, input, evaluator)
+}
+
+func (m *Master) recordFeedbackMemory(ctx context.Context, sessionID, traceID, spanID string, verdict agentquality.EvaluationVerdict) {
+	if m == nil || m.feedbackExtractor == nil || len(verdict.Feedback) == 0 {
+		return
+	}
+	confidence := 0.75
+	if verdict.ShouldOptimize || verdict.Score < 7 {
+		confidence = 0.85
+	}
+	_, err := m.feedbackExtractor.ExtractFeedback(ctx, memory.FeedbackInput{
+		Text:          verdict.Verdict,
+		Feedback:      verdict.Feedback,
+		SessionID:     sessionID,
+		UserID:        auth.UserIDFrom(ctx),
+		Source:        "reflection_evaluator",
+		RunID:         firstNonEmptyString(traceID, sessionID),
+		SourceMessage: firstNonEmptyString(spanID, traceID),
+		Confidence:    confidence,
+		SkillName:     memory.RuntimeContextFrom(ctx).SkillName,
+		TaskType:      memory.RuntimeContextFrom(ctx).TaskType,
+		AgentName:     memory.RuntimeContextFrom(ctx).AgentName,
+	})
+	if err != nil && m.logger != nil {
+		m.logger.Warn("写入 feedback 记忆失败", zap.Error(err))
+	}
+}
+
+func firstNonEmptyString(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }

@@ -72,3 +72,30 @@ func TestExecuteTool_ToolCallMiddlewareCanBlockExecution(t *testing.T) {
 	assert.False(t, called, "middleware 阻断时不应执行底层工具")
 	assert.Contains(t, result.Content, "middleware blocked tool")
 }
+
+func TestExecuteTool_RejectsSkillNameOutsideRouteDecision(t *testing.T) {
+	m := newPhase6MasterWithMCPHost(t)
+	called := false
+	m.mcpHost.RegisterTool(
+		mcphost.ToolDefinition{Name: "skill", Description: "call skill"},
+		func(context.Context, json.RawMessage) (*mcphost.ToolResult, error) {
+			called = true
+			return &mcphost.ToolResult{Content: jsonTestText("should not run")}, nil
+		},
+	)
+	session := newTestSession("route-skill")
+	session.SetAllowedToolInputs(map[string]map[string]string{"skill": {"name": "skill-creator"}})
+
+	result := m.executeTool(context.Background(), session, "", llm.ToolCall{
+		ID:        "call-route-denied",
+		Name:      "skill",
+		Arguments: json.RawMessage(`{"name":"mcp-builder","arguments":"create greeting skill"}`),
+	}, "", "")
+
+	require.True(t, result.IsError)
+	require.True(t, result.Terminal)
+	assert.False(t, called, "RouteDecision 拒绝时不应执行 skill 工具")
+	assert.Contains(t, result.Content, "RouteDecision 拒绝")
+	assert.Contains(t, result.Content, "mcp-builder")
+	assert.Contains(t, result.Content, "skill-creator")
+}

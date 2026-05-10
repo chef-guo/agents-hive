@@ -12,6 +12,7 @@ import (
 	"github.com/chef-guo/agents-hive/internal/journal"
 	"github.com/chef-guo/agents-hive/internal/llm"
 	"github.com/chef-guo/agents-hive/internal/observability"
+	"github.com/chef-guo/agents-hive/internal/router"
 )
 
 func TestMaster_EnqueueLog_NilSafe(t *testing.T) {
@@ -83,6 +84,75 @@ func TestRecordToolRecall_EmitsQualityEvent(t *testing.T) {
 	assert.Contains(t, string(raw), `"selected_tool":"feishu_api"`)
 	assert.Contains(t, string(raw), `"model_used_recalled_tool":true`)
 	assert.Contains(t, string(raw), `"side_effect_candidate_count":1`)
+}
+
+func TestRecordReflectionAddsStructuralReflectionBlock(t *testing.T) {
+	m := &Master{obsCh: make(chan observabilityEntry, 4)}
+	session := &SessionState{ID: "session-1"}
+
+	m.recordReflection("trace", "span", session, reflectionNoteInput{
+		Trigger:     "call_failure",
+		Severity:    "warn",
+		ToolName:    "feishu_api",
+		Detail:      "permission denied",
+		FailureKind: "permission_denied",
+	})
+
+	blocks := session.ListReflectionBlocks()
+	require.Len(t, blocks, 1)
+	assert.Equal(t, "feishu_api", blocks[0].ToolName)
+	assert.Equal(t, "exec", blocks[0].Mode)
+	assert.Equal(t, "permission_denied", blocks[0].FailureKind)
+}
+
+func TestRecordReflectionIgnoresTransientReflectionBlock(t *testing.T) {
+	m := &Master{obsCh: make(chan observabilityEntry, 4)}
+	session := &SessionState{ID: "session-1"}
+
+	m.recordReflection("trace", "span", session, reflectionNoteInput{
+		Trigger:     "call_failure",
+		Severity:    "warn",
+		ToolName:    "web_fetch",
+		Detail:      "timeout",
+		FailureKind: "timeout",
+	})
+
+	assert.Empty(t, session.ListReflectionBlocks())
+}
+
+func TestReflectionFailureKindFromToolError(t *testing.T) {
+	tests := map[string]string{
+		"permission denied":             "permission_denied",
+		"403 forbidden":                 "4xx",
+		"invalid credentials from host": "auth",
+		"schema validation failed":      "schema_invalid",
+		"timeout":                       "",
+	}
+	for input, want := range tests {
+		if got := reflectionFailureKindFromToolError(input); got != want {
+			t.Fatalf("reflectionFailureKindFromToolError(%q) = %q, want %q", input, got, want)
+		}
+	}
+}
+
+func TestRecordRouteDecisionSpan_EnqueuesReplayLog(t *testing.T) {
+	m := &Master{obsCh: make(chan observabilityEntry, 2)}
+	session := &SessionState{ID: "session-1"}
+
+	m.recordRouteDecisionSpan("trace", "span", session, router.DecisionSpan{
+		TraceID:       "trace",
+		SessionIDHash: "sha256:test",
+		Intent:        router.DecisionSpanIntent{Kind: router.IntentCreateSkill, Source: "rule"},
+		Allowed:       []string{"skill"},
+		Mode:          router.DecisionModeAllow,
+	})
+
+	got := <-m.obsCh
+	require.NotNil(t, got.log)
+	assert.Equal(t, "quality.route_decision.span", got.log.Message)
+	assert.Equal(t, "trace", got.log.TraceID)
+	_, ok := got.log.Attributes["route_decision_span"].(router.DecisionSpan)
+	assert.True(t, ok)
 }
 
 func TestHashToolArgs_StableForJSONKeyOrder(t *testing.T) {

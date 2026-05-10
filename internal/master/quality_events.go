@@ -12,6 +12,7 @@ import (
 	"github.com/chef-guo/agents-hive/internal/journal"
 	"github.com/chef-guo/agents-hive/internal/llm"
 	"github.com/chef-guo/agents-hive/internal/observability"
+	"github.com/chef-guo/agents-hive/internal/router"
 	"github.com/chef-guo/agents-hive/internal/skills"
 	"github.com/chef-guo/agents-hive/internal/toolctx"
 	"github.com/chef-guo/agents-hive/internal/tools"
@@ -106,10 +107,57 @@ func (m *Master) recordToolRecall(traceID, spanID string, session *SessionState,
 	})
 }
 
+func (m *Master) recordRouteDecision(traceID, spanID string, session *SessionState, ev agentquality.RouteDecisionEvent) {
+	if m == nil || ev.IntentKind == "" {
+		return
+	}
+	sessionID := ""
+	if session != nil {
+		sessionID = session.ID
+	}
+	m.emitQualityEvent(traceID, spanID, sessionID, agentquality.Event{
+		Name:          agentquality.EventRouteDecision,
+		Route:         routeFromSession(session),
+		FailureType:   agentquality.FailureNone,
+		FinalStatus:   agentquality.StatusPass,
+		RouteDecision: ev,
+	})
+}
+
+func (m *Master) recordRouteDecisionSpan(traceID, spanID string, session *SessionState, span router.DecisionSpan) {
+	if m == nil || span.Intent.Kind == "" {
+		return
+	}
+	sessionID := ""
+	if session != nil {
+		sessionID = session.ID
+	}
+	m.enqueueLog(observability.LogEntry{
+		Level:     "info",
+		Message:   "quality.route_decision.span",
+		TraceID:   traceID,
+		SpanID:    spanID,
+		SessionID: sessionID,
+		Attributes: map[string]any{
+			"route_decision_span": span,
+		},
+		Ts: time.Now(),
+	})
+}
+
 func (m *Master) recordReflection(traceID, spanID string, session *SessionState, in reflectionNoteInput) {
 	sessionID := ""
 	if session != nil {
 		sessionID = session.ID
+		if in.ToolName != "" && in.FailureKind != "" {
+			session.AddReflectionBlock(router.ReflectionBlock{
+				ToolName:    in.ToolName,
+				Mode:        "exec",
+				Reason:      firstNonEmptyString(in.Detail, in.Trigger),
+				FailureKind: in.FailureKind,
+				CreatedAt:   time.Now(),
+			})
+		}
 	}
 	note := buildReflectionSystemNote(in)
 	if session != nil {

@@ -17,14 +17,20 @@ const (
 	MemoryTypeFeedback MemoryType = "feedback"
 	// MemoryTypeReference 外部系统指针、文档链接
 	MemoryTypeReference MemoryType = "reference"
+	// MemoryTypeProcedural 可复用流程、工具使用方法、操作手册
+	MemoryTypeProcedural MemoryType = "procedural"
+	// MemoryTypeEpisodic 具体会话、任务或事件经历
+	MemoryTypeEpisodic MemoryType = "episodic"
 )
 
 // ValidMemoryTypes 所有合法的记忆类型
 var ValidMemoryTypes = map[MemoryType]bool{
-	MemoryTypeUser:      true,
-	MemoryTypeProject:   true,
-	MemoryTypeFeedback:  true,
-	MemoryTypeReference: true,
+	MemoryTypeUser:       true,
+	MemoryTypeProject:    true,
+	MemoryTypeFeedback:   true,
+	MemoryTypeReference:  true,
+	MemoryTypeProcedural: true,
+	MemoryTypeEpisodic:   true,
 }
 
 // MemoryRecord 记忆记录

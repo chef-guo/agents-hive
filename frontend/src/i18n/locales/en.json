@@ -28,6 +28,10 @@
     "preferences": "Preferences",
     "replay": "Replay"
   },
+  "memoryGovernance": {
+    "injectionExplain": "Recent Injection Explain",
+    "emptyInjectionExplain": "No recent injection explain data yet. The backend returns an empty result until a queryable store is wired in."
+  },
   "header": {
     "switchLanguage": "Switch Language",
     "switchTheme": "Switch Theme"

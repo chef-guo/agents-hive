@@ -202,12 +202,46 @@ func (b *InMemoryEmbeddingBacklog) Stats(ctx context.Context) (EmbeddingBacklogS
 	return stats, nil
 }
 
+type InstrumentedEmbeddingBacklog struct {
+	inner   EmbeddingBacklog
+	metrics MetricRecorder
+}
+
+func NewInstrumentedEmbeddingBacklog(inner EmbeddingBacklog, metrics MetricRecorder) *InstrumentedEmbeddingBacklog {
+	return &InstrumentedEmbeddingBacklog{inner: inner, metrics: metrics}
+}
+
+func (b *InstrumentedEmbeddingBacklog) Enqueue(ctx context.Context, job EmbeddingBacklogJob) (int64, error) {
+	return b.inner.Enqueue(ctx, job)
+}
+
+func (b *InstrumentedEmbeddingBacklog) ClaimNext(ctx context.Context, workerID string, now time.Time) (*EmbeddingBacklogJob, error) {
+	return b.inner.ClaimNext(ctx, workerID, now)
+}
+
+func (b *InstrumentedEmbeddingBacklog) MarkDone(ctx context.Context, id int64, now time.Time) error {
+	return b.inner.MarkDone(ctx, id, now)
+}
+
+func (b *InstrumentedEmbeddingBacklog) MarkFailed(ctx context.Context, id int64, err error, nextRunAt time.Time, now time.Time) error {
+	return b.inner.MarkFailed(ctx, id, err, nextRunAt, now)
+}
+
+func (b *InstrumentedEmbeddingBacklog) Stats(ctx context.Context) (EmbeddingBacklogStats, error) {
+	stats, err := b.inner.Stats(ctx)
+	if err == nil {
+		recordBacklogDepth(ctx, b.metrics, stats)
+	}
+	return stats, err
+}
+
 type EmbeddingBacklogWorkerOptions struct {
 	WorkerID     string
 	Now          func() time.Time
 	VectorSpace  string
 	BackoffBase  time.Duration
 	BackoffLimit time.Duration
+	Metrics      MetricRecorder
 }
 
 type EmbeddingBacklogWorker struct {
@@ -243,13 +277,18 @@ func (w *EmbeddingBacklogWorker) ProcessOne(ctx context.Context) (bool, error) {
 		return false, err
 	}
 
+	start := time.Now()
 	vectors, err := w.embedder.Embed(ctx, []string{job.Content})
 	if err != nil {
+		recordEmbeddingDropped(ctx, w.opts.Metrics, EmbeddingDroppedReasonProviderError)
+		recordEmbeddingLatency(ctx, w.opts.Metrics, "backlog", "error", time.Since(start))
 		_ = w.backlog.MarkFailed(ctx, job.ID, err, now.Add(w.nextBackoff(job.Attempts+1)), now)
 		return true, err
 	}
 	if len(vectors) == 0 || len(vectors[0]) == 0 {
 		err = errors.New("embedding provider returned empty vector")
+		recordEmbeddingDropped(ctx, w.opts.Metrics, EmbeddingDroppedReasonEmptyVector)
+		recordEmbeddingLatency(ctx, w.opts.Metrics, "backlog", "empty", time.Since(start))
 		_ = w.backlog.MarkFailed(ctx, job.ID, err, now.Add(w.nextBackoff(job.Attempts+1)), now)
 		return true, err
 	}
@@ -259,18 +298,26 @@ func (w *EmbeddingBacklogWorker) ProcessOne(ctx context.Context) (bool, error) {
 	if vectorSpace == "" {
 		vectorSpace = w.opts.VectorSpace
 	}
+	vectorSpace = metricVectorSpace(vectorSpace)
 	if err := w.syncer.SyncMemoryEmbedding(ctx, job.MemoryID, vector, MemoryEmbeddingStatus{
 		EmbeddingState: EmbeddingStateReady,
 		VectorSpace:    vectorSpace,
 		Dimensions:     len(vector),
 		UpdatedAt:      now,
 	}); err != nil {
+		recordEmbeddingDropped(ctx, w.opts.Metrics, EmbeddingDroppedReasonStoreError)
+		if isVectorSpaceMismatchError(err) {
+			recordMetric(ctx, w.opts.Metrics, MetricVectorSpaceMismatchTotal, 1, map[string]any{"operation": "backlog"})
+		}
+		recordEmbeddingLatency(ctx, w.opts.Metrics, "backlog", "error", time.Since(start))
 		_ = w.backlog.MarkFailed(ctx, job.ID, err, now.Add(w.nextBackoff(job.Attempts+1)), now)
 		return true, err
 	}
 	if err := w.backlog.MarkDone(ctx, job.ID, now); err != nil {
+		recordEmbeddingLatency(ctx, w.opts.Metrics, "backlog", "error", time.Since(start))
 		return true, err
 	}
+	recordEmbeddingLatency(ctx, w.opts.Metrics, "backlog", "ok", time.Since(start))
 	return true, nil
 }
 

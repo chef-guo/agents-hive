@@ -1,0 +1,27 @@
+{
+  "id": "mc10_scope_user_same",
+  "name": "ScopePolicy 允许同用户 user scope",
+  "query": "偏好是什么",
+  "user_id": "u1",
+  "skip_injection": true,
+  "memories": [
+    {
+      "id": 1010,
+      "user_id": "u1",
+      "type": "user",
+      "content": "用户偏好使用 Go table-driven tests",
+      "target_scope": "user",
+      "target_user_id": "u1",
+      "confidence": 0.95
+    }
+  ],
+  "scope_assertions": [
+    {"memory_id": 1010, "runtime_context": {"user_id": "u1"}, "allowed": true, "reason": "same_user"}
+  ],
+  "want_metadata": [
+    {"memory_id": 1010, "target_scope": "user", "target_id": "u1", "visibility": "private", "target_user_id": "u1", "kind": "semantic", "subject_type": "user"}
+  ],
+  "want_sql_contains": ["user_id = ?", "target_scope"],
+  "want_sql_args": ["u1"],
+  "required": true
+}

@@ -1,0 +1,26 @@
+{
+  "id": "mc23_feedback_budget_limits_regular",
+  "name": "Feedback 与普通记忆独立预算下都能注入",
+  "query": "构建失败怎么办",
+  "user_id": "u1",
+  "memories": [
+    {
+      "id": 1027,
+      "user_id": "u1",
+      "type": "feedback",
+      "content": "反馈：构建失败时不要跳过 lint 输出",
+      "confidence": 0.95,
+      "score": 0.95
+    },
+    {
+      "id": 1028,
+      "user_id": "u1",
+      "type": "project",
+      "content": "项目构建命令是 npm run build",
+      "confidence": 0.95,
+      "score": 0.85
+    }
+  ],
+  "want_injected_ids": [1027, 1028],
+  "required": true
+}

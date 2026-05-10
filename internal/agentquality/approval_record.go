@@ -27,8 +27,9 @@ const (
 type ApprovalSubjectType string
 
 const (
-	ApprovalSubjectEvalDiff   ApprovalSubjectType = "eval_diff"
-	ApprovalSubjectSuggestion ApprovalSubjectType = "suggestion"
+	ApprovalSubjectEvalDiff        ApprovalSubjectType = "eval_diff"
+	ApprovalSubjectSuggestion      ApprovalSubjectType = "suggestion"
+	ApprovalSubjectMemoryPromotion ApprovalSubjectType = "memory_promotion"
 )
 
 type ApprovalRecord struct {
@@ -129,7 +130,7 @@ func normalizeApprovalRecord(rec *ApprovalRecord) error {
 		return fmt.Errorf("approval subject id is required")
 	}
 	switch rec.SubjectType {
-	case ApprovalSubjectEvalDiff, ApprovalSubjectSuggestion:
+	case ApprovalSubjectEvalDiff, ApprovalSubjectSuggestion, ApprovalSubjectMemoryPromotion:
 	default:
 		return fmt.Errorf("invalid approval subject type %q", rec.SubjectType)
 	}

@@ -1,0 +1,34 @@
+{
+  "id": "mc11_scope_user_private_cross_user",
+  "name": "ScopePolicy 拒绝跨用户 private user 记忆",
+  "query": "我的默认编辑器是什么",
+  "user_id": "u1",
+  "expose_cross_user": true,
+  "memories": [
+    {
+      "id": 18,
+      "user_id": "u2",
+      "type": "user",
+      "content": "u2 的默认编辑器是 Vim",
+      "confidence": 0.95,
+      "score": 0.9,
+      "target_scope": "user",
+      "visibility": "private",
+      "target_user_id": "u2",
+      "source": "user_message"
+    }
+  ],
+  "want_skipped_ids": [18],
+  "forbidden_text": ["u2 的默认编辑器"],
+  "scope_assertions": [
+    {
+      "memory_id": 18,
+      "runtime_context": {
+        "user_id": "u1"
+      },
+      "allowed": false,
+      "reason": "cross_user"
+    }
+  ],
+  "required": true
+}

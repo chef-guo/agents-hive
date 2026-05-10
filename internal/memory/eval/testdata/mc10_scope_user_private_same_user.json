@@ -1,0 +1,48 @@
+{
+  "id": "mc10_scope_user_private_same_user",
+  "name": "ScopePolicy 允许同用户 private user 记忆",
+  "query": "我的默认编辑器是什么",
+  "user_id": "u1",
+  "runtime_context": {
+    "user_id": "u1"
+  },
+  "memories": [
+    {
+      "id": 17,
+      "user_id": "u1",
+      "type": "user",
+      "content": "默认编辑器是 VS Code",
+      "confidence": 0.95,
+      "score": 0.8,
+      "target_scope": "user",
+      "visibility": "private",
+      "target_user_id": "u1",
+      "memory_kind": "semantic",
+      "subject_type": "preference",
+      "source": "user_message"
+    }
+  ],
+  "want_injected_ids": [17],
+  "want_metadata": [
+    {
+      "memory_id": 17,
+      "target_scope": "user",
+      "target_id": "u1",
+      "visibility": "private",
+      "target_user_id": "u1",
+      "kind": "semantic",
+      "subject_type": "preference"
+    }
+  ],
+  "scope_assertions": [
+    {
+      "memory_id": 17,
+      "runtime_context": {
+        "user_id": "u1"
+      },
+      "allowed": true,
+      "reason": "same_user"
+    }
+  ],
+  "required": true
+}

@@ -1,0 +1,27 @@
+{
+  "id": "mc15_scope_agent_match",
+  "name": "Agent scope 仅允许同 agent",
+  "query": "agent 习惯是什么",
+  "user_id": "u1",
+  "skip_injection": true,
+  "runtime_context": {"user_id": "u1", "agent_name": "coder"},
+  "memories": [
+    {
+      "id": 1015,
+      "user_id": "u1",
+      "type": "procedural",
+      "content": "coder agent 先运行局部测试",
+      "target_scope": "agent",
+      "agent_name": "coder",
+      "confidence": 0.95
+    }
+  ],
+  "scope_assertions": [
+    {"memory_id": 1015, "runtime_context": {"user_id": "u1", "agent_name": "coder"}, "allowed": true, "reason": "same_agent"},
+    {"memory_id": 1015, "runtime_context": {"user_id": "u1", "agent_name": "planner"}, "allowed": false, "reason": "agent_scope_mismatch"}
+  ],
+  "want_metadata": [
+    {"memory_id": 1015, "target_scope": "agent", "target_id": "coder", "agent_name": "coder", "kind": "procedural", "subject_type": "procedure"}
+  ],
+  "required": true
+}

@@ -1,0 +1,19 @@
+{
+  "id": "mc07_project_fact_not_feedback",
+  "name": "普通项目事实不会被当作 feedback",
+  "query": "项目架构是什么",
+  "user_id": "u1",
+  "memories": [
+    {
+      "id": 11,
+      "user_id": "u1",
+      "type": "project",
+      "content": "项目采用 Master Agent 和 SubAgent 协作架构",
+      "confidence": 0.95,
+      "source": "summary"
+    }
+  ],
+  "want_injected_ids": [11],
+  "forbidden_text": ["[feedback] 项目采用"],
+  "required": true
+}

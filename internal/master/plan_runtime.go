@@ -12,6 +12,7 @@ import (
 	"github.com/chef-guo/agents-hive/internal/auth"
 	"github.com/chef-guo/agents-hive/internal/errs"
 	"github.com/chef-guo/agents-hive/internal/observability"
+	"github.com/chef-guo/agents-hive/internal/router"
 	"github.com/chef-guo/agents-hive/internal/sessiontodo"
 	"github.com/chef-guo/agents-hive/internal/toolctx"
 	"github.com/chef-guo/agents-hive/internal/tools"
@@ -55,34 +56,6 @@ type PlanToolGateDecision struct {
 //
 // 子工具真正执行前调用该 callback；被拒绝时返回 tool error，不再执行子工具。
 // 这样避免 tools 包反向 import master，同时保持 plan mode 白名单只有这一处。
-var planControlTools = map[string]bool{
-	"todo_write":                 true,
-	"finish_plan":                true,
-	"enter_plan_mode":            true,
-	"exit_plan_mode":             true,
-	"create_handoff_summary":     true,
-	"promote_todos_to_taskboard": true,
-}
-
-var planModeAllowedTools = map[string]bool{
-	"exit_plan_mode":             true,
-	"glob":                       true,
-	"grep":                       true,
-	"ls":                         true,
-	"memory":                     true,
-	"question":                   true,
-	"read_file":                  true,
-	"skill":                      true,
-	"todo_write":                 true,
-	"create_handoff_summary":     true,
-	"promote_todos_to_taskboard": true,
-	"tool_search":                true,
-	"webfetch":                   true,
-	"websearch":                  true,
-	"web_fetch":                  true,
-	"web_search":                 true,
-}
-
 func EvaluatePlanToolGate(ctx context.Context, session *SessionState, toolName string) PlanToolGateDecision {
 	caller := toolctx.GetToolContext(ctx).CallerType
 	toolName = strings.TrimSpace(toolName)
@@ -92,7 +65,7 @@ func EvaluatePlanToolGate(ctx context.Context, session *SessionState, toolName s
 		ToolName:   toolName,
 	}
 
-	if caller == toolctx.CallerSubAgent && planControlTools[toolName] {
+	if caller == toolctx.CallerSubAgent && router.IsHostToolInSet(router.HostToolSetPlanControl, toolName) {
 		decision.Allowed = false
 		decision.Reason = "subagent cannot call plan runtime control tools"
 		return decision
@@ -109,7 +82,7 @@ func EvaluatePlanToolGate(ctx context.Context, session *SessionState, toolName s
 	if !planMode && planStatus != sessiontodo.PlanStatusPlanning && planStatus != sessiontodo.PlanStatusAwaitingApproval {
 		return decision
 	}
-	if !planModeAllowedTools[toolName] {
+	if !router.IsHostToolInSet(router.HostToolSetPlanAllowed, toolName) {
 		decision.Allowed = false
 		decision.Reason = fmt.Sprintf("tool %q is not allowed in plan mode", toolName)
 	}

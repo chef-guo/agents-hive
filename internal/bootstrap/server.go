@@ -35,6 +35,7 @@ import (
 	"github.com/chef-guo/agents-hive/internal/master"
 	"github.com/chef-guo/agents-hive/internal/mcphost"
 	"github.com/chef-guo/agents-hive/internal/memory"
+	"github.com/chef-guo/agents-hive/internal/memoryobs"
 	"github.com/chef-guo/agents-hive/internal/observability"
 	"github.com/chef-guo/agents-hive/internal/plugin"
 	"github.com/chef-guo/agents-hive/internal/runtimepolicy"
@@ -908,10 +909,20 @@ func initMemory(sc *ServerComponents, cfg *config.Config, logger *zap.Logger) {
 		logger.Warn("记忆存储初始化失败", zap.Error(err))
 		return
 	}
+	memoryMetrics := memory.NewExternalMetricRecorder(memoryobs.NewWriter(observability.NewPgMetricsWriter(pgStore.Pool(), logger)))
+	var metricAwareStore memory.MetricAwareStore = memStore
+	metricAwareStore.SetMetrics(memoryMetrics)
 
 	sc.MemStore = memStore
 
-	injector := memory.NewInjector(memStore, cfg.Memory.InjectMaxTokens, cfg.Memory.InjectTopK, logger)
+	injector := memory.NewInjectorWithConfig(memStore, memory.InjectionConfig{
+		MinConfidence:     cfg.Memory.InjectMinConfidence,
+		MinScore:          cfg.Memory.InjectMinScore,
+		FeedbackTopK:      cfg.Memory.FeedbackTopK,
+		MemoryTopK:        cfg.Memory.MemoryTopK,
+		FeedbackMaxTokens: cfg.Memory.FeedbackMaxTokens,
+		MemoryMaxTokens:   cfg.Memory.MemoryMaxTokens,
+	}, logger)
 	sc.Master.SetMemoryInjector(injector)
 
 	// 向量搜索（可选）
@@ -975,14 +986,16 @@ func initMemory(sc *ServerComponents, cfg *config.Config, logger *zap.Logger) {
 		if err != nil {
 			logger.Warn("向量搜索初始化失败", zap.Error(err))
 		} else {
+			hybrid.SetMetrics(memoryMetrics)
 			injector.SetHybridSearcher(hybrid)
-			startEmbeddingBacklogWorker(sc, memStore, pgStore.Pool(), embedder, activeVecStore, logger)
+			startEmbeddingBacklogWorker(sc, memStore, pgStore.Pool(), embedder, activeVecStore, memoryMetrics, logger)
 		}
 	}
 
 	// 自动提取
 	if cfg.Memory.AutoExtract {
-		extractor := memory.NewExtractor(memStore, logger)
+		extractor := newMemoryExtractor(memStore, cfg, logger)
+		sc.Master.SetFeedbackExtractor(extractor)
 		if agent, err := sc.AgentReg.Get("compaction"); err == nil {
 			if ca, ok := agent.(*compaction.Agent); ok {
 				ca.SetMemoryExtractor(extractor)
@@ -993,9 +1006,50 @@ func initMemory(sc *ServerComponents, cfg *config.Config, logger *zap.Logger) {
 	logger.Info("记忆系统已初始化",
 		zap.Int("inject_max_tokens", cfg.Memory.InjectMaxTokens),
 		zap.Int("inject_top_k", cfg.Memory.InjectTopK),
+		zap.Float64("inject_min_confidence", cfg.Memory.InjectMinConfidence),
+		zap.Float64("inject_min_score", cfg.Memory.InjectMinScore),
+		zap.Int("feedback_top_k", cfg.Memory.FeedbackTopK),
+		zap.Int("memory_top_k", cfg.Memory.MemoryTopK),
+		zap.Int("feedback_max_tokens", cfg.Memory.FeedbackMaxTokens),
+		zap.Int("memory_max_tokens", cfg.Memory.MemoryMaxTokens),
 		zap.Bool("auto_extract", cfg.Memory.AutoExtract),
 		zap.Bool("embedding_enabled", cfg.Memory.EmbeddingEnabled),
 	)
+}
+
+func newMemoryExtractor(memStore memory.MemoryStore, cfg *config.Config, logger *zap.Logger) *memory.Extractor {
+	if cfg == nil || cfg.LLM.APIKey == "" || cfg.LLM.Model == "" {
+		return memory.NewExtractor(memStore, logger)
+	}
+	provDef := llm.LookupProvider(cfg.LLM.Provider)
+	provDef.APIFormat = cfg.LLM.APIFormat
+	client := llm.NewClient(llm.ClientConfig{
+		APIKey:          cfg.LLM.APIKey,
+		BaseURL:         cfg.LLM.BaseURL,
+		Model:           cfg.LLM.Model,
+		DisableJSONMode: cfg.LLM.DisableJSONMode,
+		Provider:        provDef,
+		ReasoningEffort: cfg.LLM.ReasoningEffort,
+		StorePrivacy:    cfg.LLM.StorePrivacy,
+	}, logger)
+	return memory.NewExtractorWithStructured(memStore, memory.JSONStructuredExtractor{
+		Generate: func(ctx context.Context, prompt string) (string, error) {
+			resp, err := client.Chat(ctx, llm.ChatRequest{
+				SystemPrompt: "Extract durable memory facts from the user/session text. Return only a JSON array of objects with type, content, confidence, and evidence. Valid type values are user, project, reference, feedback. Do not include ordinary transient task facts unless they affect future behavior.",
+				Messages: []llm.Message{
+					{Role: "user", Content: llm.NewTextContent(prompt)},
+				},
+				Temperature: 0,
+				MaxTokens:   800,
+				JSONMode:    true,
+			})
+			if err != nil {
+				return "", err
+			}
+			return resp.Content, nil
+		},
+		MaxRunes: 12000,
+	}, logger)
 }
 
 type embeddingBacklogProcessor interface {
@@ -1008,6 +1062,7 @@ func startEmbeddingBacklogWorker(
 	pool *pgxpool.Pool,
 	embedder memory.EmbeddingProvider,
 	vecStore memory.VectorStore,
+	metrics memory.MetricRecorder,
 	logger *zap.Logger,
 ) {
 	if sc == nil || memStore == nil || pool == nil || embedder == nil {
@@ -1018,7 +1073,9 @@ func startEmbeddingBacklogWorker(
 	}
 	backlog := memory.NewPGEmbeddingBacklog(pool)
 	worker := memory.NewEmbeddingBacklogWorker(backlog, embedder, memStore, memory.EmbeddingBacklogWorkerOptions{
-		WorkerID: "server-memory-embedding",
+		WorkerID:    "server-memory-embedding",
+		VectorSpace: memory.DefaultVectorSpaceName,
+		Metrics:     metrics,
 	})
 	ctx, cancel := context.WithCancel(context.Background())
 	sc.embeddingBacklogCancel = cancel

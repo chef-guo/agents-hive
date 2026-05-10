@@ -1,0 +1,28 @@
+{
+  "id": "mc17_scope_session_same_owner",
+  "name": "Session scope 同 owner fail-closed 可见",
+  "query": "本会话记忆是什么",
+  "user_id": "u1",
+  "session_id": "s1",
+  "skip_injection": true,
+  "runtime_context": {"user_id": "u1", "session_id": "s1"},
+  "memories": [
+    {
+      "id": 1017,
+      "user_id": "u1",
+      "type": "episodic",
+      "content": "本会话已确认使用方案 A",
+      "session_id": "s1",
+      "target_scope": "session",
+      "target_session_id": "s1",
+      "confidence": 0.95
+    }
+  ],
+  "scope_assertions": [
+    {"memory_id": 1017, "runtime_context": {"user_id": "u1", "session_id": "s1"}, "allowed": true, "reason": "same_owner_fail_closed"}
+  ],
+  "want_metadata": [
+    {"memory_id": 1017, "target_scope": "session", "target_id": "s1", "session_id": "s1", "kind": "episodic", "subject_type": "episode"}
+  ],
+  "required": true
+}

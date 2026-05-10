@@ -25,8 +25,11 @@ type ToolDefinition struct {
 
 // ToolResult is the result of a tool execution.
 type ToolResult struct {
-	Content json.RawMessage `json:"content"`
-	IsError bool            `json:"isError,omitempty"`
+	Content              json.RawMessage `json:"content"`
+	IsError              bool            `json:"isError,omitempty"`
+	FailureType          string          `json:"failureType,omitempty"`
+	RequiresUserApproval bool            `json:"requiresUserApproval,omitempty"`
+	SuggestedAction      string          `json:"suggestedAction,omitempty"`
 }
 
 // DecodeContent 解码 ToolResult.Content 为纯文本。

@@ -1,0 +1,28 @@
+{
+  "id": "mc24_low_score_filtered",
+  "name": "低相关分数记忆按 min_score 过滤",
+  "query": "发布流程",
+  "user_id": "u1",
+  "min_score": 0.5,
+  "memories": [
+    {
+      "id": 1029,
+      "user_id": "u1",
+      "type": "project",
+      "content": "发布流程需要先跑全量测试",
+      "confidence": 0.95,
+      "score": 0.8
+    },
+    {
+      "id": 1030,
+      "user_id": "u1",
+      "type": "project",
+      "content": "无关低分记忆",
+      "confidence": 0.95,
+      "score": 0.2
+    }
+  ],
+  "want_injected_ids": [1029],
+  "forbidden_text": ["无关低分记忆"],
+  "required": true
+}

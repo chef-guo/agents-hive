@@ -12,6 +12,7 @@ const (
 	EventDelegation         EventName = "quality.delegation"
 	EventReflection         EventName = "quality.reflection"
 	EventToolRecall         EventName = "quality.tool_recall"
+	EventRouteDecision      EventName = "quality.route_decision"
 	EventBudgetExit         EventName = "quality.budget_exit"
 )
 
@@ -100,39 +101,46 @@ type Reflection struct {
 }
 
 type ContextBuild struct {
-	MessageCount       int      `json:"message_count"`
-	Compressed         bool     `json:"compressed"`
-	MemoryInjected     bool     `json:"memory_injected"`
-	MemoryIDs          []int64  `json:"memory_ids,omitempty"`
-	SkippedMemoryIDs   []int64  `json:"skipped_memory_ids,omitempty"`
-	SkippedExpired     int      `json:"skipped_expired,omitempty"`
-	SkippedLowTrust    int      `json:"skipped_low_trust,omitempty"`
-	SkippedCrossUser   int      `json:"skipped_cross_user,omitempty"`
-	SkippedTokenBudget int      `json:"skipped_token_budget,omitempty"`
-	SkippedMemoryTotal int      `json:"skipped_memory_total,omitempty"`
-	AttachmentCount    int      `json:"attachment_count"`
-	PromptVersions     []string `json:"prompt_versions,omitempty"`
-	EstimatedTokens    int      `json:"estimated_tokens,omitempty"`
-	ContaminationCheck string   `json:"contamination_check,omitempty"`
+	MessageCount          int      `json:"message_count"`
+	Compressed            bool     `json:"compressed"`
+	MemoryInjected        bool     `json:"memory_injected"`
+	MemoryIDs             []int64  `json:"memory_ids,omitempty"`
+	SkippedMemoryIDs      []int64  `json:"skipped_memory_ids,omitempty"`
+	SkippedExpired        int      `json:"skipped_expired,omitempty"`
+	SkippedLowTrust       int      `json:"skipped_low_trust,omitempty"`
+	SkippedCrossUser      int      `json:"skipped_cross_user,omitempty"`
+	SkippedScope          int      `json:"skipped_scope,omitempty"`
+	SkippedLowScore       int      `json:"skipped_low_score,omitempty"`
+	SkippedTokenBudget    int      `json:"skipped_token_budget,omitempty"`
+	SkippedFeedbackBudget int      `json:"skipped_feedback_budget,omitempty"`
+	SkippedRegularBudget  int      `json:"skipped_regular_budget,omitempty"`
+	SkippedMemoryTotal    int      `json:"skipped_memory_total,omitempty"`
+	FeedbackMemoryCount   int      `json:"feedback_memory_count,omitempty"`
+	RegularMemoryCount    int      `json:"regular_memory_count,omitempty"`
+	AttachmentCount       int      `json:"attachment_count"`
+	PromptVersions        []string `json:"prompt_versions,omitempty"`
+	EstimatedTokens       int      `json:"estimated_tokens,omitempty"`
+	ContaminationCheck    string   `json:"contamination_check,omitempty"`
 }
 
 type Event struct {
-	Name          EventName      `json:"name"`
-	CaseID        string         `json:"case_id,omitempty"`
-	SessionIDHash string         `json:"session_id_hash,omitempty"`
-	Route         string         `json:"route,omitempty"`
-	Prompt        PromptRef      `json:"prompt,omitempty"`
-	ToolDecision  ToolDecision   `json:"tool_decision,omitempty"`
-	ToolRecall    ToolRecall     `json:"tool_recall,omitempty"`
-	ContextBuild  ContextBuild   `json:"context_build,omitempty"`
-	Delegation    Delegation     `json:"delegation,omitempty"`
-	Reflection    Reflection     `json:"reflection,omitempty"`
-	FailureType   FailureType    `json:"failure_type,omitempty"`
-	RetryReason   string         `json:"retry_reason,omitempty"`
-	FinalStatus   FinalStatus    `json:"final_status,omitempty"`
-	ReplayRef     string         `json:"replay_ref,omitempty"`
-	Attributes    map[string]any `json:"attributes,omitempty"`
-	Ts            time.Time      `json:"ts"`
+	Name          EventName          `json:"name"`
+	CaseID        string             `json:"case_id,omitempty"`
+	SessionIDHash string             `json:"session_id_hash,omitempty"`
+	Route         string             `json:"route,omitempty"`
+	Prompt        PromptRef          `json:"prompt,omitempty"`
+	ToolDecision  ToolDecision       `json:"tool_decision,omitempty"`
+	ToolRecall    ToolRecall         `json:"tool_recall,omitempty"`
+	RouteDecision RouteDecisionEvent `json:"route_decision,omitempty"`
+	ContextBuild  ContextBuild       `json:"context_build,omitempty"`
+	Delegation    Delegation         `json:"delegation,omitempty"`
+	Reflection    Reflection         `json:"reflection,omitempty"`
+	FailureType   FailureType        `json:"failure_type,omitempty"`
+	RetryReason   string             `json:"retry_reason,omitempty"`
+	FinalStatus   FinalStatus        `json:"final_status,omitempty"`
+	ReplayRef     string             `json:"replay_ref,omitempty"`
+	Attributes    map[string]any     `json:"attributes,omitempty"`
+	Ts            time.Time          `json:"ts"`
 }
 
 func MetricLabels(ev Event) map[string]any {

@@ -1,0 +1,23 @@
+{
+  "id": "mc22_procedural_memory_injection",
+  "name": "Procedural memory 可作为普通记忆注入",
+  "query": "测试失败时怎么处理",
+  "user_id": "u1",
+  "memories": [
+    {
+      "id": 1026,
+      "user_id": "u1",
+      "type": "procedural",
+      "content": "当测试失败时，先运行最小包级测试并读取完整失败输出，再改代码",
+      "confidence": 0.95,
+      "score": 0.9,
+      "memory_kind": "procedural",
+      "subject_type": "procedure"
+    }
+  ],
+  "want_injected_ids": [1026],
+  "want_metadata": [
+    {"memory_id": 1026, "kind": "procedural", "subject_type": "procedure"}
+  ],
+  "required": true
+}

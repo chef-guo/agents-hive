@@ -99,6 +99,27 @@ export const MessageBubble = memo(function MessageBubble({
   }, [message.content, message.is_error, isThisMessageStreaming]);
 
   const hasArtifacts = segments?.some((s) => s.type === 'artifact') ?? false;
+  const toolCallsForRender = useMemo(() => {
+    if (!message.tool_calls?.length) return [];
+    const merged: NonNullable<Message['tool_calls']> = [];
+    const indexByID = new Map<string, number>();
+    for (const tc of message.tool_calls) {
+      const existingIndex = indexByID.get(tc.id);
+      if (existingIndex === undefined) {
+        indexByID.set(tc.id, merged.length);
+        merged.push(tc);
+        continue;
+      }
+      const existing = merged[existingIndex];
+      merged[existingIndex] = {
+        ...existing,
+        ...tc,
+        name: tc.name || existing.name,
+        arguments: tc.arguments.length >= existing.arguments.length ? tc.arguments : existing.arguments,
+      };
+    }
+    return merged;
+  }, [message.tool_calls]);
 
   const [copied, setCopied] = useState(false);
   const [liked, setLiked] = useState<'up' | 'down' | null>(null);
@@ -312,18 +333,18 @@ export const MessageBubble = memo(function MessageBubble({
               <ErrorCard content={message.content} />
             )}
 
-            {message.tool_calls && message.tool_calls.length > 0 && (
+            {toolCallsForRender.length > 0 && (
               <div className="mt-2.5">
-                {message.tool_calls.length > 1 && (
+                {toolCallsForRender.length > 1 && (
                   <div className="flex items-center gap-1.5 mb-1.5">
                     <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-[var(--text-secondary)] bg-[var(--bg-secondary)] px-2 py-0.5 rounded-full border border-[var(--border-color)]">
                       <svg className="w-2.5 h-2.5" viewBox="0 0 10 10" fill="none"><path d="M2 1v8M5 1v8M8 1v8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
-                      并行 ×{message.tool_calls.length}
+                      并行 ×{toolCallsForRender.length}
                     </span>
                   </div>
                 )}
                 <div className="flex flex-col gap-2">
-                  {message.tool_calls.map((tc) => (
+                  {toolCallsForRender.map((tc) => (
                     <ToolCallRow
                       key={tc.id}
                       id={tc.id}

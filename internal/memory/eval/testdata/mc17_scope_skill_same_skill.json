@@ -1,0 +1,40 @@
+{
+  "id": "mc17_scope_skill_same_skill",
+  "name": "ScopePolicy skill 私有记忆只允许同 skill",
+  "query": "memory-eval skill 的流程是什么",
+  "user_id": "u1",
+  "skip_injection": true,
+  "runtime_context": {
+    "user_id": "u1",
+    "skill_name": "memory-eval"
+  },
+  "memories": [
+    {
+      "id": 24,
+      "user_id": "u1",
+      "type": "procedural",
+      "content": "memory-eval skill 先加载 fixture 再执行 required gate",
+      "confidence": 0.95,
+      "score": 0.9,
+      "target_scope": "skill",
+      "visibility": "private",
+      "target_user_id": "u1",
+      "skill_name": "memory-eval",
+      "memory_kind": "procedural",
+      "subject_type": "procedure",
+      "source": "manual"
+    }
+  ],
+  "scope_assertions": [
+    {
+      "memory_id": 24,
+      "runtime_context": {
+        "user_id": "u1",
+        "skill_name": "memory-eval"
+      },
+      "allowed": true,
+      "reason": "same_skill"
+    }
+  ],
+  "required": true
+}

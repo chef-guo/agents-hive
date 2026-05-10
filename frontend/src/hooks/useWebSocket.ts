@@ -19,6 +19,7 @@ interface MessagePayload {
   partial?: boolean;
   timestamp?: string;
   tool_calls?: { id: string; name: string; arguments: string }[];
+  tool_call_preview?: boolean;
   usage?: { input_tokens: number; output_tokens: number };
   llm_duration?: number;
   tool_call_id?: string;
@@ -32,6 +33,9 @@ interface ToolCallPayload {
   status: 'start' | 'success' | 'error';
   duration?: number;
   error?: string;
+  failure_type?: string;
+  requires_user_approval?: boolean;
+  suggested_action?: string;
   session_id?: string;
 }
 
@@ -114,6 +118,7 @@ export function useWebSocket({ url, sessionId, enabled = true, onMessage, client
               reasoning_content: payload.reasoning_content,
               timestamp: payload.timestamp,
               tool_calls: payload.tool_calls,
+              tool_call_preview: payload.tool_call_preview,
               usage: payload.usage,
               llm_duration: payload.llm_duration,
             };
@@ -152,6 +157,7 @@ export function useWebSocket({ url, sessionId, enabled = true, onMessage, client
             reasoning_content: payload.reasoning_content,
             timestamp: payload.timestamp,
             tool_calls: payload.tool_calls,
+            tool_call_preview: payload.tool_call_preview,
             usage: payload.usage,
             llm_duration: payload.llm_duration,
             tool_call_id: payload.tool_call_id,
@@ -229,6 +235,9 @@ export function useWebSocket({ url, sessionId, enabled = true, onMessage, client
           status: tcPayload.status === 'start' ? 'running' : tcPayload.status === 'error' ? 'error' : 'success',
           duration: tcPayload.duration,
           error: tcPayload.error,
+          failure_type: tcPayload.failure_type,
+          requires_user_approval: tcPayload.requires_user_approval,
+          suggested_action: tcPayload.suggested_action,
         });
         break;
       }

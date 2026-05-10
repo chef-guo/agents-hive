@@ -1,0 +1,42 @@
+{
+  "id": "mc27_schema_session_metadata",
+  "name": "schema metadata 可推导 session 一等列语义",
+  "query": "当前 session 的临时决定是什么",
+  "user_id": "u1",
+  "session_id": "session-schema-1",
+  "runtime_context": {
+    "user_id": "u1",
+    "session_id": "session-schema-1"
+  },
+  "memories": [
+    {
+      "id": 35,
+      "user_id": "u1",
+      "type": "episodic",
+      "content": "当前 session 临时决定是先扩 eval fixture 再调 CI gate",
+      "confidence": 0.9,
+      "score": 0.9,
+      "session_id": "session-schema-1",
+      "target_scope": "session",
+      "visibility": "private",
+      "target_session_id": "session-schema-1",
+      "memory_kind": "episodic",
+      "subject_type": "episode",
+      "source": "summary"
+    }
+  ],
+  "want_injected_ids": [35],
+  "want_metadata": [
+    {
+      "memory_id": 35,
+      "target_scope": "session",
+      "target_id": "session-schema-1",
+      "visibility": "private",
+      "session_id": "session-schema-1",
+      "kind": "episodic",
+      "subject_type": "episode",
+      "source": "summary"
+    }
+  ],
+  "required": true
+}

@@ -28,6 +28,10 @@
     "preferences": "偏好设置",
     "replay": "回放"
   },
+  "memoryGovernance": {
+    "injectionExplain": "最近注入解释",
+    "emptyInjectionExplain": "暂无最近注入解释。后端未接入可查询 store 时会返回空结果。"
+  },
   "header": {
     "switchLanguage": "切换语言",
     "switchTheme": "切换主题"

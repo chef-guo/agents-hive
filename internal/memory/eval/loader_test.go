@@ -10,8 +10,8 @@ func TestLoadCasesAndValidate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadCases returned error: %v", err)
 	}
-	if len(cases) != 3 {
-		t.Fatalf("len(cases) = %d, want 3", len(cases))
+	if len(cases) != RequiredFixtureCount {
+		t.Fatalf("len(cases) = %d, want %d", len(cases), RequiredFixtureCount)
 	}
 
 	required := 0
@@ -23,8 +23,8 @@ func TestLoadCasesAndValidate(t *testing.T) {
 			required++
 		}
 	}
-	if required != 3 {
-		t.Fatalf("required = %d, want 3", required)
+	if required != RequiredFixtureCount {
+		t.Fatalf("required = %d, want %d cases required", required, RequiredFixtureCount)
 	}
 }
 

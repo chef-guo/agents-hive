@@ -96,8 +96,7 @@ func TestToolFilter_FilterTools(t *testing.T) {
 	})
 }
 
-func TestToolFilter_ExternalMCPToolPassthrough(t *testing.T) {
-	// 外部 MCP 工具（名称包含 "__"）在有 allow list 时自动放行
+func TestToolFilter_ExternalMCPToolRequiresExplicitAllow(t *testing.T) {
 	f := NewToolFilter([]string{"read_file", "edit"})
 
 	// 内部工具：不在 allow list 中应被拒绝
@@ -105,15 +104,10 @@ func TestToolFilter_ExternalMCPToolPassthrough(t *testing.T) {
 		t.Error("bash 不在 allow list 中，应被拒绝")
 	}
 
-	// 外部 MCP 工具：带 __ 前缀应自动放行
-	if !f.IsAllowed("wenyan__search") {
-		t.Error("wenyan__search 是外部 MCP 工具，应自动放行")
-	}
-	if !f.IsAllowed("wenyan__translate") {
-		t.Error("wenyan__translate 是外部 MCP 工具，应自动放行")
-	}
-	if !f.IsAllowed("custom__tool") {
-		t.Error("custom__tool 是外部 MCP 工具，应自动放行")
+	for _, name := range []string{"wenyan__search", "wenyan__translate", "custom__tool"} {
+		if f.IsAllowed(name) {
+			t.Errorf("%s 是外部动态工具，不应绕过 allow list", name)
+		}
 	}
 
 	// 外部 MCP 工具在 deny list 中应被拒绝（deny 优先）
@@ -121,9 +115,12 @@ func TestToolFilter_ExternalMCPToolPassthrough(t *testing.T) {
 	if fd.IsAllowed("wenyan__search") {
 		t.Error("wenyan__search 在 deny list 中，应被拒绝")
 	}
-	// 不在 deny 中的外部 MCP 工具仍然放行
-	if !fd.IsAllowed("wenyan__translate") {
-		t.Error("wenyan__translate 不在 deny list 中，应自动放行")
+	if fd.IsAllowed("wenyan__translate") {
+		t.Error("wenyan__translate 不在 allow list 中，应被拒绝")
+	}
+	explicit := NewToolFilter([]string{"read_file", "wenyan__translate"})
+	if !explicit.IsAllowed("wenyan__translate") {
+		t.Error("显式 allow list 中的外部 MCP 工具应被允许")
 	}
 
 	// 空 allow list 时外部 MCP 工具也应放行（无限制模式）
@@ -142,9 +139,8 @@ func TestToolFilter_FilterTools_ExternalMCP(t *testing.T) {
 
 	f := NewToolFilter([]string{"read_file"})
 	filtered := f.FilterTools(tools)
-	// 应包含 read_file（在 allow list）和 wenyan__search（外部 MCP 自动放行），排除 bash
-	if len(filtered) != 2 {
-		t.Fatalf("expected 2 tools, got %d", len(filtered))
+	if len(filtered) != 1 {
+		t.Fatalf("expected 1 tool, got %d", len(filtered))
 	}
 	names := map[string]bool{}
 	for _, td := range filtered {
@@ -153,8 +149,8 @@ func TestToolFilter_FilterTools_ExternalMCP(t *testing.T) {
 	if !names["read_file"] {
 		t.Error("read_file 应在过滤结果中")
 	}
-	if !names["wenyan__search"] {
-		t.Error("wenyan__search（外部 MCP）应在过滤结果中")
+	if names["wenyan__search"] {
+		t.Error("wenyan__search 不应绕过 allow list")
 	}
 	if names["bash"] {
 		t.Error("bash 不应在过滤结果中")

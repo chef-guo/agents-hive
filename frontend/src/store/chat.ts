@@ -39,10 +39,6 @@ interface ChatState {
 }
 
 
-/** 将消息追加到列表中（去重 + 按 timestamp 升序插入）。
- *  去重键 = timestamp + role + tool_call_id（tool 消息同秒可能多条）。
- *  流式占位符（stream- 前缀）始终排在已确认消息之后。
- */
 // 返回消息列表中最后一条已确认消息的时间戳（排除 temp- / stream- 前缀）
 // 用于将错误消息锚定在用户消息之后，避免因服务端时钟偏移导致乱序
 export function maxConfirmedTimestamp(messages: Message[]): string | null {
@@ -55,41 +51,134 @@ export function maxConfirmedTimestamp(messages: Message[]): string | null {
   return null;
 }
 
-function appendMessage(messages: Message[], msg: Message): Message[] {
-  const ts = msg.timestamp || '';
-  // 流式占位符、临时用户消息、无时间戳：直接 append
-  if (ts.startsWith('stream-') || ts.startsWith('temp-') || !ts) {
-    return [...messages, msg];
-  }
-
-  // 去重：如果已有相同 timestamp + role + tool_call_id 的消息，跳过
-  const isDuplicate = messages.some((m) => {
-    if (m.timestamp !== ts) return false;
-    if (m.role !== msg.role) return false;
-    // tool 消息额外按 tool_call_id 区分
-    if (msg.role === 'tool' && m.tool_call_id !== msg.tool_call_id) return false;
-    return true;
-  });
-  if (isDuplicate) return messages;
-
-  // 插入到正确的时间位置（在流式占位符之前、按 timestamp 升序）
-  // temp- 消息（待确认的用户消息）视为"末尾锚点"，有真实时间戳的消息不插入其前面
-  const msgs = [...messages];
-  let insertAt = msgs.length;
-  for (let i = msgs.length - 1; i >= 0; i--) {
-    const existTs = msgs[i].timestamp || '';
-    if (existTs.startsWith('stream-')) {
-      insertAt = i; // 跳过流式占位符
-    } else if (existTs.startsWith('temp-')) {
-      break; // temp- 消息是末尾锚点，不在其前面插入（避免 assistant 消息排到用户消息前）
-    } else if (existTs > ts) {
-      insertAt = i; // 当前消息应在此之前
-    } else {
-      break; // 找到第一个 <= ts 的消息，停止
+function messageToolCallIDs(msg: Message): string[] {
+  if (msg.role === 'tool' && msg.tool_call_id) return [msg.tool_call_id];
+  if (msg.role === 'assistant' && msg.tool_calls?.length) {
+    const seen = new Set<string>();
+    const ids: string[] = [];
+    for (const tc of msg.tool_calls) {
+      if (!tc.id || seen.has(tc.id)) continue;
+      seen.add(tc.id);
+      ids.push(tc.id);
     }
+    return ids;
   }
-  msgs.splice(insertAt, 0, msg);
-  return msgs;
+  return [];
+}
+
+function messageIdentity(msg: Message): string {
+  const toolIDs = messageToolCallIDs(msg).join(',');
+  if (msg.role === 'tool' && msg.tool_call_id) return `tool:${msg.tool_call_id}`;
+  if (msg.role === 'assistant' && toolIDs) return `assistant-tools:${toolIDs}`;
+  return `${msg.role}:${msg.timestamp || ''}:${msg.content || ''}`;
+}
+
+type MessageToolCall = NonNullable<Message['tool_calls']>[number];
+
+function isJsonString(value: string): boolean {
+  try {
+    JSON.parse(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function chooseToolArguments(existing: string, incoming: string): string {
+  if (!incoming) return existing;
+  if (!existing) return incoming;
+
+  const existingTruncated = existing.includes('...<truncated>');
+  const incomingTruncated = incoming.includes('...<truncated>');
+  if (existingTruncated && !incomingTruncated) return incoming;
+  if (incomingTruncated && !existingTruncated) return existing;
+
+  const existingJson = isJsonString(existing);
+  const incomingJson = isJsonString(incoming);
+  if (!existingJson && incomingJson) return incoming;
+  if (existingJson && !incomingJson) return existing;
+
+  return incoming.length >= existing.length ? incoming : existing;
+}
+
+function mergeToolCalls(existing?: MessageToolCall[], incoming?: MessageToolCall[]): MessageToolCall[] | undefined {
+  if (!incoming?.length) return existing;
+
+  const merged = existing?.length ? existing.map((tc) => ({ ...tc })) : [];
+  const indexByID = new Map<string, number>();
+  for (const [index, tc] of merged.entries()) {
+    if (tc.id) indexByID.set(tc.id, index);
+  }
+
+  for (const incomingCall of incoming) {
+    const existingIndex = incomingCall.id ? indexByID.get(incomingCall.id) : undefined;
+    if (existingIndex === undefined) {
+      merged.push({ ...incomingCall });
+      if (incomingCall.id) indexByID.set(incomingCall.id, merged.length - 1);
+      continue;
+    }
+    const existingCall = merged[existingIndex];
+    merged[existingIndex] = {
+      ...existingCall,
+      ...incomingCall,
+      name: incomingCall.name || existingCall.name,
+      arguments: chooseToolArguments(existingCall.arguments, incomingCall.arguments),
+    };
+  }
+
+  return merged;
+}
+
+function hasToolCallPreview(msg: Message): boolean {
+  const metadata = msg as Message & { tool_call_preview?: boolean };
+  return metadata.tool_call_preview === true;
+}
+
+function mergeMessage(existing: Message, incoming: Message): Message {
+  const keepExistingTimestamp = !hasToolCallPreview(existing) || hasToolCallPreview(incoming);
+  return {
+    ...existing,
+    ...incoming,
+    content: incoming.content !== undefined && incoming.content !== '' ? incoming.content : existing.content,
+    reasoning_content: incoming.reasoning_content ?? existing.reasoning_content,
+    tool_calls: mergeToolCalls(existing.tool_calls, incoming.tool_calls),
+    usage: incoming.usage ?? existing.usage,
+    llm_duration: incoming.llm_duration ?? existing.llm_duration,
+    tool_call_id: incoming.tool_call_id ?? existing.tool_call_id,
+    tool_name: incoming.tool_name ?? existing.tool_name,
+    is_error: incoming.is_error ?? existing.is_error,
+    tool_call_preview: incoming.tool_call_preview === true ? true : undefined,
+    timestamp: keepExistingTimestamp ? existing.timestamp || incoming.timestamp : incoming.timestamp || existing.timestamp,
+  };
+}
+
+function isStreamingMessage(msg: Message): boolean {
+  return (msg.timestamp || '').startsWith('stream-');
+}
+
+function normalizeMessages(messages: Message[]): Message[] {
+  const normalized: Message[] = [];
+  const byIdentity = new Map<string, number>();
+
+  for (const raw of messages) {
+    const msg = { ...raw };
+    const key = messageIdentity(msg);
+    const existingIndex = byIdentity.get(key);
+    if (existingIndex !== undefined) {
+      normalized[existingIndex] = mergeMessage(normalized[existingIndex], msg);
+      continue;
+    }
+    byIdentity.set(key, normalized.length);
+    normalized.push(msg);
+  }
+
+  const confirmed = normalized.filter((msg) => !isStreamingMessage(msg));
+  const streaming = normalized.filter(isStreamingMessage);
+  return [...confirmed, ...streaming];
+}
+
+function appendMessage(messages: Message[], msg: Message): Message[] {
+  return normalizeMessages([...messages, msg]);
 }
 
 function findCurrentUserMessageIndex(messages: Message[], tempId: string, content: string): number {
@@ -278,7 +367,7 @@ export const useChatStore = create<ChatState>((set) => ({
       return { messages: msgs };
     }),
 
-  setMessages: (messages) => set({ messages }),
+  setMessages: (messages) => set({ messages: normalizeMessages(messages) }),
   clearMessages: () => set({ messages: [], inlineApprovals: [], toolCallStatuses: {}, toolCallStartTimes: {}, streamingMessageId: null }),
   clearError: () => set({ error: null }),
 
@@ -293,7 +382,7 @@ export const useChatStore = create<ChatState>((set) => ({
     }));
     try {
       const loaded = await client.getMessages(sessionId, limit);
-      set({ messages: loaded });
+      set({ messages: normalizeMessages(loaded) });
     } catch (e: unknown) {
       const errorMsg = e instanceof Error ? e.message : '加载消息失败';
       set({ error: errorMsg });

@@ -1,0 +1,37 @@
+{
+  "id": "mc29_cross_user_feedback_exposed_store",
+  "name": "即使 store 暴露跨用户 feedback 也必须由注入器过滤",
+  "query": "我的完成声明反馈是什么",
+  "user_id": "u1",
+  "expose_cross_user": true,
+  "memories": [
+    {
+      "id": 37,
+      "user_id": "u2",
+      "type": "feedback",
+      "content": "u2 要求完成声明不要运行任何验证",
+      "confidence": 0.95,
+      "score": 0.95,
+      "target_scope": "user",
+      "visibility": "private",
+      "target_user_id": "u2",
+      "source": "user_correction"
+    },
+    {
+      "id": 38,
+      "user_id": "u1",
+      "type": "feedback",
+      "content": "用户要求完成声明必须列出验证命令",
+      "confidence": 0.95,
+      "score": 0.9,
+      "target_scope": "user",
+      "visibility": "private",
+      "target_user_id": "u1",
+      "source": "user_correction"
+    }
+  ],
+  "want_injected_ids": [38],
+  "want_skipped_ids": [37],
+  "forbidden_text": ["u2 要求"],
+  "required": true
+}

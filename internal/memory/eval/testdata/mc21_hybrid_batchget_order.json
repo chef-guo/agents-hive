@@ -1,0 +1,41 @@
+{
+  "id": "mc21_hybrid_batchget_order",
+  "name": "hybrid 命中使用 BatchGet 且保留融合排序",
+  "query": "混合检索应该返回哪条部署记忆",
+  "user_id": "u1",
+  "hybrid": {
+    "enabled": true,
+    "embedding": [1, 0, 0],
+    "vector_results": [
+      {
+        "id": 29,
+        "score": 0.95
+      }
+    ]
+  },
+  "memories": [
+    {
+      "id": 28,
+      "user_id": "u1",
+      "type": "project",
+      "content": "FTS 认为部署记忆 A 最相关",
+      "confidence": 0.9,
+      "score": 0.9,
+      "source": "summary"
+    },
+    {
+      "id": 29,
+      "user_id": "u1",
+      "type": "project",
+      "content": "向量和 FTS 同时命中的部署记忆 B",
+      "confidence": 0.9,
+      "score": 0.8,
+      "source": "summary"
+    }
+  ],
+  "want_injected_ids": [28, 29],
+  "want_order_ids": [29, 28],
+  "want_batch_get_ids": [29, 28],
+  "want_get_calls": 0,
+  "required": true
+}

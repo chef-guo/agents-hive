@@ -29,6 +29,7 @@ export function ToolExecutionBlock({
 
   const liveStatus = useChatStore((s) => s.toolCallStatuses?.[id]);
   const resolvedDuration = liveStatus?.duration ?? duration;
+  const requiresUserApproval = liveStatus?.requires_user_approval === true;
 
   const resolvedStatus = useMemo<'running' | 'success' | 'error'>(() => {
     if (liveStatus?.status) return liveStatus.status;
@@ -88,6 +89,11 @@ export function ToolExecutionBlock({
         {isRunning && (
           <span className="text-[11px] text-[var(--text-secondary)] shrink-0">
             {t('chat.generating')}
+          </span>
+        )}
+        {isErrState && requiresUserApproval && (
+          <span className="text-[11px] font-medium text-[var(--danger)] shrink-0">
+            Permission required
           </span>
         )}
         <div className="flex items-center gap-2 ml-auto shrink-0">

@@ -1,0 +1,43 @@
+{
+  "id": "mc12_scope_global_visibility",
+  "name": "ScopePolicy 允许 global visibility 记忆",
+  "query": "团队编码规范是什么",
+  "user_id": "u1",
+  "skip_injection": true,
+  "expose_cross_user": true,
+  "memories": [
+    {
+      "id": 19,
+      "user_id": "system",
+      "type": "reference",
+      "content": "团队编码规范要求 Go 代码必须 gofmt",
+      "confidence": 0.95,
+      "score": 0.9,
+      "target_scope": "global",
+      "visibility": "global",
+      "memory_kind": "reference",
+      "subject_type": "policy",
+      "source": "manual"
+    }
+  ],
+  "want_metadata": [
+    {
+      "memory_id": 19,
+      "target_scope": "global",
+      "visibility": "global",
+      "kind": "reference",
+      "subject_type": "policy"
+    }
+  ],
+  "scope_assertions": [
+    {
+      "memory_id": 19,
+      "runtime_context": {
+        "user_id": "u1"
+      },
+      "allowed": true,
+      "reason": "global_visibility"
+    }
+  ],
+  "required": true
+}

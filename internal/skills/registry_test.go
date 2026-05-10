@@ -26,6 +26,17 @@ func (m *mockExecutor) Execute(command string) (string, string, error) {
 	return out, "", nil
 }
 
+type recordingSandboxExecutor struct {
+	calls []SandboxExecRequest
+}
+
+func (e *recordingSandboxExecutor) Execute(_ context.Context, req SandboxExecRequest) (SandboxExecResult, error) {
+	e.calls = append(e.calls, req)
+	return SandboxExecResult{Stdout: "script-output\n"}, nil
+}
+
+func (e *recordingSandboxExecutor) Close() error { return nil }
+
 func newTestRegistry() *Registry {
 	logger, _ := zap.NewDevelopment()
 	return NewRegistry(logger)
@@ -433,25 +444,20 @@ func TestInvokeFull_SkillNotFound(t *testing.T) {
 	}
 }
 
-func TestInvokeFull_WithScripts(t *testing.T) {
+func TestInvokeFull_DoesNotAutoRunBundledScripts(t *testing.T) {
 	dir := t.TempDir()
 
-	// 创建一个可执行的脚本
 	scriptDir := filepath.Join(dir, "scripts")
 	if err := os.MkdirAll(scriptDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	scriptContent := "#!/bin/sh\necho 'script-output'"
-	if err := writeTestFile(scriptDir, "run.sh", scriptContent); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chmod(filepath.Join(scriptDir, "run.sh"), 0o755); err != nil {
+	if err := writeTestFile(scriptDir, "connections.py", "raise SystemExit('helper should not auto-run')\n"); err != nil {
 		t.Fatal(err)
 	}
 
 	writeTestSkillMD(t, dir, `---
-name: scripted-skill
-description: skill with scripts
+name: mcp-builder
+description: skill with helper scripts
 ---
 
 Base content.`)
@@ -459,26 +465,28 @@ Base content.`)
 	logger, _ := zap.NewDevelopment()
 	r := newTestRegistry()
 	r.Register(&Skill{
-		Metadata: SkillMetadata{Name: "scripted-skill", Description: "skill with scripts"},
+		Metadata: SkillMetadata{Name: "mcp-builder", Description: "skill with helper scripts"},
 		Content:  "Base content.",
 		Path:     dir,
 		Loaded:   LevelFullContent,
 		Bundled: BundledFiles{
-			Scripts: []string{"scripts/run.sh"},
+			Scripts: []string{"connections.py"},
 		},
 	})
 
 	runner := NewScriptRunner(5*time.Second, logger)
-	runner.Executor = &realSandboxExecutor{timeout: 5 * time.Second}
+	recorder := &recordingSandboxExecutor{}
+	runner.Executor = recorder
 	ctx := context.Background()
-	result, err := r.InvokeFull(ctx, "scripted-skill", RenderContext{}, nil, runner, nil)
+	result, err := r.InvokeFull(ctx, "mcp-builder", RenderContext{}, nil, runner, nil)
 	if err != nil {
-		t.Fatalf("InvokeFull with scripts error: %v", err)
+		t.Fatalf("InvokeFull error: %v", err)
 	}
-	// 结果应包含脚本输出
-	if result == "Base content." {
-		// 脚本执行可能因环境差异而跳过，但至少基础渲染应正确
-		t.Log("script output not appended (may be expected in some environments)")
+	if result != "Base content." {
+		t.Fatalf("got %q, want base content without script output", result)
+	}
+	if len(recorder.calls) != 0 {
+		t.Fatalf("InvokeFull auto-ran bundled helper scripts: %+v", recorder.calls)
 	}
 }
 

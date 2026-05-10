@@ -157,10 +157,11 @@ export function MessageList({ messages, loading, streamingStatus, onRegenerate }
 
   // 预处理：将 role='tool' 消息的 content 按 tool_call_id 关联到 ToolCallCard
   // 注意：必须在所有条件返回之前调用，保证 hooks 调用顺序一致
-  const { toolResults, toolErrors, toolNames } = useMemo(() => {
+  const { toolResults, toolErrors, toolNames, assistantToolCallIds } = useMemo(() => {
     const results = new Map<string, string>();
     const errors = new Map<string, boolean>();
     const names = new Map<string, string>();
+    const assistantIds = new Set<string>();
     for (const msg of messages) {
       if (msg.role === 'tool' && msg.tool_call_id && msg.content) {
         results.set(msg.tool_call_id, msg.content);
@@ -171,10 +172,11 @@ export function MessageList({ messages, loading, streamingStatus, onRegenerate }
       if (msg.role === 'assistant' && msg.tool_calls) {
         for (const tc of msg.tool_calls) {
           names.set(tc.id, tc.name);
+          assistantIds.add(tc.id);
         }
       }
     }
-    return { toolResults: results, toolErrors: errors, toolNames: names };
+    return { toolResults: results, toolErrors: errors, toolNames: names, assistantToolCallIds: assistantIds };
   }, [messages]);
 
   // 空状态
@@ -207,7 +209,7 @@ export function MessageList({ messages, loading, streamingStatus, onRegenerate }
       <div className="max-w-4xl mx-auto py-2">
         {messages.map((msg, i) => {
           // 跳过 tool 消息的独立渲染（结果已整合到 ToolCallCard 中）
-          if (msg.role === 'tool' && msg.tool_call_id && toolResults.has(msg.tool_call_id)) {
+          if (msg.role === 'tool' && msg.tool_call_id && assistantToolCallIds.has(msg.tool_call_id)) {
             return null;
           }
 

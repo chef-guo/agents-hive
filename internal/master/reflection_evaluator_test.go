@@ -9,7 +9,9 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/chef-guo/agents-hive/internal/agentquality"
+	"github.com/chef-guo/agents-hive/internal/auth"
 	"github.com/chef-guo/agents-hive/internal/config"
+	"github.com/chef-guo/agents-hive/internal/memory"
 )
 
 type fakeReflectionEvaluator struct {
@@ -19,6 +21,15 @@ type fakeReflectionEvaluator struct {
 
 func (e fakeReflectionEvaluator) Evaluate(context.Context, agentquality.EvaluationInput) (agentquality.EvaluationVerdict, error) {
 	return e.verdict, e.err
+}
+
+type fakeFeedbackExtractor struct {
+	inputs []memory.FeedbackInput
+}
+
+func (e *fakeFeedbackExtractor) ExtractFeedback(_ context.Context, input memory.FeedbackInput, _ ...memory.ExtractorOption) ([]memory.MemoryRecord, error) {
+	e.inputs = append(e.inputs, input)
+	return []memory.MemoryRecord{{ID: 1, Type: memory.MemoryTypeFeedback, Content: input.Text}}, nil
 }
 
 func TestReflectionEvaluatorShadowNoopsWhenDisabled(t *testing.T) {
@@ -40,15 +51,18 @@ func TestReflectionEvaluatorShadowNoopsWhenDisabled(t *testing.T) {
 }
 
 func TestReflectionEvaluatorShadowRecordsVerdict(t *testing.T) {
+	feedback := &fakeFeedbackExtractor{}
 	m := &Master{
 		config: Config{
 			Reflection: config.ReflectionConfig{EvaluatorShadow: config.ReflectionShadowConfig{Enabled: true}},
 		},
-		obsCh:  make(chan observabilityEntry, 4),
-		logger: zap.NewNop(),
+		feedbackExtractor: feedback,
+		obsCh:             make(chan observabilityEntry, 4),
+		logger:            zap.NewNop(),
 	}
+	ctx := auth.WithUser(context.Background(), &auth.User{ID: "user-1", Role: "user", Status: "active"})
 
-	m.recordReflectionEvaluation(context.Background(), "session-1", "trace-1", "span-1", agentquality.EvaluationInput{Trigger: "validation_failure"}, fakeReflectionEvaluator{
+	m.recordReflectionEvaluation(ctx, "session-1", "trace-1", "span-1", agentquality.EvaluationInput{Trigger: "validation_failure"}, fakeReflectionEvaluator{
 		verdict: agentquality.EvaluationVerdict{
 			Score:          5,
 			Verdict:        "需要优化 prompt",
@@ -66,6 +80,18 @@ func TestReflectionEvaluatorShadowRecordsVerdict(t *testing.T) {
 	ev, ok := logEntry.log.Attributes["quality_event"].(json.RawMessage)
 	if !ok || len(ev) == 0 {
 		t.Fatalf("quality event not recorded: %+v", logEntry.log.Attributes)
+	}
+	if len(feedback.inputs) != 1 {
+		t.Fatalf("feedback inputs = %d, want 1", len(feedback.inputs))
+	}
+	if feedback.inputs[0].UserID != "user-1" || feedback.inputs[0].SessionID != "session-1" || feedback.inputs[0].Source != "reflection_evaluator" {
+		t.Fatalf("feedback input = %+v", feedback.inputs[0])
+	}
+	if feedback.inputs[0].RunID != "trace-1" || feedback.inputs[0].SourceMessage != "span-1" {
+		t.Fatalf("feedback governance references = %+v", feedback.inputs[0])
+	}
+	if len(feedback.inputs[0].Feedback) != 1 || feedback.inputs[0].Feedback[0] != "补充证据要求" {
+		t.Fatalf("feedback items = %+v", feedback.inputs[0].Feedback)
 	}
 }
 

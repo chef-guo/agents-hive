@@ -1,0 +1,31 @@
+{
+  "id": "mc20_scope_sql_filter_contract",
+  "name": "ScopePolicy SQLFilter 保留 user/global/agent/skill 过滤语义",
+  "query": "检查 scope SQL filter",
+  "user_id": "u1",
+  "skip_injection": true,
+  "runtime_context": {
+    "user_id": "u1",
+    "agent_name": "worker-eval",
+    "skill_name": "memory-eval"
+  },
+  "memories": [
+    {
+      "id": 27,
+      "user_id": "u1",
+      "type": "user",
+      "content": "SQL filter 合约样本",
+      "confidence": 0.9,
+      "target_scope": "user",
+      "visibility": "private"
+    }
+  ],
+  "want_sql_contains": [
+    "metadata->'target'->>'target_scope'",
+    "metadata->'target'->>'visibility'",
+    "metadata->'target'->>'agent_name'",
+    "metadata->'target'->>'skill_name'"
+  ],
+  "want_sql_args": ["u1", "worker-eval", "memory-eval"],
+  "required": true
+}

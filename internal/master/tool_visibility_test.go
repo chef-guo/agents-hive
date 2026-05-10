@@ -7,10 +7,12 @@ import (
 	"github.com/chef-guo/agents-hive/internal/config"
 	"github.com/chef-guo/agents-hive/internal/llm"
 	"github.com/chef-guo/agents-hive/internal/mcphost"
+	"github.com/chef-guo/agents-hive/internal/router"
 	"github.com/chef-guo/agents-hive/internal/sessiontodo"
+	"github.com/chef-guo/agents-hive/internal/skills"
 )
 
-func TestModelVisibleTools_DefaultsHideExtensionsUntilDiscovered(t *testing.T) {
+func TestModelVisibleTools_DefaultsHideExtensionsAfterDiscoveryUntilRouted(t *testing.T) {
 	session := &SessionState{ID: "s1"}
 	catalog := []mcphost.ToolDefinition{
 		{Name: "read_file", Core: true},
@@ -33,11 +35,14 @@ func TestModelVisibleTools_DefaultsHideExtensionsUntilDiscovered(t *testing.T) {
 
 	session.RecordDiscoveredTools([]string{"custom_ext", "acme__publish"})
 	afterDiscovery := modelVisibleToolsForSession(session, catalog)
-	if !hasTool(afterDiscovery, "custom_ext") {
-		t.Fatal("discovered extension tool should become model-visible")
+	if hasTool(afterDiscovery, "custom_ext") {
+		t.Fatal("tool_search discovery must not make custom extension model-visible")
 	}
-	if !hasTool(afterDiscovery, "acme__publish") {
-		t.Fatal("discovered external MCP tool should become model-visible")
+	if hasTool(afterDiscovery, "acme__publish") {
+		t.Fatal("tool_search discovery must not make external MCP tool model-visible")
+	}
+	if !session.IsToolDiscovered("custom_ext") || !session.IsToolDiscovered("acme__publish") {
+		t.Fatal("tool_search discovery state should still be recorded for audit")
 	}
 }
 
@@ -103,6 +108,129 @@ func TestModelVisibleTools_PerTurnRecallAddsHiddenToolsWithoutDiscovery(t *testi
 	}
 	if session.IsToolDiscovered("send_im_message") {
 		t.Fatal("per-turn recall should not persist hidden tool into session discovery state")
+	}
+
+	baselineAfterRecall := modelVisibleToolsForSession(session, catalog)
+	if hasTool(baselineAfterRecall, "send_im_message") {
+		t.Fatal("per-turn recall must not expand the baseline-visible tool set")
+	}
+}
+
+func TestReflectionBlockRouteDecisionHidesRecalledTool(t *testing.T) {
+	session := &SessionState{ID: "s-reflection"}
+	if !session.AddReflectionBlock(router.ReflectionBlock{
+		ToolName:    "send_im_message",
+		Mode:        "exec",
+		Reason:      "permission denied",
+		FailureKind: "permission_denied",
+	}) {
+		t.Fatal("expected structural failure to create reflection block")
+	}
+	catalog := []mcphost.ToolDefinition{
+		{Name: "read_file", Core: true},
+		{Name: "tool_search", Core: true},
+		{
+			Name:        "send_im_message",
+			Description: "发送消息到 IM 平台（钉钉/飞书/企业微信/个人微信）",
+			InputSchema: []byte(`{"type":"object","properties":{"platform":{"type":"string"},"content":{"type":"string"}}}`),
+		},
+	}
+
+	visible, obs := modelVisibleToolsForSessionWithRecallObservation(session, catalog, "发送给飞书用户:郭松", config.DefaultToolRecallConfig())
+
+	if hasTool(visible, "send_im_message") {
+		t.Fatal("reflection block should hide recalled tool from model-visible set")
+	}
+	if len(obs.RouteDecision.BlockedTools) != 1 || obs.RouteDecision.BlockedTools[0].Name != "send_im_message" {
+		t.Fatalf("RouteDecision blocked tools = %+v, want send_im_message", obs.RouteDecision.BlockedTools)
+	}
+	if !strings.Contains(obs.RouteDecision.BlockedTools[0].Reason, "permission_denied") {
+		t.Fatalf("RouteDecision block reason = %q, want failure kind", obs.RouteDecision.BlockedTools[0].Reason)
+	}
+}
+
+func TestModelVisibleTools_PerTurnRecallDoesNotExpandDangerousBaseline(t *testing.T) {
+	session := &SessionState{ID: "s1"}
+	catalog := []mcphost.ToolDefinition{
+		{Name: "read_file", Core: true},
+		{Name: "tool_search", Core: true},
+		{
+			Name:        "github__create_issue",
+			Description: "[github] Create a GitHub issue",
+			InputSchema: []byte(`{"type":"object","properties":{"title":{"type":"string"},"body":{"type":"string"}}}`),
+		},
+	}
+
+	recalled := modelVisibleToolsForSessionWithRecall(session, catalog, "create a github issue", config.DefaultToolRecallConfig())
+	if hasTool(recalled, "github__create_issue") {
+		t.Fatal("per-turn recall must not expose open-world MCP tools without RouteDecision authorization")
+	}
+	if session.IsToolDiscovered("github__create_issue") {
+		t.Fatal("per-turn recall should not mark dangerous hidden tools as discovered")
+	}
+
+	baselineAfterRecall := modelVisibleToolsForSession(session, catalog)
+	if hasTool(baselineAfterRecall, "github__create_issue") {
+		t.Fatal("dangerous recalled tool must not become baseline-visible without explicit tool_search discovery")
+	}
+}
+
+func TestModelVisibleTools_CreateSkillRoutesThroughSkillCreatorNotMCPBuilder(t *testing.T) {
+	session := &SessionState{ID: "s1"}
+	catalog := []mcphost.ToolDefinition{
+		{Name: "read_file", Core: true},
+		{Name: "tool_search", Core: true},
+		{Name: "skill"},
+		{
+			Name:        "mcp-builder",
+			Description: "Guide for creating high-quality MCP servers as a skill workflow",
+		},
+	}
+	skillMetas := []skills.SkillMetadata{
+		{Name: "skill-creator", Description: "Create or modify Codex skills"},
+		{Name: "mcp-builder", Description: "Build MCP servers"},
+	}
+
+	visible, obs := modelVisibleToolsForSessionWithRecallObservationAndSkills(session, catalog, skillMetas, "创建一个跟我打招呼的技能", config.DefaultToolRecallConfig())
+
+	if hasTool(visible, "mcp-builder") {
+		t.Fatal("create-skill intent must not expose mcp-builder as a callable tool")
+	}
+	if !hasTool(visible, "skill") {
+		t.Fatal("create-skill intent should keep the skill entrypoint visible")
+	}
+	if obs.RouteDecision.AllowedToolInputs["skill"]["name"] != "skill-creator" {
+		t.Fatalf("allowed skill name = %#v, want skill-creator", obs.RouteDecision.AllowedToolInputs)
+	}
+	if allowed, ok := session.AllowedToolInput("skill", "name"); !ok || allowed != "skill-creator" {
+		t.Fatalf("session allowed skill input = %q/%v, want skill-creator/true", allowed, ok)
+	}
+}
+
+func TestModelVisibleTools_CreateMCPServerRoutesMCPBuilderAsSkillWorkflow(t *testing.T) {
+	session := &SessionState{ID: "s1"}
+	catalog := []mcphost.ToolDefinition{
+		{Name: "tool_search", Core: true},
+		{Name: "skill"},
+		{
+			Name:        "mcp-builder",
+			Description: "Guide for creating high-quality MCP servers as a skill workflow",
+		},
+	}
+	skillMetas := []skills.SkillMetadata{
+		{Name: "mcp-builder", Description: "Build MCP servers"},
+	}
+
+	visible, obs := modelVisibleToolsForSessionWithRecallObservationAndSkills(session, catalog, skillMetas, "创建 MCP server 接入 GitHub API", config.DefaultToolRecallConfig())
+
+	if hasTool(visible, "mcp-builder") {
+		t.Fatal("mcp-builder should not be exposed as a direct tool; it is invoked through skill")
+	}
+	if !hasTool(visible, "skill") {
+		t.Fatal("MCP server creation should keep the skill entrypoint visible")
+	}
+	if obs.RouteDecision.AllowedToolInputs["skill"]["name"] != "mcp-builder" {
+		t.Fatalf("allowed skill name = %#v, want mcp-builder", obs.RouteDecision.AllowedToolInputs)
 	}
 }
 

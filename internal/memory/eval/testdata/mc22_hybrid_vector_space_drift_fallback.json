@@ -1,0 +1,40 @@
+{
+  "id": "mc22_hybrid_vector_space_drift_fallback",
+  "name": "vector-space drift 触发指标并回退到 FTS",
+  "query": "向量空间漂移时应该如何处理",
+  "user_id": "u1",
+  "hybrid": {
+    "enabled": true,
+    "embedding": [1, 0],
+    "vector_error": "dimension mismatch: indexed dimension 3 query dimension 2",
+    "vector_space": "memory:v2"
+  },
+  "memories": [
+    {
+      "id": 30,
+      "user_id": "u1",
+      "type": "project",
+      "content": "vector-space drift 时回退 FTS 并记录指标",
+      "confidence": 0.9,
+      "score": 0.91,
+      "source": "summary"
+    }
+  ],
+  "want_injected_ids": [30],
+  "want_batch_get_ids": [30],
+  "want_metrics": [
+    {
+      "name": "memory_vector_space_mismatch_total",
+      "labels": {
+        "operation": "search"
+      }
+    },
+    {
+      "name": "memory_hybrid_search_fallback_total",
+      "labels": {
+        "reason": "vector_error"
+      }
+    }
+  ],
+  "required": true
+}

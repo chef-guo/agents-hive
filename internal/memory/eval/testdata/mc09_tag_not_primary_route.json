@@ -1,0 +1,40 @@
+{
+  "id": "mc09_tag_not_primary_route",
+  "name": "tag 只作为过滤条件，不应单独主导路由",
+  "query": "我的项目决策是什么",
+  "user_id": "u1",
+  "target": "project",
+  "kind": "decision",
+  "subject_type": "architecture",
+  "memories": [
+    {
+      "id": 15,
+      "user_id": "u1",
+      "type": "project",
+      "content": "项目采用 Go 单元测试和 CI 双重验证",
+      "confidence": 0.95,
+      "score": 0.88,
+      "tags": ["ci", "architecture"],
+      "target": "project",
+      "kind": "decision",
+      "subject_type": "architecture",
+      "source": "summary"
+    },
+    {
+      "id": 16,
+      "user_id": "u1",
+      "type": "project",
+      "content": "仅有 tag 但内容无关的记忆不应被优先注入",
+      "confidence": 0.95,
+      "score": 0.34,
+      "tags": ["ci"],
+      "target": "project",
+      "kind": "note",
+      "subject_type": "misc",
+      "source": "summary"
+    }
+  ],
+  "want_injected_ids": [15, 16],
+  "want_order_ids": [15, 16],
+  "required": true
+}

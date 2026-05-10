@@ -13,7 +13,6 @@
       "source": "user_message"
     }
   ],
-  "want_skipped_ids": [3],
   "forbidden_text": ["u2 的偏好"],
   "required": true
 }

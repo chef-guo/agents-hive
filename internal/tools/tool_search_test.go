@@ -68,6 +68,11 @@ func TestToolSearchFindsRegisteredToolsWithoutMutatingRegistry(t *testing.T) {
 			DangerLevel       string  `json:"danger_level"`
 			RequiresApproval  bool    `json:"requires_approval"`
 			IsConcurrencySafe bool    `json:"is_concurrency_safe"`
+			Kind              string  `json:"kind"`
+			Domain            string  `json:"domain"`
+			Source            string  `json:"source"`
+			Invocation        string  `json:"invocation"`
+			RouteStatus       string  `json:"route_status"`
 			Score             float64 `json:"score"`
 		} `json:"results"`
 	}
@@ -93,9 +98,151 @@ func TestToolSearchFindsRegisteredToolsWithoutMutatingRegistry(t *testing.T) {
 	if !got.IsConcurrencySafe {
 		t.Fatal("expected concurrency-safe metadata")
 	}
+	if got.Kind != "custom_tool" {
+		t.Fatalf("kind = %q, want custom_tool", got.Kind)
+	}
+	if got.Source != "custom_dir" {
+		t.Fatalf("source = %q, want custom_dir", got.Source)
+	}
+	if got.Invocation != "direct_tool" {
+		t.Fatalf("invocation = %q, want direct_tool", got.Invocation)
+	}
+	if got.RouteStatus != "recommended" {
+		t.Fatalf("route_status = %q, want recommended", got.RouteStatus)
+	}
 	if got.Score <= 0 {
 		t.Fatalf("expected positive score, got %f", got.Score)
 	}
+}
+
+func TestToolSearchExposesExternalMCPRiskMetadata(t *testing.T) {
+	logger := zap.NewNop()
+	host := mcphost.NewHost(logger)
+	host.RegisterTool(mcphost.ToolDefinition{
+		Name:        "github__create_issue",
+		Description: "Create a GitHub issue",
+	}, func(ctx context.Context, input json.RawMessage) (*mcphost.ToolResult, error) {
+		t.Fatal("tool_search must not execute matched tools")
+		return nil, nil
+	})
+	registerToolSearch(host, logger)
+
+	result, err := host.ExecuteTool(context.Background(), "tool_search", []byte(`{"query":"github"}`))
+	if err != nil {
+		t.Fatalf("ExecuteTool(tool_search): %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("unexpected tool_search error: %s", result.DecodeContent())
+	}
+
+	var out struct {
+		Results []struct {
+			Name             string `json:"name"`
+			DangerLevel      string `json:"danger_level"`
+			RequiresApproval bool   `json:"requires_approval"`
+			Kind             string `json:"kind"`
+			Domain           string `json:"domain"`
+			Source           string `json:"source"`
+			Invocation       string `json:"invocation"`
+		} `json:"results"`
+	}
+	if err := json.Unmarshal([]byte(result.DecodeContent()), &out); err != nil {
+		t.Fatalf("decode tool_search output: %v; content=%s", err, result.DecodeContent())
+	}
+	if len(out.Results) == 0 {
+		t.Fatalf("expected github__create_issue in results, got content=%s", result.DecodeContent())
+	}
+	got := out.Results[0]
+	if got.Name != "github__create_issue" {
+		t.Fatalf("expected github__create_issue top hit, got %q", got.Name)
+	}
+	if got.DangerLevel != "dangerous" {
+		t.Fatalf("danger_level = %q, want dangerous", got.DangerLevel)
+	}
+	if !got.RequiresApproval {
+		t.Fatal("external MCP tool should require approval metadata")
+	}
+	if got.Kind != "mcp_tool" || got.Domain != "github" || got.Source != "mcp_server" || got.Invocation != "direct_tool" {
+		t.Fatalf("unexpected typed metadata: %+v", got)
+	}
+}
+
+func TestToolSearchTypedMetadataPhase0Kinds(t *testing.T) {
+	logger := zap.NewNop()
+	host := mcphost.NewHost(logger)
+	registerToolSearch(host, logger)
+	host.RegisterTool(mcphost.ToolDefinition{
+		Name:        "mcp-builder",
+		Description: "Build high-quality MCP servers as a skill workflow",
+	}, func(ctx context.Context, input json.RawMessage) (*mcphost.ToolResult, error) {
+		t.Fatal("tool_search must not execute matched tools")
+		return nil, nil
+	})
+	host.RegisterTool(mcphost.ToolDefinition{
+		Name:        "github__create_issue",
+		Description: "[github] Create an issue",
+	}, func(ctx context.Context, input json.RawMessage) (*mcphost.ToolResult, error) {
+		t.Fatal("tool_search must not execute matched tools")
+		return nil, nil
+	})
+	host.RegisterTool(mcphost.ToolDefinition{
+		Name:        "project_status",
+		Description: "查询项目状态",
+	}, func(ctx context.Context, input json.RawMessage) (*mcphost.ToolResult, error) {
+		t.Fatal("tool_search must not execute matched tools")
+		return nil, nil
+	})
+	host.RegisterTool(mcphost.ToolDefinition{
+		Name: "opaque_candidate",
+	}, func(ctx context.Context, input json.RawMessage) (*mcphost.ToolResult, error) {
+		t.Fatal("tool_search must not execute matched tools")
+		return nil, nil
+	})
+
+	result, err := host.ExecuteTool(context.Background(), "tool_search", []byte(`{}`))
+	if err != nil {
+		t.Fatalf("ExecuteTool(tool_search): %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("unexpected tool_search error: %s", result.DecodeContent())
+	}
+
+	var out struct {
+		Results []struct {
+			Name        string `json:"name"`
+			Kind        string `json:"kind"`
+			Domain      string `json:"domain"`
+			Source      string `json:"source"`
+			Invocation  string `json:"invocation"`
+			RouteStatus string `json:"route_status"`
+		} `json:"results"`
+	}
+	if err := json.Unmarshal([]byte(result.DecodeContent()), &out); err != nil {
+		t.Fatalf("decode tool_search output: %v; content=%s", err, result.DecodeContent())
+	}
+
+	byName := map[string]struct {
+		Kind        string
+		Domain      string
+		Source      string
+		Invocation  string
+		RouteStatus string
+	}{}
+	for _, hit := range out.Results {
+		byName[hit.Name] = struct {
+			Kind        string
+			Domain      string
+			Source      string
+			Invocation  string
+			RouteStatus string
+		}{hit.Kind, hit.Domain, hit.Source, hit.Invocation, hit.RouteStatus}
+	}
+
+	assertToolSearchMeta(t, byName, "tool_search", "builtin_tool", "discovery", "builtin", "discovery_only", "discoverable")
+	assertToolSearchMeta(t, byName, "mcp-builder", "skill_workflow", "mcp_server_building", "local_skill", "skill_tool", "discoverable")
+	assertToolSearchMeta(t, byName, "github__create_issue", "mcp_tool", "github", "mcp_server", "direct_tool", "discoverable")
+	assertToolSearchMeta(t, byName, "project_status", "custom_tool", "custom", "custom_dir", "direct_tool", "discoverable")
+	assertToolSearchMeta(t, byName, "opaque_candidate", "unknown", "unknown", "unknown", "discovery_only", "discoverable")
 }
 
 func TestToolSearchFindsToolsBySchemaEnumValues(t *testing.T) {
@@ -317,5 +464,34 @@ func TestToolSearchPrefersFeishuAPIForFeishuDomainTasks(t *testing.T) {
 				t.Fatalf("expected feishu_api as top hit for %q, got %q content=%s", tc.query, out.Results[0].Name, result.DecodeContent())
 			}
 		})
+	}
+}
+
+func assertToolSearchMeta(t *testing.T, got map[string]struct {
+	Kind        string
+	Domain      string
+	Source      string
+	Invocation  string
+	RouteStatus string
+}, name, kind, domain, source, invocation, routeStatus string) {
+	t.Helper()
+	meta, ok := got[name]
+	if !ok {
+		t.Fatalf("missing hit %q", name)
+	}
+	if meta.Kind != kind {
+		t.Fatalf("%s kind = %q, want %q", name, meta.Kind, kind)
+	}
+	if meta.Domain != domain {
+		t.Fatalf("%s domain = %q, want %q", name, meta.Domain, domain)
+	}
+	if meta.Source != source {
+		t.Fatalf("%s source = %q, want %q", name, meta.Source, source)
+	}
+	if meta.Invocation != invocation {
+		t.Fatalf("%s invocation = %q, want %q", name, meta.Invocation, invocation)
+	}
+	if meta.RouteStatus != routeStatus {
+		t.Fatalf("%s route_status = %q, want %q", name, meta.RouteStatus, routeStatus)
 	}
 }

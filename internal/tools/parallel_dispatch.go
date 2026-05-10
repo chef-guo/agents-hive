@@ -12,6 +12,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/chef-guo/agents-hive/internal/mcphost"
+	"github.com/chef-guo/agents-hive/internal/router"
 )
 
 // parallelDispatchInput 是 parallel_dispatch 工具的输入参数
@@ -197,7 +198,7 @@ func registerParallelDispatch(host *mcphost.Host, executor TaskExecutor, broadca
 				if params.Tasks[i].AgentID == "" {
 					return errorResult(fmt.Sprintf("tasks[%d].agent_id 不能为空，请指定目标 Agent（如 explore）或使用 spawn_agent 创建临时 Agent", i)), nil
 				}
-				if systemAgentDenyList[params.Tasks[i].AgentID] {
+				if router.IsSystemDelegationAgent(params.Tasks[i].AgentID) {
 					return errorResult(fmt.Sprintf("tasks[%d].agent_id %q 是系统服务 Agent，不接受用户任务委派。请使用 explore 或 spawn_agent 创建临时 Agent", i, params.Tasks[i].AgentID)), nil
 				}
 			}

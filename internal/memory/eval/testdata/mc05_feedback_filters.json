@@ -1,0 +1,38 @@
+{
+  "id": "mc05_feedback_filters",
+  "name": "过期和低置信 feedback 不得注入",
+  "query": "以后处理任务时应该遵循哪些反馈",
+  "user_id": "u1",
+  "memories": [
+    {
+      "id": 6,
+      "user_id": "u1",
+      "type": "feedback",
+      "content": "过期反馈：总是先问三次确认",
+      "confidence": 0.9,
+      "expires_at": "2026-01-01T00:00:00Z",
+      "source": "user_correction"
+    },
+    {
+      "id": 7,
+      "user_id": "u1",
+      "type": "feedback",
+      "content": "低置信反馈：永远不要运行测试",
+      "confidence": 0.2,
+      "score": 0.99,
+      "source": "uncertain_summary"
+    },
+    {
+      "id": 8,
+      "user_id": "u1",
+      "type": "feedback",
+      "content": "用户要求先读代码再判断计划是否完成",
+      "confidence": 0.9,
+      "source": "user_correction"
+    }
+  ],
+  "want_injected_ids": [8],
+  "want_skipped_ids": [6, 7],
+  "forbidden_text": ["过期反馈", "低置信反馈"],
+  "required": true
+}

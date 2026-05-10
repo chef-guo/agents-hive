@@ -11,6 +11,7 @@ type reflectionNoteInput struct {
 	ToolName    string
 	Consecutive int
 	Detail      string
+	FailureKind string
 }
 
 func buildReflectionSystemNote(in reflectionNoteInput) string {

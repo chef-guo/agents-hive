@@ -12,24 +12,16 @@ import (
 	"github.com/chef-guo/agents-hive/internal/errs"
 	"github.com/chef-guo/agents-hive/internal/observability"
 	"github.com/chef-guo/agents-hive/internal/plugin"
+	"github.com/chef-guo/agents-hive/internal/router"
 	"github.com/chef-guo/agents-hive/internal/security"
 	"github.com/chef-guo/agents-hive/internal/skills"
 	"github.com/chef-guo/agents-hive/internal/store"
 	"github.com/chef-guo/agents-hive/internal/toolctx"
 )
 
-// shellToolFamily 标识 Input 是 shell 文本的工具：这些工具的 Input 含 `command` 字段，
-// 需要走 SafeExecutor.MatchPolicy 校验；其他工具的 Input 是结构化 JSON，跳过匹配。
-var shellToolFamily = map[string]bool{
-	"bash":        true,
-	"shell":       true,
-	"exec":        true,
-	"run_command": true,
-}
-
 // isShellFamilyTool 返回 toolName 是否属于 shell 家族。
 func (m *Master) isShellFamilyTool(toolName string) bool {
-	return shellToolFamily[toolName]
+	return router.IsShellCommandTool(toolName)
 }
 
 // extractShellCommand 从 shell 家族工具的 Input JSON 中提取 command 字段。
@@ -48,69 +40,6 @@ func extractShellCommand(input json.RawMessage) (string, bool) {
 		return "", false
 	}
 	return payload.Command, true
-}
-
-func structuredInputField(input json.RawMessage, names ...string) string {
-	if len(input) == 0 {
-		return ""
-	}
-	var payload map[string]json.RawMessage
-	if err := json.Unmarshal(input, &payload); err != nil {
-		return ""
-	}
-	for _, name := range names {
-		raw, ok := payload[name]
-		if !ok {
-			continue
-		}
-		var value string
-		if err := json.Unmarshal(raw, &value); err == nil {
-			return strings.ToLower(strings.TrimSpace(value))
-		}
-	}
-	return ""
-}
-
-func stringIn(value string, candidates ...string) bool {
-	for _, candidate := range candidates {
-		if value == candidate {
-			return true
-		}
-	}
-	return false
-}
-
-func isStructuredDangerousOperation(toolName string, input json.RawMessage) bool {
-	action := structuredInputField(input, "action", "operation")
-	switch toolName {
-	case "send_im_message", "remove_tool":
-		return true
-	case "create_tool":
-		// create_tool 内部已有业务审批桥，但这里保留兜底：若配置关闭内部审批，权限层仍会拦。
-		return true
-	case "memory", "taskboard":
-		return action == "delete"
-	case "feishu_api":
-		return stringIn(action,
-			"send_message", "send_image", "send_file",
-			"create_approval",
-			"create_bitable_record", "update_bitable_record",
-			"create_task", "complete_task",
-			"write_sheet",
-		)
-	case "wechat_send_rich_message":
-		return true
-	case "wechat_contacts":
-		return stringIn(action, "add", "accept", "delete")
-	case "wechat_groups":
-		return stringIn(action, "create", "invite", "remove", "set_name", "set_announcement", "quit")
-	case "wechat_profile":
-		return stringIn(action, "set_nickname", "set_signature", "remark")
-	case "wechat_moments":
-		return stringIn(action, "post", "like", "comment")
-	default:
-		return false
-	}
 }
 
 // Start 初始化并启动所有已注册的 sub-agents
@@ -279,7 +208,7 @@ func (m *Master) createPermissionPromptFn() func(context.Context, skills.Permiss
 		// minimal 模式只拦外部发送、删除、工具变更等危险副作用；普通文件编辑/计划/读取直接放行。
 		if !m.isShellFamilyTool(req.ToolName) {
 			if !strictMode {
-				if isStructuredDangerousOperation(req.ToolName, req.Input) {
+				if router.StructuredDangerousOperation(req.ToolName, req.Input) {
 					m.emitQualityEvent("", "", sessionID, agentquality.Event{
 						Name:        agentquality.EventPermissionDecision,
 						Route:       routeFromSessionID(sessionID),

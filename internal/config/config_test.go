@@ -142,6 +142,59 @@ func TestToolRecallDefaultsAndNormalize(t *testing.T) {
 	}
 }
 
+func TestMemoryConfigDefaultsAndNormalize(t *testing.T) {
+	cfg := Default()
+	cfg.CLIDefaults()
+	cfg.Resolve()
+	assertMemoryDefaults(t, cfg.Memory, "CLIDefaults().Resolve()")
+
+	normalized := NormalizeMemoryConfig(MemoryConfig{
+		MaxMemories:         -1,
+		RetentionDays:       -1,
+		InjectMaxTokens:     20000,
+		InjectTopK:          100,
+		InjectMinConfidence: 2,
+		InjectMinScore:      -0.2,
+		FeedbackTopK:        100,
+		MemoryTopK:          100,
+		FeedbackMaxTokens:   9000,
+		MemoryMaxTokens:     50000,
+	})
+	if normalized.MaxMemories != DefaultMemoryConfig.MaxMemories {
+		t.Fatalf("MaxMemories = %d, want %d", normalized.MaxMemories, DefaultMemoryConfig.MaxMemories)
+	}
+	if normalized.RetentionDays != DefaultMemoryConfig.RetentionDays {
+		t.Fatalf("RetentionDays = %d, want %d", normalized.RetentionDays, DefaultMemoryConfig.RetentionDays)
+	}
+	if normalized.InjectMaxTokens != 12000 {
+		t.Fatalf("InjectMaxTokens = %d, want 12000", normalized.InjectMaxTokens)
+	}
+	if normalized.InjectTopK != 50 {
+		t.Fatalf("InjectTopK = %d, want 50", normalized.InjectTopK)
+	}
+	if normalized.InjectMinConfidence != DefaultMemoryConfig.InjectMinConfidence {
+		t.Fatalf("InjectMinConfidence = %v, want %v", normalized.InjectMinConfidence, DefaultMemoryConfig.InjectMinConfidence)
+	}
+	if normalized.InjectMinScore != 0 {
+		t.Fatalf("InjectMinScore = %v, want 0", normalized.InjectMinScore)
+	}
+	if normalized.FeedbackTopK != 20 {
+		t.Fatalf("FeedbackTopK = %d, want 20", normalized.FeedbackTopK)
+	}
+	if normalized.MemoryTopK != 50 {
+		t.Fatalf("MemoryTopK = %d, want 50", normalized.MemoryTopK)
+	}
+	if normalized.FeedbackMaxTokens != 4000 {
+		t.Fatalf("FeedbackMaxTokens = %d, want 4000", normalized.FeedbackMaxTokens)
+	}
+	if normalized.MemoryMaxTokens != 12000 {
+		t.Fatalf("MemoryMaxTokens = %d, want 12000", normalized.MemoryMaxTokens)
+	}
+	if normalized.VectorStoreType != DefaultMemoryConfig.VectorStoreType {
+		t.Fatalf("VectorStoreType = %q, want %q", normalized.VectorStoreType, DefaultMemoryConfig.VectorStoreType)
+	}
+}
+
 func TestLoad_ReasoningEffortAutoCanBeDisabled(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.json")
@@ -214,6 +267,28 @@ func assertToolRecallDefaults(t *testing.T, cfg ToolRecallConfig, source string)
 	}
 	if !cfg.LogCandidates {
 		t.Fatalf("%s Agent.ToolRecall.LogCandidates = false, want true", source)
+	}
+}
+
+func assertMemoryDefaults(t *testing.T, cfg MemoryConfig, source string) {
+	t.Helper()
+	if !cfg.Enabled {
+		t.Fatalf("%s Memory.Enabled = false, want true", source)
+	}
+	if !cfg.AutoExtract {
+		t.Fatalf("%s Memory.AutoExtract = false, want true", source)
+	}
+	if cfg.InjectMinConfidence != 0.5 {
+		t.Fatalf("%s Memory.InjectMinConfidence = %v, want 0.5", source, cfg.InjectMinConfidence)
+	}
+	if cfg.InjectMinScore != 0 {
+		t.Fatalf("%s Memory.InjectMinScore = %v, want 0", source, cfg.InjectMinScore)
+	}
+	if cfg.FeedbackTopK != 3 || cfg.MemoryTopK != 8 {
+		t.Fatalf("%s Memory topK = feedback %d memory %d, want 3/8", source, cfg.FeedbackTopK, cfg.MemoryTopK)
+	}
+	if cfg.FeedbackMaxTokens != 600 || cfg.MemoryMaxTokens != 1800 {
+		t.Fatalf("%s Memory tokens = feedback %d memory %d, want 600/1800", source, cfg.FeedbackMaxTokens, cfg.MemoryMaxTokens)
 	}
 }
 

@@ -1,0 +1,26 @@
+{
+  "id": "mc13_scope_workspace_fail_closed_same_owner",
+  "name": "Workspace scope 在无成员关系服务时只允许同 owner",
+  "query": "工作区决策是什么",
+  "user_id": "u1",
+  "skip_injection": true,
+  "runtime_context": {"user_id": "u1", "workspace_id": "w1"},
+  "memories": [
+    {
+      "id": 1013,
+      "user_id": "u1",
+      "type": "project",
+      "content": "workspace w1 使用自有 Admin 面板",
+      "target_scope": "workspace",
+      "workspace_id": "w1",
+      "confidence": 0.95
+    }
+  ],
+  "scope_assertions": [
+    {"memory_id": 1013, "runtime_context": {"user_id": "u1", "workspace_id": "w1"}, "allowed": true, "reason": "same_owner_fail_closed"}
+  ],
+  "want_metadata": [
+    {"memory_id": 1013, "target_scope": "workspace", "target_id": "w1", "workspace_id": "w1"}
+  ],
+  "required": true
+}

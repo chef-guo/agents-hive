@@ -33,8 +33,8 @@ type CustomTool struct {
 	Headers        map[string]string `yaml:"headers,omitempty"`
 	Parameters     []ToolParameter   `yaml:"parameters"`
 	AllowWrite     bool              `yaml:"allow_write"`
-	Timeout        int               `yaml:"timeout"`                       // 超时秒数
-	AllowedDomains []string          `yaml:"allowed_domains,omitempty"`     // HTTP 工具域名白名单
+	Timeout        int               `yaml:"timeout"`                   // 超时秒数
+	AllowedDomains []string          `yaml:"allowed_domains,omitempty"` // HTTP 工具域名白名单
 }
 
 // ToolParameter 工具参数定义
@@ -247,14 +247,10 @@ func executeShellTool(tool CustomTool, params map[string]interface{}, logger *za
 	if err != nil {
 		return "", err
 	}
-	output := result.Stdout
-	if result.Stderr != "" {
-		output += result.Stderr
-	}
 	if result.ExitCode != 0 {
-		return "", errs.New(errs.CodeSkillExecFailed, output)
+		return "", errs.New(errs.CodeSkillExecFailed, formatCommandFailure(result))
 	}
-	return output, nil
+	return formatCommandOutput(result), nil
 }
 
 // isDomainAllowed 检查 URL 的域名是否在白名单中
@@ -404,8 +400,8 @@ func executeHTTPTool(tool CustomTool, params map[string]interface{}, logger *zap
 	client := &http.Client{
 		Timeout: time.Duration(tool.Timeout) * time.Second,
 		Transport: &http.Transport{
-			DialContext:         ssrfSafeDialContext(),
-			DisableKeepAlives:   true,
+			DialContext:       ssrfSafeDialContext(),
+			DisableKeepAlives: true,
 		},
 	}
 	resp, err := client.Do(req)
@@ -429,7 +425,7 @@ func executeHTTPTool(tool CustomTool, params map[string]interface{}, logger *zap
 }
 
 // shellEscape 对字符串进行 shell 转义，用单引号包裹并转义内部单引号
-// 例如: hello → 'hello', it's → 'it'\''s'
+// 例如: hello -> 'hello', it's -> 'it'\”s'
 func shellEscape(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
 }

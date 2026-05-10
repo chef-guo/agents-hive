@@ -51,6 +51,10 @@ func SetupEmbedding(
 
 	// 创建混合搜索引擎：融合关键词搜索 + 向量语义搜索
 	hybrid := NewHybridSearcher(memStore, vecStore, embedder, logger)
+	if metricAware, ok := memStore.(MetricAwareStore); ok {
+		metricAware.SetMetricsConfig(MetricsConfig{VectorSpace: DefaultVectorSpaceName})
+	}
+	hybrid.SetMetricsConfig(MetricsConfig{VectorSpace: DefaultVectorSpaceName})
 
 	indexSize, _ := vecStore.Count(ctx)
 	logger.Info("向量搜索已启用",

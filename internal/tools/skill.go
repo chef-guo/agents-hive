@@ -31,13 +31,27 @@ func (a *sandboxToSkillsExecutor) Execute(ctx context.Context, req skills.Sandbo
 		return skills.SandboxExecResult{}, err
 	}
 	return skills.SandboxExecResult{
-		Stdout:   result.Stdout,
-		Stderr:   result.Stderr,
-		ExitCode: result.ExitCode,
+		Stdout:     result.Stdout,
+		Stderr:     result.Stderr,
+		ExitCode:   result.ExitCode,
+		Diagnostic: toSkillsExecDiagnostic(result.Diagnostic),
 	}, nil
 }
 
 func (a *sandboxToSkillsExecutor) Close() error { return a.inner.Close() }
+
+func toSkillsExecDiagnostic(diag *sandbox.ExecFailureDiagnostic) *skills.SandboxExecDiagnostic {
+	if diag == nil {
+		return nil
+	}
+	return &skills.SandboxExecDiagnostic{
+		FailureType:          diag.FailureType,
+		Summary:              diag.Summary,
+		RequiresUserApproval: diag.RequiresUserApproval,
+		SuggestedAction:      diag.SuggestedAction,
+		SuggestedEnv:         diag.SuggestedEnv,
+	}
+}
 
 // sandboxToSkillsAdapter 尝试将 sandboxExecutor 适配为 skills.SandboxExecutor
 // 如果 globalExecutor 为 nil，返回 nil
@@ -124,7 +138,7 @@ func registerSkillWithSelfHeal(host *mcphost.Host, logger *zap.Logger, skillReg 
 				return textResult(string(data)), nil
 			}
 
-			// 调用指定技能（走完整管道：hooks + 动态上下文 + 脚本）
+			// 调用指定技能（走完整管道：hooks + 动态上下文）
 			rctx := skills.RenderContext{
 				Arguments: params.Arguments,
 			}
@@ -158,11 +172,9 @@ func registerSkillWithSelfHeal(host *mcphost.Host, logger *zap.Logger, skillReg 
 				return textResult(result), nil
 			}
 
-			runner := skills.NewScriptRunner(30*time.Second, logger)
-			runner.Executor = sandboxToSkillsAdapter()
 			hookRunner := skills.NewHookRunner(executor, logger)
 
-			result, err := skillReg.InvokeFull(ctx, params.Name, rctx, executor, runner, hookRunner)
+			result, err := skillReg.InvokeFull(ctx, params.Name, rctx, executor, nil, hookRunner)
 			if err != nil {
 				return errorResult(fmt.Sprintf("调用技能 %q 失败: %v", params.Name, err)), nil
 			}

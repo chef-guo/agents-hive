@@ -1,0 +1,27 @@
+{
+  "id": "mc21_schema_column_metadata_semantics",
+  "name": "Metadata 可推导一等列语义",
+  "query": "repo 事实是什么",
+  "user_id": "u1",
+  "skip_injection": true,
+  "memories": [
+    {
+      "id": 1025,
+      "user_id": "u1",
+      "type": "project",
+      "content": "repo agents-hive 使用 pg_trgm 支持中文 fallback",
+      "target_scope": "repo",
+      "repo_id": "agents-hive",
+      "memory_kind": "semantic",
+      "subject_type": "repo_fact",
+      "confidence": 0.95
+    }
+  ],
+  "want_metadata": [
+    {"memory_id": 1025, "target_scope": "repo", "target_id": "agents-hive", "repo_id": "agents-hive", "kind": "semantic", "subject_type": "repo_fact"}
+  ],
+  "scope_assertions": [
+    {"memory_id": 1025, "runtime_context": {"user_id": "u1", "repo_id": "agents-hive"}, "allowed": true, "reason": "same_owner_fail_closed"}
+  ],
+  "required": true
+}

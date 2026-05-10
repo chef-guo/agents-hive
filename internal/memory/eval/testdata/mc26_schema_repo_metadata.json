@@ -1,0 +1,40 @@
+{
+  "id": "mc26_schema_repo_metadata",
+  "name": "schema metadata 可推导 repo 一等列语义",
+  "query": "agents-hive repo 的测试命令是什么",
+  "user_id": "u1",
+  "runtime_context": {
+    "user_id": "u1",
+    "repo_id": "agents-hive"
+  },
+  "memories": [
+    {
+      "id": 34,
+      "user_id": "u1",
+      "type": "procedural",
+      "content": "agents-hive repo 的 memory eval 验证命令是 go run ./cmd/memory-eval",
+      "confidence": 0.95,
+      "score": 0.94,
+      "target_scope": "repo",
+      "visibility": "private",
+      "repo_id": "agents-hive",
+      "memory_kind": "procedural",
+      "subject_type": "procedure",
+      "source": "manual"
+    }
+  ],
+  "want_injected_ids": [34],
+  "want_metadata": [
+    {
+      "memory_id": 34,
+      "target_scope": "repo",
+      "target_id": "agents-hive",
+      "visibility": "private",
+      "repo_id": "agents-hive",
+      "kind": "procedural",
+      "subject_type": "procedure",
+      "source": "manual"
+    }
+  ],
+  "required": true
+}

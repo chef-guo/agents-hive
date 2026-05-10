@@ -55,9 +55,16 @@ import type {
   QualityDashboardSnapshot,
   QualityDashboardSeriesPoint,
   MemoryGovernanceStats,
+  MemoryAdminFilter,
   MemoryPruneResponse,
   MemoryExportDocument,
   MemoryImportResponse,
+  MemoryInjectionExplainResponse,
+  MemoryProductionMetrics,
+  MemoryPromotionApplyRequest,
+  MemoryPromotionApplyResponse,
+  MemoryPromotionCandidateFilter,
+  MemoryPromotionCandidatesResponse,
   VectorSpaceMigrationResponse,
   EmbeddingBacklogStats,
   OptimizationReviewSuggestion,
@@ -193,12 +200,16 @@ export interface NodeClient {
   adminGenerateQualityReport(weekStart: string): Promise<QualityReport>;
   adminGetQualityDashboardSnapshot(filter?: { since?: string; until?: string }): Promise<QualityDashboardSnapshot>;
   adminGetQualityDashboardSeries(filter?: { since?: string; until?: string }): Promise<{ items: QualityDashboardSeriesPoint[] }>;
-  adminGetMemoryGovernance(limit?: number): Promise<MemoryGovernanceStats>;
-  adminPruneMemoryGovernance(options?: { dryRun?: boolean; minConfidence?: number; maxMemories?: number; limit?: number }): Promise<MemoryPruneResponse>;
-  adminExportMemory(options?: { userId?: string; user_id?: string; limit?: number }): Promise<MemoryExportDocument>;
-  adminImportMemory(body: { user_id?: string; reset_ids?: boolean; document: MemoryExportDocument | unknown }): Promise<MemoryImportResponse>;
+  adminGetMemoryGovernance(limit?: number, filter?: MemoryAdminFilter): Promise<MemoryGovernanceStats>;
+  adminPruneMemoryGovernance(options?: { dryRun?: boolean; minConfidence?: number; maxMemories?: number; limit?: number } & MemoryAdminFilter): Promise<MemoryPruneResponse>;
+  adminExportMemory(options?: MemoryAdminFilter): Promise<MemoryExportDocument>;
+  adminImportMemory(body: { user_id?: string; target?: string; target_scope?: string; scope?: string; kind?: string; memory_kind?: string; reset_ids?: boolean; document: MemoryExportDocument | unknown }): Promise<MemoryImportResponse>;
+  adminGetMemoryInjectionExplain(options?: { limit?: number }): Promise<MemoryInjectionExplainResponse>;
   adminPlanVectorSpaceMigration(body: { target_space?: string; batch_size?: number; resume_token?: string; offset?: number; dry_run?: boolean; apply?: boolean; limit?: number; user_id?: string }): Promise<VectorSpaceMigrationResponse>;
   adminGetEmbeddingBacklogStats(): Promise<EmbeddingBacklogStats>;
+  adminGetMemoryProductionMetrics(options?: { windowMinutes?: number; bucketMinutes?: number; since?: string; until?: string }): Promise<MemoryProductionMetrics>;
+  adminListMemoryPromotionCandidates(filter?: MemoryPromotionCandidateFilter): Promise<MemoryPromotionCandidatesResponse>;
+  adminApplyMemoryPromotion(body: MemoryPromotionApplyRequest): Promise<MemoryPromotionApplyResponse>;
   adminGenerateOptimizationSuggestions(candidateId: string): Promise<{ suggestions: OptimizationReviewSuggestion[] }>;
   adminListOptimizationSuggestions(filter?: { status?: OptimizationSuggestionStatus | ''; target?: string; sourceCandidateId?: string; page?: number; size?: number }): Promise<OptimizationSuggestionsResponse>;
   adminApproveOptimizationSuggestion(id: string, note?: string): Promise<OptimizationReviewSuggestion>;
@@ -662,31 +673,34 @@ export class LocalNodeClient implements NodeClient {
     return this.client.get(`/api/v1/admin/quality-workbench/dashboard/series?${params}`);
   }
 
-  adminGetMemoryGovernance(limit = 1000): Promise<MemoryGovernanceStats> {
-    return this.client.get(`/api/v1/admin/memory/governance?limit=${limit}`);
+  adminGetMemoryGovernance(limit = 1000, filter: MemoryAdminFilter = {}): Promise<MemoryGovernanceStats> {
+    const params = memoryAdminParams({ ...filter, limit });
+    return this.client.get(`/api/v1/admin/memory/governance?${params}`);
   }
 
-  adminPruneMemoryGovernance(options: { dryRun?: boolean; minConfidence?: number; maxMemories?: number; limit?: number } = {}): Promise<MemoryPruneResponse> {
-    const params = new URLSearchParams({
-      dry_run: String(options.dryRun !== false),
-      limit: String(options.limit ?? 1000),
-    });
+  adminPruneMemoryGovernance(options: { dryRun?: boolean; minConfidence?: number; maxMemories?: number; limit?: number } & MemoryAdminFilter = {}): Promise<MemoryPruneResponse> {
+    const params = memoryAdminParams(options);
+    params.set('dry_run', String(options.dryRun !== false));
+    params.set('limit', String(options.limit ?? 1000));
     if (options.minConfidence != null) params.set('min_confidence', String(options.minConfidence));
     if (options.maxMemories != null) params.set('max_memories', String(options.maxMemories));
     return this.client.post(`/api/v1/admin/memory/prune?${params}`);
   }
 
-  adminExportMemory(options: { userId?: string; user_id?: string; limit?: number } = {}): Promise<MemoryExportDocument> {
-    const params = new URLSearchParams();
-    const userID = options.user_id ?? options.userId;
-    if (userID) params.set('user_id', userID);
-    if (options.limit != null) params.set('limit', String(options.limit));
+  adminExportMemory(options: MemoryAdminFilter = {}): Promise<MemoryExportDocument> {
+    const params = memoryAdminParams(options);
     const query = params.toString();
     return this.client.get(`/api/v1/admin/memory/export${query ? `?${query}` : ''}`);
   }
 
-  adminImportMemory(body: { user_id?: string; reset_ids?: boolean; document: MemoryExportDocument | unknown }): Promise<MemoryImportResponse> {
+  adminImportMemory(body: { user_id?: string; target?: string; target_scope?: string; scope?: string; kind?: string; memory_kind?: string; reset_ids?: boolean; document: MemoryExportDocument | unknown }): Promise<MemoryImportResponse> {
     return this.client.post('/api/v1/admin/memory/import', body);
+  }
+
+  adminGetMemoryInjectionExplain(options: { limit?: number } = {}): Promise<MemoryInjectionExplainResponse> {
+    const params = new URLSearchParams();
+    params.set('limit', String(options.limit ?? 20));
+    return this.client.get(`/api/v1/admin/memory/injection/explain?${params}`);
   }
 
   adminPlanVectorSpaceMigration(body: { target_space?: string; batch_size?: number; resume_token?: string; offset?: number; dry_run?: boolean; apply?: boolean; limit?: number; user_id?: string }): Promise<VectorSpaceMigrationResponse> {
@@ -695,6 +709,24 @@ export class LocalNodeClient implements NodeClient {
 
   adminGetEmbeddingBacklogStats(): Promise<EmbeddingBacklogStats> {
     return this.client.get('/api/v1/admin/memory/backlog/stats');
+  }
+
+  adminGetMemoryProductionMetrics(options: { windowMinutes?: number; bucketMinutes?: number; since?: string; until?: string } = {}): Promise<MemoryProductionMetrics> {
+    const params = new URLSearchParams();
+    if (options.since) params.set('since', options.since);
+    if (options.until) params.set('until', options.until);
+    params.set('window_minutes', String(options.windowMinutes ?? 1440));
+    params.set('bucket_minutes', String(options.bucketMinutes ?? 60));
+    return this.client.get(`/api/v1/admin/memory/metrics?${params}`);
+  }
+
+  adminListMemoryPromotionCandidates(filter: MemoryPromotionCandidateFilter = {}): Promise<MemoryPromotionCandidatesResponse> {
+    const params = memoryPromotionCandidateParams(filter);
+    return this.client.get(`/api/v1/admin/memory/promotions/candidates?${params}`);
+  }
+
+  adminApplyMemoryPromotion(body: MemoryPromotionApplyRequest): Promise<MemoryPromotionApplyResponse> {
+    return this.client.post('/api/v1/admin/memory/promotions/apply', body);
   }
 
   adminGenerateOptimizationSuggestions(candidateId: string): Promise<{ suggestions: OptimizationReviewSuggestion[] }> {
@@ -771,4 +803,24 @@ export class LocalNodeClient implements NodeClient {
   adminListRollbacks(): Promise<RollbacksResponse> {
     return this.client.get('/api/v1/admin/optimization/rollbacks');
   }
+}
+
+function memoryAdminParams(options: MemoryAdminFilter = {}): URLSearchParams {
+  const params = new URLSearchParams();
+  const userID = options.user_id ?? options.userId;
+  const kind = options.memory_kind ?? options.kind;
+  const scope = options.target_scope ?? options.scope;
+  if (userID) params.set('user_id', userID);
+  if (options.target) params.set('target', options.target);
+  if (scope) params.set('target_scope', scope);
+  if (kind) params.set('memory_kind', kind);
+  if (options.limit != null) params.set('limit', String(options.limit));
+  return params;
+}
+
+function memoryPromotionCandidateParams(options: MemoryPromotionCandidateFilter = {}): URLSearchParams {
+  const params = memoryAdminParams(options);
+  const minConfidence = options.min_confidence ?? options.minConfidence;
+  if (minConfidence != null) params.set('min_confidence', String(minConfidence));
+  return params;
 }

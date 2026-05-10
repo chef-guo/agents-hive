@@ -2,6 +2,7 @@ package master
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 
 	"github.com/chef-guo/agents-hive/internal/llm"
 	"github.com/chef-guo/agents-hive/internal/memory"
+	"github.com/chef-guo/agents-hive/internal/router"
 )
 
 // setupTestMaster 使用 deadlock_test.go 中的统一实现
@@ -43,6 +45,7 @@ func TestContaminationStatus(t *testing.T) {
 	assert.Equal(t, "filtered", contaminationStatus(memory.InjectionResult{SkippedExpired: 1}))
 	assert.Equal(t, "filtered", contaminationStatus(memory.InjectionResult{SkippedLowTrust: 1}))
 	assert.Equal(t, "filtered", contaminationStatus(memory.InjectionResult{SkippedCrossUser: 1}))
+	assert.Equal(t, "filtered", contaminationStatus(memory.InjectionResult{SkippedLowScore: 1}))
 }
 
 func TestShouldRecordMemoryInjectionIncludesFilteredOnly(t *testing.T) {
@@ -55,6 +58,54 @@ func TestShouldRecordMemoryInjectionIncludesFilteredOnly(t *testing.T) {
 		SkippedExpired:   1,
 		SkippedMemoryIDs: []int64{2},
 	}))
+}
+
+func TestSessionReflectionBlockLRUAndFailureKindFilter(t *testing.T) {
+	session := &SessionState{ID: "s-reflection"}
+
+	assert.False(t, session.AddReflectionBlock(router.ReflectionBlock{
+		ToolName:    "slow_tool",
+		Mode:        "exec",
+		Reason:      "timeout",
+		FailureKind: "timeout",
+	}))
+	assert.False(t, session.AddReflectionBlock(router.ReflectionBlock{
+		ToolName:    "net_tool",
+		Mode:        "exec",
+		Reason:      "network",
+		FailureKind: "network",
+	}))
+
+	for i := 0; i < maxSessionReflectionBlocks+2; i++ {
+		ok := session.AddReflectionBlock(router.ReflectionBlock{
+			ToolName:    fmt.Sprintf("tool-%c", 'a'+i),
+			Mode:        "exec",
+			Reason:      "bad schema",
+			FailureKind: "schema_invalid",
+		})
+		assert.True(t, ok)
+	}
+
+	blocks := session.ListReflectionBlocks()
+	require.Len(t, blocks, maxSessionReflectionBlocks)
+	assert.Equal(t, "tool-c", blocks[0].ToolName)
+	assert.Equal(t, "tool-l", blocks[len(blocks)-1].ToolName)
+	assert.False(t, blocks[0].CreatedAt.IsZero())
+
+	blocks[0].ToolName = "mutated"
+	assert.Equal(t, "tool-c", session.ListReflectionBlocks()[0].ToolName)
+}
+
+func TestSessionReflectionBlockClear(t *testing.T) {
+	session := &SessionState{ID: "s-reflection"}
+	require.True(t, session.AddReflectionBlock(router.ReflectionBlock{
+		ToolName:    "skill",
+		FailureKind: "permission_denied",
+	}))
+
+	session.ClearReflectionBlocks()
+
+	assert.Empty(t, session.ListReflectionBlocks())
 }
 
 // TestSessionLoop_ExitCommand 测试退出命令

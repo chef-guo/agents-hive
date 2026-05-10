@@ -23,8 +23,8 @@ func TestInMemoryApprovalStoreRecordsIndependentApproval(t *testing.T) {
 
 	rec, err := store.RecordApproval(ctx, ApprovalRecord{
 		ID:           "approval-1",
-		SubjectID:    "diff-1",
-		SubjectType:  ApprovalSubjectEvalDiff,
+		SubjectID:    "memory_promotion_abc",
+		SubjectType:  ApprovalSubjectMemoryPromotion,
 		Action:       ApprovalActionApprove,
 		Reviewer:     "lead-1",
 		ReviewerRole: ApprovalRoleLead,
@@ -33,9 +33,10 @@ func TestInMemoryApprovalStoreRecordsIndependentApproval(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "approval-1", rec.ID)
+	assert.Equal(t, ApprovalSubjectMemoryPromotion, rec.SubjectType)
 	assert.Equal(t, ApprovalActionApprove, rec.Action)
 
-	records, err := store.ListApprovals(ctx, "diff-1")
+	records, err := store.ListApprovals(ctx, "memory_promotion_abc")
 	require.NoError(t, err)
 	require.Len(t, records, 1)
 	assert.Equal(t, "lead-1", records[0].Reviewer)

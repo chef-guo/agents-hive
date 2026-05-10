@@ -59,6 +59,9 @@ export interface ToolCallStatus {
   status: 'running' | 'success' | 'error';
   duration?: number; // 毫秒
   error?: string;
+  failure_type?: string;
+  requires_user_approval?: boolean;
+  suggested_action?: string;
 }
 
 // Token 用量
@@ -73,6 +76,7 @@ export interface Message {
   reasoning_content?: string; // <think>...</think> 推理内容，可折叠展示
   tool_call_id?: string;
   tool_calls?: ToolCall[];
+  tool_call_preview?: boolean; // WebSocket 工具调用预览帧，最终帧到达后按 tool_call_id 合并
   timestamp?: string;
   attachments?: FileAttachment[];
   usage?: MessageUsage;       // token 用量（后端支持后填充）
@@ -602,7 +606,7 @@ export interface MemoryPruneResponse {
   reasons: Record<string, string>;
 }
 
-export type MemoryType = 'user' | 'project' | 'feedback' | 'reference';
+export type MemoryType = 'user' | 'project' | 'feedback' | 'reference' | 'procedural' | 'episodic';
 
 export interface MemoryRecord {
   id: number;
@@ -629,6 +633,40 @@ export interface MemoryExportDocument {
 export interface MemoryImportResponse {
   imported: number;
   ids: number[];
+}
+
+export interface MemoryAdminFilter {
+  userId?: string;
+  user_id?: string;
+  target?: string;
+  target_scope?: string;
+  scope?: string;
+  kind?: MemoryType | string;
+  memory_kind?: MemoryType | string;
+  limit?: number;
+}
+
+export interface MemoryInjectionExplainItem {
+  timestamp?: string;
+  session_id_hash?: string;
+  route?: string;
+  prompt_versions?: string[];
+  memory_ids?: number[];
+  skipped_memory_ids?: number[];
+  skip_counts: Record<string, number>;
+  estimated_tokens?: number;
+  memory_injected: boolean;
+  feedback_memory_count?: number;
+  regular_memory_count?: number;
+  contamination_check?: string;
+  additional_attributes?: Record<string, string>;
+}
+
+export interface MemoryInjectionExplainResponse {
+  items: MemoryInjectionExplainItem[];
+  total: number;
+  limit: number;
+  source?: string;
 }
 
 export type EmbeddingState = 'pending' | 'ready' | 'failed';
@@ -663,6 +701,92 @@ export type EmbeddingBacklogStatus = 'pending' | 'claimed' | 'done' | 'failed';
 export interface EmbeddingBacklogStats {
   total: number;
   by_state: Record<EmbeddingBacklogStatus | string, number>;
+}
+
+export interface MemoryPromotionCandidate {
+  subject_id: string;
+  target_type: 'procedural' | string;
+  proposed_procedural_memory: MemoryRecord;
+  rationale: string;
+  source_memory_ids: number[];
+  source_kind: string;
+  confidence: number;
+  created_at: string;
+}
+
+export interface MemoryPromotionCandidatesResponse {
+  items: MemoryPromotionCandidate[];
+  total: number;
+  limit: number;
+}
+
+export interface MemoryPromotionCandidateFilter extends MemoryAdminFilter {
+  limit?: number;
+  minConfidence?: number;
+  min_confidence?: number;
+}
+
+export interface MemoryPromotionApplyRequest {
+  subject_id: string;
+  user_id?: string;
+  target?: string;
+  target_scope?: string;
+  scope?: string;
+  kind?: string;
+  memory_kind?: string;
+  limit?: number;
+  min_confidence?: number;
+  approval_id?: string;
+}
+
+export interface MemoryPromotionApplyResponse {
+  applied: true;
+  memory_id: number;
+  subject_id: string;
+  source_memory_ids: number[];
+  already_applied?: boolean;
+  approval_id?: string;
+}
+
+export interface MemoryProductionMetricsSnapshot {
+  embedding_dropped_total: number;
+  hybrid_search_fallback_total: number;
+  vector_space_mismatch_total: number;
+  embedding_latency_count: number;
+  embedding_latency_avg_seconds: number;
+  embedding_latency_p95_seconds: number;
+  backlog_depth_total: number;
+  backlog_depth_by_status: Record<string, number>;
+  drop_reasons: Record<string, number>;
+  fallback_reasons: Record<string, number>;
+  mismatch_operations: Record<string, number>;
+}
+
+export interface MemoryProductionMetricsSeriesPoint {
+  since: string;
+  until: string;
+  embedding_dropped_total: number;
+  hybrid_search_fallback_total: number;
+  vector_space_mismatch_total: number;
+  embedding_latency_avg_seconds: number;
+  backlog_depth_total: number;
+}
+
+export interface MemoryProductionMetricAlert {
+  level: 'info' | 'warning' | 'critical' | string;
+  code: string;
+  message: string;
+  value: number;
+}
+
+export interface MemoryProductionMetrics {
+  source: string;
+  since: string;
+  until: string;
+  window_minutes: number;
+  snapshot: MemoryProductionMetricsSnapshot;
+  series: MemoryProductionMetricsSeriesPoint[];
+  alerts: MemoryProductionMetricAlert[];
 }
 
 export type OptimizationSuggestionStatus = 'pending' | 'approved' | 'rejected' | 'expired';
@@ -705,7 +829,7 @@ export interface OptimizationSuggestionsResponse {
 
 export type OptimizationApprovalRole = 'admin' | 'engineer' | 'lead';
 export type OptimizationApprovalAction = 'approve' | 'reject';
-export type OptimizationApprovalSubjectType = 'eval_diff' | 'suggestion';
+export type OptimizationApprovalSubjectType = 'eval_diff' | 'suggestion' | 'memory_promotion';
 
 export interface OptimizationApprovalRecord {
   id: string;

@@ -1,0 +1,40 @@
+{
+  "id": "mc24_schema_workspace_metadata",
+  "name": "schema metadata 可推导 workspace 一等列语义",
+  "query": "workspace 的构建缓存在哪里",
+  "user_id": "u1",
+  "runtime_context": {
+    "user_id": "u1",
+    "workspace_id": "ws-memory"
+  },
+  "memories": [
+    {
+      "id": 32,
+      "user_id": "u1",
+      "type": "project",
+      "content": "workspace ws-memory 使用 /tmp/go-build 作为构建缓存",
+      "confidence": 0.9,
+      "score": 0.9,
+      "target_scope": "workspace",
+      "visibility": "private",
+      "workspace_id": "ws-memory",
+      "memory_kind": "semantic",
+      "subject_type": "build",
+      "source": "summary"
+    }
+  ],
+  "want_injected_ids": [32],
+  "want_metadata": [
+    {
+      "memory_id": 32,
+      "target_scope": "workspace",
+      "target_id": "ws-memory",
+      "visibility": "private",
+      "workspace_id": "ws-memory",
+      "kind": "semantic",
+      "subject_type": "build",
+      "source": "summary"
+    }
+  ],
+  "required": true
+}

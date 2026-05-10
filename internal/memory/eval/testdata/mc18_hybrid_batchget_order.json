@@ -1,0 +1,37 @@
+{
+  "id": "mc18_hybrid_batchget_order",
+  "name": "Hybrid 搜索使用 BatchGet 并保持向量排序",
+  "query": "部署回滚步骤",
+  "user_id": "u1",
+  "hybrid": {
+    "enabled": true,
+    "embedding": [1, 0, 0],
+    "vector_results": [
+      {"id": 1022, "score": 0.91},
+      {"id": 1021, "score": 0.77}
+    ]
+  },
+  "memories": [
+    {
+      "id": 1021,
+      "user_id": "u1",
+      "type": "project",
+      "content": "部署前确认迁移脚本可回滚",
+      "confidence": 0.95,
+      "score": 0.77
+    },
+    {
+      "id": 1022,
+      "user_id": "u1",
+      "type": "project",
+      "content": "回滚步骤：先停止写入，再恢复上一个镜像",
+      "confidence": 0.95,
+      "score": 0.91
+    }
+  ],
+  "want_injected_ids": [1022, 1021],
+  "want_order_ids": [1022, 1021],
+  "want_batch_get_ids": [1022, 1021],
+  "want_get_calls": 0,
+  "required": true
+}

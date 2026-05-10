@@ -3,6 +3,7 @@ package skills
 import (
 	"context"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/chef-guo/agents-hive/internal/errs"
@@ -31,15 +32,24 @@ type SandboxExecRequest struct {
 
 // SandboxExecResult 镜像 sandbox.ExecResult。
 type SandboxExecResult struct {
-	Stdout   string
-	Stderr   string
-	ExitCode int
+	Stdout     string
+	Stderr     string
+	ExitCode   int
+	Diagnostic *SandboxExecDiagnostic
+}
+
+type SandboxExecDiagnostic struct {
+	FailureType          string
+	Summary              string
+	RequiresUserApproval bool
+	SuggestedAction      string
+	SuggestedEnv         map[string]string
 }
 
 // DefaultShellExecutor 委托 SandboxExecutor 执行命令。
 type DefaultShellExecutor struct {
-	Executor SandboxExecutor   // 沙箱执行器（由 bootstrap 注入）
-	Timeout  time.Duration     // 默认 600s（如果为零）
+	Executor SandboxExecutor // 沙箱执行器（由 bootstrap 注入）
+	Timeout  time.Duration   // 默认 600s（如果为零）
 	WorkDir  string
 }
 
@@ -62,7 +72,36 @@ func (e *DefaultShellExecutor) Execute(command string) (string, string, error) {
 	if err != nil {
 		return "", "", err
 	}
+	if result.ExitCode != 0 {
+		output := result.Stdout
+		if result.Stderr != "" {
+			output += result.Stderr
+		}
+		if result.Diagnostic != nil {
+			output += "\n\n" + formatSandboxExecDiagnostic(result.Diagnostic)
+		}
+		return result.Stdout, result.Stderr, errs.New(errs.CodeSkillExecFailed, strings.TrimSpace(output))
+	}
 	return result.Stdout, result.Stderr, nil
+}
+
+func formatSandboxExecDiagnostic(diag *SandboxExecDiagnostic) string {
+	if diag == nil {
+		return ""
+	}
+	var sb strings.Builder
+	sb.WriteString("诊断:\n")
+	if diag.Summary != "" {
+		sb.WriteString(diag.Summary)
+		sb.WriteString("\n")
+	}
+	if diag.RequiresUserApproval {
+		sb.WriteString("建议: 需要用户批准切换到有权限的执行环境。\n")
+	}
+	if diag.SuggestedAction == "use_writable_go_cache" {
+		sb.WriteString("建议: 将 Go 缓存指向可写目录后重试，不需要切换用户。\n")
+	}
+	return strings.TrimSpace(sb.String())
 }
 
 // reDynamic 匹配 !`command` 动态上下文占位符

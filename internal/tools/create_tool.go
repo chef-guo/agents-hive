@@ -14,27 +14,13 @@ import (
 
 	"github.com/chef-guo/agents-hive/internal/config"
 	"github.com/chef-guo/agents-hive/internal/mcphost"
+	"github.com/chef-guo/agents-hive/internal/router"
 )
 
 // ApprovalBridge 连接到 HITL 审批机制（解耦 master 包依赖）
 type ApprovalBridge interface {
 	// RequestApproval 请求用户审批，返回是否批准
 	RequestApproval(ctx context.Context, toolName, description string, details map[string]string) (bool, error)
-}
-
-// builtinToolNames 内置工具名称集合，禁止被 create_tool 覆盖或 remove_tool 删除
-var builtinToolNames = map[string]bool{
-	"read_file": true, "write_file": true, "glob": true, "grep": true,
-	"bash": true, "edit": true, "ls": true, "multi_edit": true,
-	"web_search": true, "web_fetch": true, "batch": true, "apply_patch": true,
-	"tool_search": true,
-	"memory":      true, "question": true, "task": true, "parallel_dispatch": true,
-	"spawn_agent": true, "create_tool": true, "remove_tool": true,
-	"skill": true, "send_im_message": true,
-	// LSP 工具
-	"lsp_diagnostics": true, "lsp_hover": true, "lsp_definition": true,
-	"lsp_references": true, "lsp_completion": true, "lsp_symbols": true,
-	"lsp_rename": true, "lsp_format": true, "lsp_actions": true,
 }
 
 // createToolInput create_tool 工具的输入参数
@@ -201,7 +187,7 @@ func registerCreateTool(host *mcphost.Host, logger *zap.Logger, customToolsDir s
 			if strings.Contains(params.Name, "__") {
 				return errorResult("工具名称不能包含 \"__\"（双下划线为外部 MCP 工具保留前缀）"), nil
 			}
-			if builtinToolNames[params.Name] {
+			if router.IsKnownHostTool(params.Name) {
 				return errorResult(fmt.Sprintf("不能覆盖内置工具: %s", params.Name)), nil
 			}
 			if params.Type != "shell" && params.Type != "http" {
@@ -308,7 +294,7 @@ func registerRemoveTool(host *mcphost.Host, logger *zap.Logger, customToolsDir s
 			if params.Name == "" {
 				return errorResult("工具名称不能为空"), nil
 			}
-			if builtinToolNames[params.Name] {
+			if router.IsKnownHostTool(params.Name) {
 				return errorResult(fmt.Sprintf("不能删除内置工具: %s", params.Name)), nil
 			}
 

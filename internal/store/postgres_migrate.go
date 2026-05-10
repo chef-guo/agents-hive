@@ -218,6 +218,11 @@ CREATE TABLE IF NOT EXISTS memories (
 	tags         TEXT NOT NULL DEFAULT '[]',
 	session_id   TEXT NOT NULL DEFAULT '',
 	metadata     JSONB NOT NULL DEFAULT '{}',
+	target_scope TEXT NOT NULL DEFAULT 'user',
+	target_id    TEXT NOT NULL DEFAULT '',
+	visibility   TEXT NOT NULL DEFAULT 'private',
+	memory_kind  TEXT NOT NULL DEFAULT '',
+	subject_type TEXT NOT NULL DEFAULT '',
 	embedding    BYTEA,
 	search_vector TSVECTOR,
 	created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -235,6 +240,17 @@ CREATE INDEX IF NOT EXISTS idx_memories_governance_expires
 	ON memories (((metadata->'governance'->>'expires_at')));
 CREATE INDEX IF NOT EXISTS idx_memories_governance_source
 	ON memories (((metadata->'governance'->>'source')));
+CREATE INDEX IF NOT EXISTS idx_memories_target_scope
+	ON memories (((metadata->'target'->>'target_scope')));
+CREATE INDEX IF NOT EXISTS idx_memories_target_visibility
+	ON memories (((metadata->'target'->>'visibility')));
+CREATE INDEX IF NOT EXISTS idx_memories_kind
+	ON memories (((metadata->>'kind')));
+CREATE INDEX IF NOT EXISTS idx_memories_subject_type
+	ON memories (((metadata->>'subject_type')));
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+CREATE INDEX IF NOT EXISTS idx_memories_content_trgm
+	ON memories USING GIN(content gin_trgm_ops);
 
 -- 自动更新 search_vector 的触发器
 CREATE OR REPLACE FUNCTION memories_search_update() RETURNS trigger AS $$
@@ -989,7 +1005,34 @@ ALTER TABLE hive_logs ADD COLUMN IF NOT EXISTS user_id TEXT NOT NULL DEFAULT '';
 CREATE INDEX IF NOT EXISTS idx_logs_user ON hive_logs(user_id) WHERE user_id != '';
 
 ALTER TABLE memories ADD COLUMN IF NOT EXISTS user_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE memories ADD COLUMN IF NOT EXISTS target_scope TEXT NOT NULL DEFAULT 'user';
+ALTER TABLE memories ADD COLUMN IF NOT EXISTS target_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE memories ADD COLUMN IF NOT EXISTS visibility TEXT NOT NULL DEFAULT 'private';
+ALTER TABLE memories ADD COLUMN IF NOT EXISTS memory_kind TEXT NOT NULL DEFAULT '';
+ALTER TABLE memories ADD COLUMN IF NOT EXISTS subject_type TEXT NOT NULL DEFAULT '';
 CREATE INDEX IF NOT EXISTS idx_memories_user ON memories(user_id) WHERE user_id != '';
+CREATE INDEX IF NOT EXISTS idx_memories_user_target
+	ON memories(user_id, target_scope, target_id)
+	WHERE user_id != '';
+CREATE INDEX IF NOT EXISTS idx_memories_target_scope_id
+	ON memories(target_scope, target_id);
+CREATE INDEX IF NOT EXISTS idx_memories_kind_accessed
+	ON memories(memory_kind, accessed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_memories_visibility_accessed
+	ON memories(visibility, accessed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_memories_subject_type_accessed
+	ON memories(subject_type, accessed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_memories_target_scope
+	ON memories (((metadata->'target'->>'target_scope')));
+CREATE INDEX IF NOT EXISTS idx_memories_target_visibility
+	ON memories (((metadata->'target'->>'visibility')));
+CREATE INDEX IF NOT EXISTS idx_memories_kind
+	ON memories (((metadata->>'kind')));
+CREATE INDEX IF NOT EXISTS idx_memories_subject_type
+	ON memories (((metadata->>'subject_type')));
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+CREATE INDEX IF NOT EXISTS idx_memories_content_trgm
+	ON memories USING GIN(content gin_trgm_ops);
 
 ALTER TABLE agentquality_candidates ADD COLUMN IF NOT EXISTS suggestions_json JSONB NOT NULL DEFAULT '[]';
 ALTER TABLE agentquality_candidates ADD COLUMN IF NOT EXISTS cluster_id TEXT NOT NULL DEFAULT '';
@@ -1012,6 +1055,111 @@ ALTER TABLE embedding_backlog ADD COLUMN IF NOT EXISTS vector_space TEXT NOT NUL
 
 ALTER TABLE qualityworkbench_replay_jobs ADD COLUMN IF NOT EXISTS result JSONB NOT NULL DEFAULT '{}';
 ALTER TABLE qualityworkbench_replay_jobs ADD COLUMN IF NOT EXISTS error TEXT NOT NULL DEFAULT '';
+`
+
+const pgBackfillMemoryColumnsBatch = `
+WITH batch AS (
+	SELECT
+		id,
+		COALESCE(NULLIF(metadata->'target'->>'target_scope', ''), 'user') AS desired_target_scope,
+		COALESCE(
+			NULLIF(metadata->'target'->>'target_id', ''),
+			CASE COALESCE(NULLIF(metadata->'target'->>'target_scope', ''), 'user')
+				WHEN 'user' THEN COALESCE(NULLIF(metadata->'target'->>'user_id', ''), user_id)
+				WHEN 'workspace' THEN metadata->'target'->>'workspace_id'
+				WHEN 'project' THEN metadata->'target'->>'project_id'
+				WHEN 'repo' THEN metadata->'target'->>'repo_id'
+				WHEN 'session' THEN COALESCE(NULLIF(metadata->'target'->>'session_id', ''), session_id)
+				WHEN 'agent' THEN metadata->'target'->>'agent_name'
+				WHEN 'skill' THEN metadata->'target'->>'skill_name'
+				ELSE ''
+			END,
+			''
+		) AS desired_target_id,
+		COALESCE(
+			NULLIF(metadata->'target'->>'visibility', ''),
+			CASE WHEN COALESCE(NULLIF(metadata->'target'->>'target_scope', ''), 'user') = 'global'
+				THEN 'global'
+				ELSE 'private'
+			END
+		) AS desired_visibility,
+		COALESCE(
+			NULLIF(metadata->>'kind', ''),
+			CASE type
+				WHEN 'feedback' THEN 'feedback'
+				WHEN 'reference' THEN 'reference'
+				WHEN 'procedural' THEN 'procedural'
+				WHEN 'episodic' THEN 'episodic'
+				ELSE 'semantic'
+			END
+		) AS desired_memory_kind,
+		COALESCE(
+			NULLIF(metadata->>'subject_type', ''),
+			CASE type
+				WHEN 'procedural' THEN 'procedure'
+				WHEN 'episodic' THEN 'episode'
+				ELSE type
+			END
+		) AS desired_subject_type
+	FROM memories
+	WHERE
+		target_scope IS DISTINCT FROM COALESCE(NULLIF(metadata->'target'->>'target_scope', ''), 'user')
+		OR target_id IS DISTINCT FROM COALESCE(
+			NULLIF(metadata->'target'->>'target_id', ''),
+			CASE COALESCE(NULLIF(metadata->'target'->>'target_scope', ''), 'user')
+				WHEN 'user' THEN COALESCE(NULLIF(metadata->'target'->>'user_id', ''), user_id)
+				WHEN 'workspace' THEN metadata->'target'->>'workspace_id'
+				WHEN 'project' THEN metadata->'target'->>'project_id'
+				WHEN 'repo' THEN metadata->'target'->>'repo_id'
+				WHEN 'session' THEN COALESCE(NULLIF(metadata->'target'->>'session_id', ''), session_id)
+				WHEN 'agent' THEN metadata->'target'->>'agent_name'
+				WHEN 'skill' THEN metadata->'target'->>'skill_name'
+				ELSE ''
+			END,
+			''
+		)
+		OR visibility IS DISTINCT FROM COALESCE(
+			NULLIF(metadata->'target'->>'visibility', ''),
+			CASE WHEN COALESCE(NULLIF(metadata->'target'->>'target_scope', ''), 'user') = 'global'
+				THEN 'global'
+				ELSE 'private'
+			END
+		)
+		OR memory_kind IS DISTINCT FROM COALESCE(
+			NULLIF(metadata->>'kind', ''),
+			CASE type
+				WHEN 'feedback' THEN 'feedback'
+				WHEN 'reference' THEN 'reference'
+				WHEN 'procedural' THEN 'procedural'
+				WHEN 'episodic' THEN 'episodic'
+				ELSE 'semantic'
+			END
+		)
+		OR subject_type IS DISTINCT FROM COALESCE(
+			NULLIF(metadata->>'subject_type', ''),
+			CASE type
+				WHEN 'procedural' THEN 'procedure'
+				WHEN 'episodic' THEN 'episode'
+				ELSE type
+			END
+		)
+	ORDER BY id
+	LIMIT $1
+	FOR UPDATE SKIP LOCKED
+),
+updated AS (
+	UPDATE memories AS m
+	SET
+		target_scope = batch.desired_target_scope,
+		target_id = batch.desired_target_id,
+		visibility = batch.desired_visibility,
+		memory_kind = batch.desired_memory_kind,
+		subject_type = batch.desired_subject_type
+	FROM batch
+	WHERE m.id = batch.id
+	RETURNING 1
+)
+SELECT COUNT(*) FROM updated;
 `
 
 // pgAddSessionTodos 创建 session-scoped todos 独立表。
@@ -1045,6 +1193,27 @@ CREATE INDEX IF NOT EXISTS idx_hive_session_todos_source_change
 CREATE INDEX IF NOT EXISTS idx_hive_session_todos_trace
     ON hive_session_todos(trace_id);
 `
+
+func pgBackfillMemoryColumns(ctx context.Context, pool *pgxpool.Pool, logger *zap.Logger, batchSize int) error {
+	if batchSize <= 0 {
+		batchSize = 500
+	}
+	total := int64(0)
+	for {
+		var changed int64
+		if err := pool.QueryRow(ctx, pgBackfillMemoryColumnsBatch, batchSize).Scan(&changed); err != nil {
+			return err
+		}
+		if changed == 0 {
+			if total > 0 {
+				logger.Info("memories 一等列回填完成", zap.Int64("total", total))
+			}
+			return nil
+		}
+		total += changed
+		logger.Debug("memories 一等列回填进度", zap.Int64("batch", changed), zap.Int64("total", total))
+	}
+}
 
 // pgMigrate 初始化 PostgreSQL 数据库表结构
 func pgMigrate(ctx context.Context, pool *pgxpool.Pool, logger *zap.Logger) error {
@@ -1104,6 +1273,9 @@ func pgMigrate(ctx context.Context, pool *pgxpool.Pool, logger *zap.Logger) erro
 	// 为已有表添加 user_id 列
 	if _, err := pool.Exec(ctx, pgAddUserColumns); err != nil {
 		return errs.Wrap(errs.CodeStoreError, "PostgreSQL user_id 列迁移失败", err)
+	}
+	if err := pgBackfillMemoryColumns(ctx, pool, logger, 500); err != nil {
+		return errs.Wrap(errs.CodeStoreError, "PostgreSQL memories 一等列回填失败", err)
 	}
 
 	// Agent Plan Runtime：session-scoped todo snapshot 表

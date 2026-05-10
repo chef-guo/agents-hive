@@ -868,30 +868,17 @@ func registerBash(host *mcphost.Host, logger *zap.Logger, pool *ShellPool) {
 				Env:       envMap,
 			})
 			if err != nil {
+				if result.Diagnostic != nil {
+					return commandFailureToolResult(result), nil
+				}
 				return errorResult(fmt.Sprintf("执行错误: %v", err)), nil
 			}
 
-			// 格式化输出
-			var output strings.Builder
-			if result.Stdout != "" {
-				output.WriteString(result.Stdout)
-			}
-			if result.Stderr != "" {
-				if output.Len() > 0 {
-					output.WriteString("\n")
-				}
-				output.WriteString("stderr:\n")
-				output.WriteString(result.Stderr)
-			}
-
 			if result.ExitCode != 0 {
-				return &mcphost.ToolResult{
-					Content: jsonText(fmt.Sprintf("退出码 %d\n%s", result.ExitCode, truncateOutput(output.String()))),
-					IsError: true,
-				}, nil
+				return commandFailureToolResult(result), nil
 			}
 
-			return textResult(truncateOutput(output.String())), nil
+			return textResult(truncateOutput(formatCommandOutput(result))), nil
 		},
 	)
 }
