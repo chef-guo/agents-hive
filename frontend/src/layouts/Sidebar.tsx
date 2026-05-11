@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { NavLink, useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { BookOpen, Trash2, Plus, MessageSquare, Search, ExternalLink, Star, Tag, Play } from 'lucide-react';
+import { BookOpen, Trash2, Plus, MessageSquare, Search, ExternalLink, Star, Tag, Play, Settings as SettingsIcon } from 'lucide-react';
 import { useSessionStore } from '../store/session';
 import { useNodeClient } from '../hooks/useNodeClient';
 import { useAppStore } from '../store/app';
@@ -29,6 +29,7 @@ function SessionStatusDot({ sessionId }: { sessionId: string }) {
 const BOTTOM_NAV = [
   { path: '/replay', label: 'nav.replay', icon: Play },
   { path: '/guide', label: 'nav.guide', icon: BookOpen },
+  { path: '/settings', label: 'nav.preferences', icon: SettingsIcon },
 ];
 
 export function HiveLogo({ className = '' }: { className?: string }) {
@@ -113,6 +114,11 @@ function SessionRow({ s, currentSessionId, chatSessionId, isBusy }: {
               <span className="truncate">
                 {s.name || (s.message_count === 0 ? t('sessions.newSession', '新会话') : s.id.slice(0, 8))}
               </span>
+              {s.source === 'wechatbot' && (
+                <span className="shrink-0 rounded-full bg-[var(--accent-subtle)] px-1.5 py-0.5 text-[10px] leading-none text-[var(--accent-600)]">
+                  {s.source_label || t('wechatConnection.sourceLabel', '微信')}
+                </span>
+              )}
               <SessionStatusDot sessionId={s.id} />
             </div>
           </NavLink>

@@ -49,9 +49,13 @@ function statusClass(status: ScheduledTaskRunStatus): string {
   }
 }
 
-function formatSchedule(task: ScheduledTask, everyLabel: string, notScheduledLabel: string, locale: string): string {
+function cronLocaleFrom(language?: string): string {
+  return (language || 'zh').startsWith('zh') ? 'zh_CN' : 'en';
+}
+
+function formatSchedule(task: ScheduledTask, everyLabel: string, notScheduledLabel: string, locale?: string): string {
   if (task.cron_expr) {
-    const cronLocale = locale.startsWith('zh') ? 'zh_CN' : 'en';
+    const cronLocale = cronLocaleFrom(locale);
     try {
       return `${cronstrue.toString(task.cron_expr, { locale: cronLocale, use24HourTimeFormat: true })} · ${task.timezone || 'UTC'}`;
     } catch {

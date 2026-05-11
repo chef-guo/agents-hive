@@ -10,6 +10,12 @@ export interface Session {
   tags: string[];
   is_active: boolean;
   is_starred?: boolean;
+  source?: 'wechatbot' | string;
+  source_label?: string;
+  peer_avatar_url?: string;
+  can_send?: boolean;
+  send_state?: string;
+  last_message_preview?: string;
 }
 
 export interface SessionDetail extends Session {
@@ -1023,6 +1029,7 @@ export interface RuntimeConfig {
     dingtalk: DingTalkConfig;
     feishu: FeishuConfig;
     wecom: WeComConfig;
+    wechatbot?: WeChatBotConfig;
   };
   security?: {
     default_policy?: 'allow' | 'ask' | 'deny';
@@ -1105,6 +1112,13 @@ export interface WeComConfig {
   encoding_aes_key: string;
 }
 
+export interface WeChatBotConfig {
+  enabled: boolean;
+  base_url?: string;
+  cred_root?: string;
+  log_level?: string;
+}
+
 export interface ConfigUpdateRequest {
   hitl?: {
     enabled?: boolean;
@@ -1123,6 +1137,7 @@ export interface ConfigUpdateRequest {
     dingtalk?: DingTalkConfig;
     feishu?: FeishuConfig;
     wecom?: WeComConfig;
+    wechatbot?: WeChatBotConfig;
   };
   security?: {
     default_policy?: 'allow' | 'ask' | 'deny';

@@ -36,3 +36,31 @@ func TestPGInitSQLIncludesUserExternalIDsAndWechatConversations(t *testing.T) {
 		}
 	}
 }
+
+func TestWeChatMigration_RunTwice_Idempotent(t *testing.T) {
+	sql := strings.Join(strings.Fields(pgInitSQL), " ")
+	required := []string{
+		"CREATE TABLE IF NOT EXISTS user_external_ids",
+		"CREATE INDEX IF NOT EXISTS idx_user_external_ids_user_provider",
+		"CREATE TABLE IF NOT EXISTS wechat_conversations",
+		"CREATE INDEX IF NOT EXISTS idx_wechat_conversations_owner_last",
+	}
+	for _, needle := range required {
+		if count := strings.Count(sql, needle); count != 1 {
+			t.Fatalf("migration must contain %q exactly once, got %d", needle, count)
+		}
+	}
+	forbidden := []string{
+		"ALTER TABLE user_external_ids ADD COLUMN",
+		"ALTER TABLE wechat_conversations ADD COLUMN",
+		"CREATE INDEX idx_user_external_ids_user_provider",
+		"CREATE INDEX idx_wechat_conversations_owner_last",
+		"CREATE TABLE user_external_ids",
+		"CREATE TABLE wechat_conversations",
+	}
+	for _, needle := range forbidden {
+		if strings.Contains(sql, needle) {
+			t.Fatalf("wechat migration is not idempotent; found %q", needle)
+		}
+	}
+}

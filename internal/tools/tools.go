@@ -304,7 +304,11 @@ func RegisterBuiltinTools(host *mcphost.Host, logger *zap.Logger, cfg *config.Co
 	// 如果提供了 router，注册 send_im_message 工具
 	if router != nil {
 		if imRouter, ok := router.(IMRouter); ok {
-			RegisterSendIMMessage(host, logger, imRouter)
+			var convStore wechatConversationLookup
+			if st, ok := memStore.(wechatConversationLookup); ok {
+				convStore = st
+			}
+			RegisterSendIMMessageWithStore(host, logger, imRouter, convStore)
 			count++
 		}
 	}

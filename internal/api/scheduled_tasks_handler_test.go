@@ -34,6 +34,42 @@ func (f scheduledTaskResolverFunc) GetUserByID(ctx context.Context, userID strin
 	return f(ctx, userID)
 }
 
+type nilScheduledTaskStore struct {
+	store.Store
+}
+
+func (nilScheduledTaskStore) SaveScheduledTask(context.Context, *store.ScheduledTask) error {
+	return nil
+}
+
+func (nilScheduledTaskStore) GetScheduledTask(_ context.Context, id string) (*store.ScheduledTask, error) {
+	return &store.ScheduledTask{ID: id, CreatedBy: ""}, nil
+}
+
+func (nilScheduledTaskStore) DeleteScheduledTask(context.Context, string) error {
+	return nil
+}
+
+func (nilScheduledTaskStore) ListScheduledTasksByUser(context.Context, string) ([]*store.ScheduledTask, error) {
+	return nil, nil
+}
+
+func (nilScheduledTaskStore) ListAllScheduledTasks(context.Context) ([]*store.ScheduledTask, error) {
+	return nil, nil
+}
+
+func (nilScheduledTaskStore) ListScheduledTaskRuns(context.Context, string, int) ([]*store.ScheduledTaskRun, error) {
+	return nil, nil
+}
+
+func (nilScheduledTaskStore) ClaimManualScheduledTaskRun(context.Context, string, time.Time, string, time.Time, string) (*store.ScheduledTaskRun, error) {
+	return nil, store.ErrNotFound
+}
+
+func (nilScheduledTaskStore) FinishScheduledTaskRun(context.Context, *store.ScheduledTaskRun) error {
+	return nil
+}
+
 func newBlockingDispatchPushService() *blockingDispatchPushService {
 	return &blockingDispatchPushService{
 		started: make(chan struct{}),
@@ -121,6 +157,41 @@ func TestScheduledTasksCRUDAndOwnership(t *testing.T) {
 	srv.Mux().ServeHTTP(otherRec, otherReq)
 	if otherRec.Code != http.StatusNotFound {
 		t.Fatalf("cross-user status = %d, body=%s", otherRec.Code, otherRec.Body.String())
+	}
+}
+
+func TestScheduledTaskListHandlersReturnEmptyArraysForNilSlices(t *testing.T) {
+	srv := &Server{store: nilScheduledTaskStore{}, logger: zap.NewNop()}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/scheduled-tasks", nil)
+	rec := httptest.NewRecorder()
+	srv.handleListScheduledTasks(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	if strings.TrimSpace(rec.Body.String()) != "[]" {
+		t.Fatalf("list body = %q, want []", rec.Body.String())
+	}
+
+	adminReq := httptest.NewRequest(http.MethodGet, "/api/v1/admin/scheduled-tasks", nil)
+	adminRec := httptest.NewRecorder()
+	srv.handleAdminListScheduledTasks(adminRec, adminReq)
+	if adminRec.Code != http.StatusOK {
+		t.Fatalf("admin list status = %d, body=%s", adminRec.Code, adminRec.Body.String())
+	}
+	if strings.TrimSpace(adminRec.Body.String()) != "[]" {
+		t.Fatalf("admin list body = %q, want []", adminRec.Body.String())
+	}
+
+	runsReq := httptest.NewRequest(http.MethodGet, "/api/v1/scheduled-tasks/task-empty/runs", nil)
+	runsReq.SetPathValue("id", "task-empty")
+	runsRec := httptest.NewRecorder()
+	srv.handleListScheduledTaskRuns(runsRec, runsReq)
+	if runsRec.Code != http.StatusOK {
+		t.Fatalf("runs status = %d, body=%s", runsRec.Code, runsRec.Body.String())
+	}
+	if strings.TrimSpace(runsRec.Body.String()) != "[]" {
+		t.Fatalf("runs body = %q, want []", runsRec.Body.String())
 	}
 }
 

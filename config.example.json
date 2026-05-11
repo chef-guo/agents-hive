@@ -44,7 +44,10 @@
     "enabled": false,
     "wechatbot": {
       "_comment": "官方 wechatbot 个人微信入口。false 时隐藏用户扫码入口并停止已运行实例。",
-      "enabled": false
+      "enabled": false,
+      "base_url": "",
+      "cred_root": "",
+      "log_level": "info"
     }
   },
 

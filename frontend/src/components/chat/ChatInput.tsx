@@ -55,9 +55,20 @@ interface Props {
   onStop?: () => void;
   disabled?: boolean;
   placeholder?: string;
+  notice?: string;
+  allowAttachments?: boolean;
+  allowDeepThinking?: boolean;
 }
 
-export function ChatInput({ onSend, onStop, disabled, placeholder }: Props) {
+export function ChatInput({
+  onSend,
+  onStop,
+  disabled,
+  placeholder,
+  notice,
+  allowAttachments = true,
+  allowDeepThinking = true,
+}: Props) {
   const { t } = useTranslation();
   const [value, setValue] = useState('');
   const [deepThinking, setDeepThinking] = useState(false);
@@ -157,11 +168,12 @@ export function ChatInput({ onSend, onStop, disabled, placeholder }: Props) {
   }, [files.length, t]);
 
   const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!allowAttachments) return;
     const selectedFiles = e.target.files;
     if (!selectedFiles) return;
     processFiles(Array.from(selectedFiles));
     e.target.value = '';
-  }, [processFiles]);
+  }, [allowAttachments, processFiles]);
 
   // 拖拽事件处理
   const handleDragOver = useCallback((e: React.DragEvent) => {
@@ -183,12 +195,12 @@ export function ChatInput({ onSend, onStop, disabled, placeholder }: Props) {
     e.preventDefault();
     e.stopPropagation();
     setIsDragOver(false);
-    if (disabled) return;
+    if (disabled || !allowAttachments) return;
     const droppedFiles = Array.from(e.dataTransfer.files);
     if (droppedFiles.length > 0) {
       processFiles(droppedFiles);
     }
-  }, [disabled, processFiles]);
+  }, [allowAttachments, disabled, processFiles]);
 
   const removeFile = useCallback((index: number) => {
     setFiles((prev) => prev.filter((_, i) => i !== index));
@@ -199,8 +211,8 @@ export function ChatInput({ onSend, onStop, disabled, placeholder }: Props) {
     if (!trimmed && files.length === 0) return;
     if (disabled) return;
     const options: SendOptions = {};
-    if (files.length > 0) options.attachments = files;
-    if (deepThinking) options.deepThinking = true;
+    if (allowAttachments && files.length > 0) options.attachments = files;
+    if (allowDeepThinking && deepThinking) options.deepThinking = true;
     onSend(trimmed, Object.keys(options).length > 0 ? options : undefined);
     setValue('');
     setFiles([]);
@@ -224,15 +236,22 @@ export function ChatInput({ onSend, onStop, disabled, placeholder }: Props) {
       }
     }
     if (imageFiles.length > 0) {
+      if (!allowAttachments) return;
       processFiles(imageFiles);
     }
-  }, [processFiles]);
+  }, [allowAttachments, processFiles]);
 
   const canSend = (value.trim().length > 0 || files.length > 0) && !disabled;
 
   return (
     <div className="pb-5 pt-2 shrink-0">
       <div className="max-w-4xl mx-auto px-4">
+        {notice && (
+          <div className="mb-2 flex items-center gap-2 px-3 py-2 bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-800 rounded-xl text-xs text-amber-700 dark:text-amber-300">
+            <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+            <span>{notice}</span>
+          </div>
+        )}
         {/* 文件错误提示 */}
         {fileError && (
           <div className="mb-2 flex items-center gap-2 px-3 py-2 bg-red-50 dark:bg-red-900/10 border border-red-200 dark:border-red-800 rounded-xl text-xs text-red-600 dark:text-red-400">
@@ -352,28 +371,32 @@ export function ChatInput({ onSend, onStop, disabled, placeholder }: Props) {
                 <div className="w-px h-4 bg-[var(--border-color)] mx-0.5" />
               )}
               {/* 附件按钮 */}
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                className="p-1.5 rounded-lg text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors"
-                title={t('chat.attachment')}
-              >
-                <Paperclip className="w-4 h-4" />
-              </button>
+              {allowAttachments && (
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="p-1.5 rounded-lg text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors"
+                  title={t('chat.attachment')}
+                >
+                  <Paperclip className="w-4 h-4" />
+                </button>
+              )}
               {/* 深度思考开关 */}
-              <button
-                type="button"
-                onClick={() => setDeepThinking(!deepThinking)}
-                className={`flex items-center gap-1 px-2 py-1 rounded-lg text-xs transition-colors ${
-                  deepThinking
-                    ? 'text-[var(--accent-600)] dark:text-[var(--accent-300)] bg-[var(--accent-50)] dark:bg-[var(--accent-light)]'
-                    : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]'
-                }`}
-                title={t('chat.deepThinking')}
-              >
-                <Brain className="w-3.5 h-3.5" />
-                <span>{t('chat.deepThinking')}</span>
-              </button>
+              {allowDeepThinking && (
+                <button
+                  type="button"
+                  onClick={() => setDeepThinking(!deepThinking)}
+                  className={`flex items-center gap-1 px-2 py-1 rounded-lg text-xs transition-colors ${
+                    deepThinking
+                      ? 'text-[var(--accent-600)] dark:text-[var(--accent-300)] bg-[var(--accent-50)] dark:bg-[var(--accent-light)]'
+                      : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]'
+                  }`}
+                  title={t('chat.deepThinking')}
+                >
+                  <Brain className="w-3.5 h-3.5" />
+                  <span>{t('chat.deepThinking')}</span>
+                </button>
+              )}
             </div>
             <div className="flex items-center gap-2">
               {value.trim().length > 0 && (

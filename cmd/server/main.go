@@ -106,6 +106,9 @@ func main() {
 	if sc.ChannelRouter != nil {
 		server.SetChannelRouter(sc.ChannelRouter)
 	}
+	if sc.WeChatBotService != nil {
+		server.SetWeChatBotService(sc.WeChatBotService)
+	}
 	if sc.PushService != nil {
 		server.SetPushService(sc.PushService)
 	}

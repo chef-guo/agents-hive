@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNodeClient } from '../../hooks/useNodeClient';
 import { useToastStore } from '../../store/toast';
-import type { RuntimeConfig, DingTalkConfig, FeishuConfig, WeComConfig } from '../../types/api';
+import type { RuntimeConfig, DingTalkConfig, FeishuConfig, WeChatBotConfig, WeComConfig } from '../../types/api';
 
 const emptyDingTalk: DingTalkConfig = { enabled: false, app_key: '', app_secret: '', token: '', aes_key: '', agent_id: 0 };
 // 飞书默认值与后端 FeishuConfig.Normalize 对齐：ack_emoji="Get"，renderer 未设字段走零值默认
@@ -19,6 +19,7 @@ const emptyFeishu: FeishuConfig = {
   renderer: { disabled: false, throttle_ms: 300, show_agent_progress: false },
 };
 const emptyWeCom: WeComConfig = { enabled: false, corp_id: '', agent_id: 0, secret: '', token: '', encoding_aes_key: '' };
+const emptyWeChatBot: WeChatBotConfig = { enabled: false };
 
 // 老 DB 可能回来的 `GET`/`KEYBOARD` 直接 display 会变成 SelectRow 的"未知选项"留白。
 // 前端同步后端迁移逻辑：把老值映射到 CamelCase 再渲染，保证 select 一定能命中一个选项。
@@ -34,10 +35,10 @@ export function IMChannelSettings() {
   const client = useNodeClient();
   const addToast = useToastStore((s) => s.addToast);
 
-  const [channelEnabled, setChannelEnabled] = useState(false);
   const [dingtalk, setDingtalk] = useState<DingTalkConfig>(emptyDingTalk);
   const [feishu, setFeishu] = useState<FeishuConfig>(emptyFeishu);
   const [wecom, setWecom] = useState<WeComConfig>(emptyWeCom);
+  const [wechatbot, setWechatbot] = useState<WeChatBotConfig>(emptyWeChatBot);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -46,10 +47,10 @@ export function IMChannelSettings() {
     try {
       const cfg: RuntimeConfig = await client.getRuntimeConfig();
       if (cfg.channel) {
-        setChannelEnabled(cfg.channel.enabled ?? false);
         if (cfg.channel.dingtalk) setDingtalk({ ...emptyDingTalk, ...cfg.channel.dingtalk });
         if (cfg.channel.feishu) setFeishu({ ...emptyFeishu, ...cfg.channel.feishu });
         if (cfg.channel.wecom) setWecom({ ...emptyWeCom, ...cfg.channel.wecom });
+        setWechatbot({ enabled: cfg.channel.wechatbot?.enabled ?? false });
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : t('runtimeConfig.loadFailed');
@@ -67,10 +68,10 @@ export function IMChannelSettings() {
       // 1. 写入数据库并更新运行时配置
       await client.updateRuntimeConfig({
         channel: {
-          enabled: channelEnabled,
           dingtalk,
           feishu,
           wecom,
+          wechatbot,
         },
       });
       // 2. 触发热重载（无需重启）
@@ -97,15 +98,6 @@ export function IMChannelSettings() {
       <p className="text-xs text-[var(--text-secondary)]">
         {t('runtimeConfig.imChannelsHint')}
       </p>
-
-      {/* 总开关 */}
-      <div className="flex items-center gap-3">
-        <label className="relative inline-flex items-center cursor-pointer">
-          <input type="checkbox" checked={channelEnabled} onChange={(e) => setChannelEnabled(e.target.checked)} className="sr-only peer" />
-          <div className="w-9 h-5 bg-[var(--bg-secondary)] peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-[var(--accent-600)]"></div>
-        </label>
-        <span className="text-sm text-[var(--text-primary)]">{t('runtimeConfig.channelEnabled')}</span>
-      </div>
 
       {/* 钉钉 */}
       <PlatformSection
@@ -257,6 +249,17 @@ export function IMChannelSettings() {
         <FieldRow label={t('runtimeConfig.secret')} value={wecom.secret} onChange={(v) => setWecom({ ...wecom, secret: v })} secret />
         <FieldRow label={t('runtimeConfig.token')} value={wecom.token} onChange={(v) => setWecom({ ...wecom, token: v })} />
         <FieldRow label={t('runtimeConfig.encodingAesKey')} value={wecom.encoding_aes_key} onChange={(v) => setWecom({ ...wecom, encoding_aes_key: v })} secret />
+      </PlatformSection>
+
+      {/* 官方微信 Bot */}
+      <PlatformSection
+        title={t('runtimeConfig.wechatbot')}
+        enabled={wechatbot.enabled}
+        onToggle={(v) => setWechatbot({ ...wechatbot, enabled: v })}
+      >
+        <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
+          {t('runtimeConfig.wechatbotHint')}
+        </p>
       </PlatformSection>
 
       {/* 保存并热重载按钮 */}

@@ -6,6 +6,7 @@ require (
 	github.com/bmatcuk/doublestar/v4 v4.10.0
 	github.com/coder/acp-go-sdk v0.6.3
 	github.com/coder/websocket v1.8.14
+	github.com/corespeed-io/wechatbot/golang v0.0.0-20260427145415-b4b69b3d3a83
 	github.com/go-ldap/ldap/v3 v3.4.13
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/google/uuid v1.6.0

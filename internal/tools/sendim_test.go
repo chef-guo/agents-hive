@@ -13,6 +13,7 @@ import (
 	"github.com/chef-guo/agents-hive/internal/auth"
 	"github.com/chef-guo/agents-hive/internal/imctx"
 	"github.com/chef-guo/agents-hive/internal/mcphost"
+	"github.com/chef-guo/agents-hive/internal/store"
 )
 
 // MockIMRouter 模拟 IM 路由器
@@ -343,7 +344,18 @@ func TestSendIMMessageWeChatBotDerivesOwnerFromAuthContext(t *testing.T) {
 	logger := zap.NewNop()
 	host := mcphost.NewHost(logger)
 	mockRouter := &MockIMRouter{}
-	RegisterSendIMMessage(host, logger, mockRouter)
+	convStore := store.NewMemoryStore()
+	if err := convStore.UpsertWechatConversation(context.Background(), &store.WechatConversationRecord{
+		OwnerUserID:    "alice",
+		OwnerAccountID: "wx-owner",
+		PeerWxid:       "wxid_peer",
+		SessionID:      "im-wechatbot-alice-wxid_peer",
+		CanSend:        true,
+		SendState:      "ready",
+	}); err != nil {
+		t.Fatalf("upsert conversation: %v", err)
+	}
+	RegisterSendIMMessageWithStore(host, logger, mockRouter, convStore)
 
 	input, _ := json.Marshal(map[string]any{
 		"platform":      "wechatbot",
@@ -375,6 +387,82 @@ func TestSendIMMessageWeChatBotDerivesOwnerFromAuthContext(t *testing.T) {
 	}
 	if sent.ChatID != "wxid_peer" || sent.Content != "测试消息" {
 		t.Fatalf("发送请求内容不正确: %#v", sent)
+	}
+}
+
+func TestSendIm_CrossOwnerRejected(t *testing.T) {
+	logger := zap.NewNop()
+	host := mcphost.NewHost(logger)
+	mockRouter := &MockIMRouter{}
+	convStore := store.NewMemoryStore()
+	if err := convStore.UpsertWechatConversation(context.Background(), &store.WechatConversationRecord{
+		OwnerUserID:    "bob",
+		OwnerAccountID: "wx-bob",
+		PeerWxid:       "wxid_peer",
+		SessionID:      "im-wechatbot-bob-wxid_peer",
+		CanSend:        true,
+		SendState:      "ready",
+	}); err != nil {
+		t.Fatalf("upsert conversation: %v", err)
+	}
+	RegisterSendIMMessageWithStore(host, logger, mockRouter, convStore)
+
+	input, _ := json.Marshal(map[string]any{
+		"platform": "wechatbot",
+		"chat_id":  "wxid_peer",
+		"content":  "测试消息",
+	})
+	ctx := auth.WithUser(context.Background(), &auth.User{ID: "alice", Role: "user", Status: "active"})
+	result, err := host.ExecuteTool(ctx, "send_im_message", input)
+	if err != nil {
+		t.Fatalf("工具调用失败: %v", err)
+	}
+	if !result.IsError {
+		t.Fatal("预期返回错误，但成功了")
+	}
+	if got := result.DecodeContent(); got != "无权访问此微信会话，或该联系人尚未形成可发送会话" {
+		t.Fatalf("错误信息不清晰: %q", got)
+	}
+	if len(mockRouter.sentMsgs) != 0 {
+		t.Fatalf("跨 owner 不应调用 Router，实际发送: %d", len(mockRouter.sentMsgs))
+	}
+}
+
+func TestSendIMMessageWeChatBotRequiresContext(t *testing.T) {
+	logger := zap.NewNop()
+	host := mcphost.NewHost(logger)
+	mockRouter := &MockIMRouter{}
+	convStore := store.NewMemoryStore()
+	if err := convStore.UpsertWechatConversation(context.Background(), &store.WechatConversationRecord{
+		OwnerUserID:    "alice",
+		OwnerAccountID: "wx-owner",
+		PeerWxid:       "wxid_peer",
+		SessionID:      "im-wechatbot-alice-wxid_peer",
+		CanSend:        false,
+		SendState:      "no_context",
+	}); err != nil {
+		t.Fatalf("upsert conversation: %v", err)
+	}
+	RegisterSendIMMessageWithStore(host, logger, mockRouter, convStore)
+
+	input, _ := json.Marshal(map[string]any{
+		"platform": "wechatbot",
+		"chat_id":  "wxid_peer",
+		"content":  "测试消息",
+	})
+	ctx := auth.WithUser(context.Background(), &auth.User{ID: "alice", Role: "user", Status: "active"})
+	result, err := host.ExecuteTool(ctx, "send_im_message", input)
+	if err != nil {
+		t.Fatalf("工具调用失败: %v", err)
+	}
+	if !result.IsError {
+		t.Fatal("预期返回错误，但成功了")
+	}
+	if got := result.DecodeContent(); got != "该联系人暂无可发送上下文，请先让对方在微信中发一条消息" {
+		t.Fatalf("错误信息不清晰: %q", got)
+	}
+	if len(mockRouter.sentMsgs) != 0 {
+		t.Fatalf("无 context 时不应调用 Router，实际发送: %d", len(mockRouter.sentMsgs))
 	}
 }
 

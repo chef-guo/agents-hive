@@ -60,6 +60,16 @@ type Store interface {
 	SaveChannelConfig(ctx context.Context, rec *ChannelConfigRecord) error
 	ListChannelConfigs(ctx context.Context) ([]*ChannelConfigRecord, error)
 
+	// 官方 wechatbot 用户绑定与会话映射
+	UpsertUserExternalID(ctx context.Context, rec *UserExternalIDRecord) error
+	GetUserExternalID(ctx context.Context, userID, providerType string) (*UserExternalIDRecord, error)
+	DeleteUserExternalID(ctx context.Context, userID, providerType string) error
+	UpsertWechatConversation(ctx context.Context, rec *WechatConversationRecord) error
+	GetWechatConversationBySessionID(ctx context.Context, sessionID string) (*WechatConversationRecord, error)
+	GetWechatConversationByOwnerPeer(ctx context.Context, ownerUserID, peerWxid string) (*WechatConversationRecord, error)
+	ListWechatConversationsByOwner(ctx context.Context, ownerUserID string) ([]*WechatConversationRecord, error)
+	UpdateWechatConversationSendState(ctx context.Context, ownerUserID, peerWxid string, canSend bool, sendState string) error
+
 	// 通道 Push 定时任务
 	SaveScheduledPush(ctx context.Context, rec *ScheduledPushRecord) error
 	GetScheduledPush(ctx context.Context, id string) (*ScheduledPushRecord, error)
@@ -134,6 +144,38 @@ type ChannelConfigRecord struct {
 	Enabled    bool      `json:"enabled"`
 	ConfigJSON string    `json:"config_json"` // JSON 序列化的平台特定配置
 	UpdatedAt  time.Time `json:"updated_at"`
+}
+
+// UserExternalIDRecord 记录非登录型外部账号绑定，例如官方 wechatbot 账号。
+type UserExternalIDRecord struct {
+	ID           int64           `json:"id"`
+	UserID       string          `json:"user_id"`
+	ProviderType string          `json:"provider_type"`
+	ExternalID   string          `json:"external_id"`
+	DisplayName  string          `json:"display_name,omitempty"`
+	AvatarURL    string          `json:"avatar_url,omitempty"`
+	Metadata     json.RawMessage `json:"metadata,omitempty"`
+	CreatedAt    time.Time       `json:"created_at,omitempty"`
+	UpdatedAt    time.Time       `json:"updated_at,omitempty"`
+}
+
+// WechatConversationRecord 记录个人微信联系人与内部 session 的映射。
+type WechatConversationRecord struct {
+	ID                 int64           `json:"id"`
+	OwnerUserID        string          `json:"owner_user_id"`
+	OwnerAccountID     string          `json:"owner_account_id"`
+	PeerWxid           string          `json:"peer_wxid"`
+	SessionID          string          `json:"session_id"`
+	PeerNickname       string          `json:"peer_nickname,omitempty"`
+	PeerAvatarURL      string          `json:"peer_avatar_url,omitempty"`
+	ChatType           string          `json:"chat_type"`
+	LastMessagePreview string          `json:"last_message_preview,omitempty"`
+	LastMessageAt      *time.Time      `json:"last_message_at,omitempty"`
+	CanSend            bool            `json:"can_send"`
+	SendState          string          `json:"send_state"`
+	Metadata           json.RawMessage `json:"metadata,omitempty"`
+	CreatedAt          time.Time       `json:"created_at,omitempty"`
+	UpdatedAt          time.Time       `json:"updated_at,omitempty"`
 }
 
 // ScheduledPushRecord 是持久化的通道定时推送任务。

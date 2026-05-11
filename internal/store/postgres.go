@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"regexp"
@@ -664,6 +665,207 @@ func (s *PostgresStore) UpdateSessionTags(ctx context.Context, sessionID string,
 		string(tagsJSON), sessionID)
 	if err != nil {
 		return errs.Wrap(errs.CodeStoreWriteFailed, "更新标签失败", err)
+	}
+	return nil
+}
+
+// ---------------------------------------------------------------------------
+// 官方 wechatbot 用户绑定与会话映射
+// ---------------------------------------------------------------------------
+
+func (s *PostgresStore) UpsertUserExternalID(ctx context.Context, rec *UserExternalIDRecord) error {
+	if rec == nil {
+		return errs.New(errs.CodeInvalidInput, "external id record is nil")
+	}
+	metadata := "{}"
+	if len(rec.Metadata) > 0 {
+		metadata = string(rec.Metadata)
+	}
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO user_external_ids (user_id, provider_type, external_id, display_name, avatar_url, metadata)
+		VALUES ($1, $2, $3, $4, $5, $6::jsonb)
+		ON CONFLICT (user_id, provider_type) DO UPDATE SET
+			external_id = EXCLUDED.external_id,
+			display_name = EXCLUDED.display_name,
+			avatar_url = EXCLUDED.avatar_url,
+			metadata = EXCLUDED.metadata,
+			updated_at = NOW()`,
+		rec.UserID, rec.ProviderType, rec.ExternalID, rec.DisplayName, rec.AvatarURL, metadata)
+	if err != nil {
+		return errs.Wrap(errs.CodeStoreWriteFailed, "保存外部账号绑定失败", err)
+	}
+	return nil
+}
+
+func (s *PostgresStore) GetUserExternalID(ctx context.Context, userID, providerType string) (*UserExternalIDRecord, error) {
+	var rec UserExternalIDRecord
+	var metadata []byte
+	err := s.pool.QueryRow(ctx, `
+		SELECT id, user_id, provider_type, external_id, display_name, avatar_url, metadata, created_at, updated_at
+		FROM user_external_ids
+		WHERE user_id = $1 AND provider_type = $2`,
+		userID, providerType).Scan(
+		&rec.ID, &rec.UserID, &rec.ProviderType, &rec.ExternalID,
+		&rec.DisplayName, &rec.AvatarURL, &metadata, &rec.CreatedAt, &rec.UpdatedAt,
+	)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, ErrNotFound
+		}
+		return nil, errs.Wrap(errs.CodeStoreReadFailed, "读取外部账号绑定失败", err)
+	}
+	if len(metadata) > 0 {
+		rec.Metadata = json.RawMessage(metadata)
+	}
+	return &rec, nil
+}
+
+func (s *PostgresStore) DeleteUserExternalID(ctx context.Context, userID, providerType string) error {
+	_, err := s.pool.Exec(ctx,
+		`DELETE FROM user_external_ids WHERE user_id = $1 AND provider_type = $2`,
+		userID, providerType)
+	if err != nil {
+		return errs.Wrap(errs.CodeStoreWriteFailed, "删除外部账号绑定失败", err)
+	}
+	return nil
+}
+
+func (s *PostgresStore) UpsertWechatConversation(ctx context.Context, rec *WechatConversationRecord) error {
+	if rec == nil {
+		return errs.New(errs.CodeInvalidInput, "wechat conversation record is nil")
+	}
+	metadata := "{}"
+	if len(rec.Metadata) > 0 {
+		metadata = string(rec.Metadata)
+	}
+	chatType := rec.ChatType
+	if chatType == "" {
+		chatType = "direct"
+	}
+	sendState := rec.SendState
+	if sendState == "" {
+		sendState = "unknown"
+	}
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO wechat_conversations (
+			owner_user_id, owner_account_id, peer_wxid, session_id,
+			peer_nickname, peer_avatar_url, chat_type, last_message_preview,
+			last_message_at, can_send, send_state, metadata
+		)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb)
+		ON CONFLICT (owner_user_id, peer_wxid) DO UPDATE SET
+			owner_account_id = EXCLUDED.owner_account_id,
+			session_id = EXCLUDED.session_id,
+			peer_nickname = CASE WHEN EXCLUDED.peer_nickname <> '' THEN EXCLUDED.peer_nickname ELSE wechat_conversations.peer_nickname END,
+			peer_avatar_url = CASE WHEN EXCLUDED.peer_avatar_url <> '' THEN EXCLUDED.peer_avatar_url ELSE wechat_conversations.peer_avatar_url END,
+			chat_type = EXCLUDED.chat_type,
+			last_message_preview = EXCLUDED.last_message_preview,
+			last_message_at = EXCLUDED.last_message_at,
+			can_send = EXCLUDED.can_send,
+			send_state = EXCLUDED.send_state,
+			metadata = EXCLUDED.metadata,
+			updated_at = NOW()`,
+		rec.OwnerUserID, rec.OwnerAccountID, rec.PeerWxid, rec.SessionID,
+		rec.PeerNickname, rec.PeerAvatarURL, chatType, rec.LastMessagePreview,
+		nullableTimePtr(rec.LastMessageAt), rec.CanSend, sendState, metadata)
+	if err != nil {
+		return errs.Wrap(errs.CodeStoreWriteFailed, "保存微信会话映射失败", err)
+	}
+	return nil
+}
+
+func (s *PostgresStore) scanWechatConversation(scanner interface {
+	Scan(dest ...any) error
+}) (*WechatConversationRecord, error) {
+	var rec WechatConversationRecord
+	var metadata []byte
+	var lastMessageAt sql.NullTime
+	err := scanner.Scan(
+		&rec.ID, &rec.OwnerUserID, &rec.OwnerAccountID, &rec.PeerWxid, &rec.SessionID,
+		&rec.PeerNickname, &rec.PeerAvatarURL, &rec.ChatType, &rec.LastMessagePreview,
+		&lastMessageAt, &rec.CanSend, &rec.SendState, &metadata, &rec.CreatedAt, &rec.UpdatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if lastMessageAt.Valid {
+		t := lastMessageAt.Time
+		rec.LastMessageAt = &t
+	}
+	if len(metadata) > 0 {
+		rec.Metadata = json.RawMessage(metadata)
+	}
+	return &rec, nil
+}
+
+func (s *PostgresStore) GetWechatConversationBySessionID(ctx context.Context, sessionID string) (*WechatConversationRecord, error) {
+	rec, err := s.scanWechatConversation(s.pool.QueryRow(ctx, `
+		SELECT id, owner_user_id, owner_account_id, peer_wxid, session_id,
+			peer_nickname, peer_avatar_url, chat_type, last_message_preview,
+			last_message_at, can_send, send_state, metadata, created_at, updated_at
+		FROM wechat_conversations
+		WHERE session_id = $1`, sessionID))
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, ErrNotFound
+		}
+		return nil, errs.Wrap(errs.CodeStoreReadFailed, "读取微信会话映射失败", err)
+	}
+	return rec, nil
+}
+
+func (s *PostgresStore) GetWechatConversationByOwnerPeer(ctx context.Context, ownerUserID, peerWxid string) (*WechatConversationRecord, error) {
+	rec, err := s.scanWechatConversation(s.pool.QueryRow(ctx, `
+		SELECT id, owner_user_id, owner_account_id, peer_wxid, session_id,
+			peer_nickname, peer_avatar_url, chat_type, last_message_preview,
+			last_message_at, can_send, send_state, metadata, created_at, updated_at
+		FROM wechat_conversations
+		WHERE owner_user_id = $1 AND peer_wxid = $2`, ownerUserID, peerWxid))
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, ErrNotFound
+		}
+		return nil, errs.Wrap(errs.CodeStoreReadFailed, "读取微信会话映射失败", err)
+	}
+	return rec, nil
+}
+
+func (s *PostgresStore) ListWechatConversationsByOwner(ctx context.Context, ownerUserID string) ([]*WechatConversationRecord, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT id, owner_user_id, owner_account_id, peer_wxid, session_id,
+			peer_nickname, peer_avatar_url, chat_type, last_message_preview,
+			last_message_at, can_send, send_state, metadata, created_at, updated_at
+		FROM wechat_conversations
+		WHERE owner_user_id = $1
+		ORDER BY last_message_at DESC NULLS LAST, updated_at DESC`,
+		ownerUserID)
+	if err != nil {
+		return nil, errs.Wrap(errs.CodeStoreReadFailed, "查询微信会话列表失败", err)
+	}
+	defer rows.Close()
+
+	var records []*WechatConversationRecord
+	for rows.Next() {
+		rec, err := s.scanWechatConversation(rows)
+		if err != nil {
+			return nil, errs.Wrap(errs.CodeStoreReadFailed, "扫描微信会话失败", err)
+		}
+		records = append(records, rec)
+	}
+	return records, rows.Err()
+}
+
+func (s *PostgresStore) UpdateWechatConversationSendState(ctx context.Context, ownerUserID, peerWxid string, canSend bool, sendState string) error {
+	ct, err := s.pool.Exec(ctx, `
+		UPDATE wechat_conversations
+		SET can_send = $3, send_state = $4, updated_at = NOW()
+		WHERE owner_user_id = $1 AND peer_wxid = $2`,
+		ownerUserID, peerWxid, canSend, sendState)
+	if err != nil {
+		return errs.Wrap(errs.CodeStoreWriteFailed, "更新微信会话发送状态失败", err)
+	}
+	if ct.RowsAffected() == 0 {
+		return ErrNotFound
 	}
 	return nil
 }
@@ -1358,7 +1560,7 @@ func (s *PostgresStore) listScheduledTasks(ctx context.Context, suffix string, a
 	}
 	defer rows.Close()
 
-	var records []*ScheduledTask
+	records := make([]*ScheduledTask, 0)
 	for rows.Next() {
 		rec, err := scanScheduledTask(rows)
 		if err != nil {
@@ -1685,7 +1887,7 @@ func (s *PostgresStore) ListScheduledTaskRuns(ctx context.Context, taskID string
 	}
 	defer rows.Close()
 
-	var records []*ScheduledTaskRun
+	records := make([]*ScheduledTaskRun, 0)
 	for rows.Next() {
 		rec, err := scanScheduledTaskRun(rows)
 		if err != nil {

@@ -153,6 +153,15 @@ export function Chat() {
 
   // 从消息列表实时累加 input + output tokens（不用 stale 的 currentSession.total_tokens）
   const totalTokens = useMemo(() => calculateMessageTotalTokens(messages), [messages]);
+  const isWechatSession = currentSession?.source === 'wechatbot';
+  const wechatCannotSend = isWechatSession && currentSession?.can_send === false;
+  const inputDisabled = sending || streaming || wechatCannotSend;
+  const inputNotice = wechatCannotSend
+    ? t('wechatConnection.noSendContext', '该联系人暂无可发送上下文，请先让对方给微信里的 clawbot 发一条消息。')
+    : undefined;
+  const inputPlaceholder = wechatCannotSend
+    ? t('wechatConnection.noSendContextShort', '等待对方先给 clawbot 发消息')
+    : undefined;
 
   useEffect(() => {
     setSlots({
@@ -225,7 +234,15 @@ export function Chat() {
             onRegenerate={handleRegenerate}
           />
           <TodosList variant="mobile" />
-          <ChatInput onSend={handleSend} onStop={handleStop} disabled={sending || streaming} />
+          <ChatInput
+            onSend={handleSend}
+            onStop={handleStop}
+            disabled={inputDisabled}
+            placeholder={inputPlaceholder}
+            notice={inputNotice}
+            allowAttachments={!isWechatSession}
+            allowDeepThinking={!isWechatSession}
+          />
         </div>
         {/* 右侧工作区：宽屏 stack，窄屏仅 Canvas 覆盖 */}
         {workspaceOpen && (

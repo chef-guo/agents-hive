@@ -31,6 +31,10 @@ function upsertTask(tasks: ScheduledTask[], task: ScheduledTask): ScheduledTask[
   return tasks.map((item) => item.id === task.id ? task : item);
 }
 
+function listOrEmpty<T>(value: T[] | null | undefined): T[] {
+  return Array.isArray(value) ? value : [];
+}
+
 export const useScheduledTasksStore = create<ScheduledTasksState>((set, get) => ({
   tasks: [],
   runsByTaskId: {},
@@ -44,7 +48,7 @@ export const useScheduledTasksStore = create<ScheduledTasksState>((set, get) => 
     set({ loading: true, error: null, partialWarning: null });
     try {
       const tasks = await client.listScheduledTasks();
-      set({ tasks, loading: false });
+      set({ tasks: listOrEmpty(tasks), loading: false });
     } catch (e) {
       set({
         loading: false,
@@ -131,11 +135,12 @@ export const useScheduledTasksStore = create<ScheduledTasksState>((set, get) => 
     }));
     try {
       const runs = await client.listScheduledTaskRuns(id, limit);
+      const safeRuns = listOrEmpty(runs);
       set((state) => ({
-        runsByTaskId: { ...state.runsByTaskId, [id]: runs },
+        runsByTaskId: { ...state.runsByTaskId, [id]: safeRuns },
         runsLoadingByTaskId: { ...state.runsLoadingByTaskId, [id]: false },
       }));
-      return runs;
+      return safeRuns;
     } catch (e) {
       const message = errorMessage(e, '加载运行记录失败');
       set((state) => ({

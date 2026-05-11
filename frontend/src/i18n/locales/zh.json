@@ -240,6 +240,43 @@
     "collapse": "收起",
     "expand": "展开"
   },
+  "wechatConnection": {
+    "title": "微信 Bot 连接",
+    "subtitle": "使用官方 wechatbot.dev 连接 iLink Bot。请让对方给微信里的 clawbot 发消息。",
+    "sourceLabel": "微信",
+    "disabledHint": "官方微信 Bot 通道未启用，请先让管理员开启 channel.wechatbot.enabled。",
+    "account": "Bot 账号",
+    "unbound": "未绑定",
+    "conversations": "会话",
+    "eventStream": "事件流",
+    "connect": "连接微信 Bot",
+    "connecting": "连接中...",
+    "relogin": "重新登录",
+    "reconnecting": "重登中...",
+    "logout": "断开连接",
+    "disconnecting": "断开中...",
+    "scanTitle": "使用微信扫码连接 Bot",
+    "scanHint": "扫码后会在微信里出现 clawbot。当前官方 SDK 只接收发给 clawbot 的消息，不会读取你微信号本人的普通私聊。",
+    "qrRendering": "二维码生成中...",
+    "qrAlt": "微信 Bot 连接二维码",
+    "recentConversations": "最近微信 Bot 会话",
+    "noConversations": "暂无微信 Bot 会话",
+    "noConversationsHint": "请让对方给微信里的 clawbot 发消息，系统才会生成可回复会话。",
+    "noSendContext": "该联系人暂无可发送上下文，请先让对方给微信里的 clawbot 发一条消息。",
+    "noSendContextShort": "等待对方先给 clawbot 发消息",
+    "status": {
+      "loading": "加载中",
+      "disabled": "未启用",
+      "not_connected": "未连接",
+      "waiting_qr_scan": "待扫码",
+      "scanned": "已扫码",
+      "online": "在线",
+      "recovering": "恢复中",
+      "relogin_required": "需重新登录",
+      "offline": "离线",
+      "error": "异常"
+    }
+  },
   "sidebar": {
     "searchSessions": "搜索会话..."
   },
@@ -499,17 +536,17 @@
     },
     "imChannels": {
       "title": "IM 集成",
-      "desc": "接入钉钉、飞书、企业微信或个人微信，在 IM 中与代理对话",
+      "desc": "接入钉钉、飞书、企业微信或官方微信 Bot，在 IM 中与代理对话",
       "overview": {
         "title": "1. 支持的 IM 平台与架构",
-        "desc": "Channel 系统将 IM 消息桥接到 Agent 会话：\n\nIM 平台 → Webhook → Channel Router → ACP 控制平面 → Master Agent\n\n支持的平台：\n• 钉钉 (dingtalk) — 企业级，需要创建钉钉应用\n• 飞书 (feishu) — 企业级，需要创建飞书应用\n• 企业微信 (wecom) — 企业级，需要企业微信管理员权限\n• 个人微信 — 将通过官方 wechatbot 用户级连接进入设置页，旧协议已移除\n\n消息类型支持：私聊 (direct)、群聊 (group)、频道 (channel)。",
-        "detail": "## 架构流程\n\n```\nIM 用户消息\n    ↓\nWebhook 端点 (/api/v1/webhook/{platform})\n    ↓\nChannel Router（查找 Binding 映射）\n    ↓\nACP 控制平面（限流、鉴权）\n    ↓\nMaster Agent（处理并回复）\n    ↓\nIM 回复消息\n```\n\n## 支持的平台\n\n| 平台 | 标识 | 类型 | 要求 |\n|------|------|------|------|\n| 钉钉 | `dingtalk` | 企业级 | 创建钉钉应用 |\n| 飞书 | `feishu` | 企业级 | 创建飞书应用 |\n| 企业微信 | `wecom` | 企业级 | 企业微信管理员权限 |\n| 个人微信 | 待定 | 个人 | 将通过官方 wechatbot 用户级连接进入设置页，旧协议已移除 |\n\n## 消息类型\n\n| 类型 | 标识 | 说明 |\n|------|------|------|\n| 私聊 | `direct` | 一对一私聊消息 |\n| 群聊 | `group` | 群组中的消息 |\n| 频道 | `channel` | 频道/话题中的消息 |"
+        "desc": "Channel 系统将 IM 消息桥接到 Agent 会话：\n\nIM 平台 → Webhook/Long Poll → Channel Router → ACP 控制平面 → Master Agent\n\n支持的平台：\n• 钉钉 (dingtalk) — 企业级，需要创建钉钉应用\n• 飞书 (feishu) — 企业级，需要创建飞书应用\n• 企业微信 (wecom) — 企业级，需要企业微信管理员权限\n• 微信 Bot — 官方 wechatbot/iLink Bot；只接收发给 clawbot 的消息，不读取个人微信普通私聊\n\n消息类型支持：私聊 (direct)、群聊 (group)、频道 (channel)。",
+        "detail": "## 架构流程\n\n```\nIM 用户消息\n    ↓\nWebhook / Long Poll 入口\n    ↓\nChannel Router（查找 Binding 映射）\n    ↓\nACP 控制平面（限流、鉴权）\n    ↓\nMaster Agent（处理并回复）\n    ↓\nIM 回复消息\n```\n\n## 支持的平台\n\n| 平台 | 标识 | 类型 | 要求 |\n|------|------|------|------|\n| 钉钉 | `dingtalk` | 企业级 | 创建钉钉应用 |\n| 飞书 | `feishu` | 企业级 | 创建飞书应用 |\n| 企业微信 | `wecom` | 企业级 | 企业微信管理员权限 |\n| 微信 Bot | `wechatbot` | 官方 iLink Bot | 普通用户在 `/settings` 连接官方 wechatbot；联系人必须给 clawbot 发消息，已有上下文会话可 Web 回复 |\n\n## 消息类型\n\n| 类型 | 标识 | 说明 |\n|------|------|------|\n| 私聊 | `direct` | 一对一私聊消息 |\n| 群聊 | `group` | 群组中的消息 |\n| 频道 | `channel` | 频道/话题中的消息 |"
       },
       "channelConfig": {
         "title": "2. 各平台配置方法",
-        "desc": "在 config.json 的 channel 部分启用并配置各平台：\n\n钉钉：需要 app_key、app_secret、回调 token 和 aes_key，以及 agent_id\n飞书：需要 app_id、app_secret、verification_token 和 encrypt_key\n企业微信：需要 corp_id、agent_id、secret、回调 token 和 encoding_aes_key\n\n个人微信将通过官方 wechatbot 用户级连接进入设置页，旧协议配置入口已移除。",
-        "tip": "个人微信旧协议入口已移除；新的官方 wechatbot 设置将在后续版本提供。",
-        "detail": "## 钉钉配置\n\n```json\n{\n  \"channel\": {\n    \"dingtalk\": {\n      \"enabled\": true,\n      \"app_key\": \"your-app-key\",\n      \"app_secret\": \"your-app-secret\",\n      \"token\": \"callback-token\",\n      \"aes_key\": \"callback-aes-key\",\n      \"agent_id\": \"your-agent-id\"\n    }\n  }\n}\n```\n\n## 飞书配置\n\n```json\n{\n  \"channel\": {\n    \"feishu\": {\n      \"enabled\": true,\n      \"app_id\": \"your-app-id\",\n      \"app_secret\": \"your-app-secret\",\n      \"verification_token\": \"your-verification-token\",\n      \"encrypt_key\": \"your-encrypt-key\"\n    }\n  }\n}\n```\n\n## 企业微信配置\n\n```json\n{\n  \"channel\": {\n    \"wecom\": {\n      \"enabled\": true,\n      \"corp_id\": \"your-corp-id\",\n      \"agent_id\": \"your-agent-id\",\n      \"secret\": \"your-secret\",\n      \"token\": \"callback-token\",\n      \"encoding_aes_key\": \"your-encoding-aes-key\"\n    }\n  }\n}\n```\n\n## 个人微信\n\n个人微信将通过官方 wechatbot 用户级连接进入设置页，旧协议配置入口已移除。"
+        "desc": "在 config.json 的 channel 部分启用并配置各平台：\n\n钉钉：需要 app_key、app_secret、回调 token 和 aes_key，以及 agent_id\n飞书：需要 app_id、app_secret、verification_token 和 encrypt_key\n企业微信：需要 corp_id、agent_id、secret、回调 token 和 encoding_aes_key\n\n微信 Bot 将通过官方 wechatbot 用户级连接进入设置页，旧协议配置入口已移除。",
+        "tip": "旧个人微信协议入口已移除；普通用户可在 /settings 使用官方 wechatbot 连接 iLink Bot。它只处理发给 clawbot 的消息。",
+        "detail": "## 钉钉配置\n\n```json\n{\n  \"channel\": {\n    \"dingtalk\": {\n      \"enabled\": true,\n      \"app_key\": \"your-app-key\",\n      \"app_secret\": \"your-app-secret\",\n      \"token\": \"callback-token\",\n      \"aes_key\": \"callback-aes-key\",\n      \"agent_id\": \"your-agent-id\"\n    }\n  }\n}\n```\n\n## 飞书配置\n\n```json\n{\n  \"channel\": {\n    \"feishu\": {\n      \"enabled\": true,\n      \"app_id\": \"your-app-id\",\n      \"app_secret\": \"your-app-secret\",\n      \"verification_token\": \"your-verification-token\",\n      \"encrypt_key\": \"your-encrypt-key\"\n    }\n  }\n}\n```\n\n## 企业微信配置\n\n```json\n{\n  \"channel\": {\n    \"wecom\": {\n      \"enabled\": true,\n      \"corp_id\": \"your-corp-id\",\n      \"agent_id\": \"your-agent-id\",\n      \"secret\": \"your-secret\",\n      \"token\": \"callback-token\",\n      \"encoding_aes_key\": \"your-encoding-aes-key\"\n    }\n  }\n}\n```\n\n## 微信 Bot\n\n微信 Bot 将通过官方 wechatbot 用户级连接进入设置页，旧协议配置入口已移除。它不是个人微信普通私聊托管；联系人必须给微信里的 clawbot 发消息。"
       },
       "webhook": {
         "title": "3. Webhook 与消息路由",
@@ -629,11 +666,12 @@
     "deleteMcpServer": "删除",
     "mcpNeedRestart": "MCP 配置变更需保存到文件并重启服务",
     "imChannels": "IM 通道配置",
-    "imChannelsHint": "配置钉钉、飞书、企业微信的接入参数。修改后需保存到文件并重启服务。",
-    "channelEnabled": "启用 IM 通道",
+    "imChannelsHint": "按平台分别启用钉钉、飞书、企业微信和官方微信 Bot 入口；修改后会热重载并立即生效。",
     "dingtalk": "钉钉",
     "feishu": "飞书",
     "wecom": "企业微信",
+    "wechatbot": "微信 Bot（官方 wechatbot）",
+    "wechatbotHint": "这里只控制官方微信 Bot 入口是否开放；普通用户在个人设置页扫码连接 iLink Bot。Base URL、凭证目录和日志级别由服务端部署配置管理。",
     "appKey": "App Key",
     "appSecret": "App Secret",
     "appId": "App ID",
@@ -673,8 +711,8 @@
     "feishuShowAgentProgress": "展示 Agent 中间状态",
     "feishuShowAgentProgressHint": "卡片中显示 \"Agent 思考中\" 等过程文案，默认关闭",
     "channelNeedRestart": "IM 通道配置变更需保存到文件并重启服务",
-    "wechatTitle": "个人微信连接",
-    "wechatDesc": "个人微信将通过官方 wechatbot 用户级连接进入设置页，旧协议已移除。",
+    "wechatTitle": "微信 Bot 连接",
+    "wechatDesc": "微信 Bot 将通过官方 wechatbot 用户级连接进入设置页，旧协议已移除；它只处理发给 clawbot 的消息。",
     "saveConfig": "保存配置",
     "saving": "保存中...",
     "reload": "重载",
@@ -688,8 +726,8 @@
     "statusError": "错误",
     "notStarted": "未启动",
     "noConfigItems": "无可配置项",
-    "wechatTip1": "个人微信旧协议入口已移除",
-    "wechatTip2": "新的官方 wechatbot 设置将在后续版本提供",
+    "wechatTip1": "旧个人微信协议入口已移除",
+    "wechatTip2": "普通用户可在 /settings 使用官方 wechatbot 连接 iLink Bot",
     "wechatTip3": "企业 IM 通道仍可在当前设置页配置",
     "wechatTip4": "无需配置旧协议服务"
   },

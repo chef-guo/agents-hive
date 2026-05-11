@@ -17,6 +17,7 @@ const Chat = lazy(() => import('./pages/Chat').then(({ Chat }) => ({ default: Ch
 const Agents = lazy(() => import('./pages/Agents').then(({ Agents }) => ({ default: Agents })));
 const Skills = lazy(() => import('./pages/Skills').then(({ Skills }) => ({ default: Skills })));
 const Guide = lazy(() => import('./pages/Guide').then(({ Guide }) => ({ default: Guide })));
+const Settings = lazy(() => import('./pages/Settings').then(({ Settings }) => ({ default: Settings })));
 const AdminSettings = lazy(() => import('./pages/AdminSettings').then(({ AdminSettings }) => ({ default: AdminSettings })));
 const ScheduledTasks = lazy(() => import('./pages/ScheduledTasks').then(({ ScheduledTasks }) => ({ default: ScheduledTasks })));
 const UserList = lazy(() => import('./pages/admin/UserList').then(({ UserList }) => ({ default: UserList })));
@@ -74,6 +75,7 @@ export default function App() {
                 <Route path="/sessions/:id" element={<Chat />} />
                 <Route path="/replay" element={<ReplayGallery />} />
                 <Route path="/guide" element={<Guide />} />
+                <Route path="/settings" element={<Settings />} />
               </Route>
 
               {/* 回放页面（独立全屏布局，无 Sidebar） */}

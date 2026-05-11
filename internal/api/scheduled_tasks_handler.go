@@ -113,6 +113,9 @@ func (s *Server) handleListScheduledTasks(w http.ResponseWriter, r *http.Request
 		writeJSON(w, http.StatusInternalServerError, ErrorResponse{Error: err.Error(), Code: errs.CodeInternal})
 		return
 	}
+	if records == nil {
+		records = []*store.ScheduledTask{}
+	}
 	writeJSON(w, http.StatusOK, records)
 }
 
@@ -125,6 +128,9 @@ func (s *Server) handleAdminListScheduledTasks(w http.ResponseWriter, r *http.Re
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, ErrorResponse{Error: err.Error(), Code: errs.CodeInternal})
 		return
+	}
+	if records == nil {
+		records = []*store.ScheduledTask{}
 	}
 	writeJSON(w, http.StatusOK, records)
 }
@@ -265,6 +271,9 @@ func (s *Server) handleListScheduledTaskRuns(w http.ResponseWriter, r *http.Requ
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, ErrorResponse{Error: err.Error(), Code: errs.CodeInternal})
 		return
+	}
+	if records == nil {
+		records = []*store.ScheduledTaskRun{}
 	}
 	writeJSON(w, http.StatusOK, records)
 }

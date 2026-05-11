@@ -1018,7 +1018,10 @@ type ChannelConfig struct {
 
 // WeChatBotConfig 官方 wechatbot 个人微信通道全局开关。
 type WeChatBotConfig struct {
-	Enabled bool `json:"enabled,omitempty"`
+	Enabled  bool   `json:"enabled,omitempty"`
+	BaseURL  string `json:"base_url,omitempty"`
+	CredRoot string `json:"cred_root,omitempty"`
+	LogLevel string `json:"log_level,omitempty"`
 }
 
 // DingTalkConfig 钉钉配置

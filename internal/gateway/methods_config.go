@@ -45,10 +45,11 @@ type AgentUpdateRequest struct {
 
 // ChannelUpdateRequest IM 通道相关可更新字段
 type ChannelUpdateRequest struct {
-	Enabled  *bool                  `json:"enabled,omitempty"`
-	DingTalk *config.DingTalkConfig `json:"dingtalk,omitempty"`
-	Feishu   *config.FeishuConfig   `json:"feishu,omitempty"`
-	WeCom    *config.WeComConfig    `json:"wecom,omitempty"`
+	Enabled   *bool                   `json:"enabled,omitempty"`
+	DingTalk  *config.DingTalkConfig  `json:"dingtalk,omitempty"`
+	Feishu    *config.FeishuConfig    `json:"feishu,omitempty"`
+	WeCom     *config.WeComConfig     `json:"wecom,omitempty"`
+	WeChatBot *config.WeChatBotConfig `json:"wechatbot,omitempty"`
 }
 
 // MCPUpdateRequest MCP 相关可更新字段
@@ -251,8 +252,8 @@ func registerConfigMethods(gw *Gateway, deps Deps) {
 					if d, err := parseDurationStr(*req.Agent.Timeout); err == nil {
 						if deps.Store != nil {
 							if err := deps.Store.SetConfig(ctx, "agent.timeout", *req.Agent.Timeout); err != nil {
-							zap.L().Error("持久化 agent.timeout 失败", zap.Error(err))
-						}
+								zap.L().Error("持久化 agent.timeout 失败", zap.Error(err))
+							}
 						}
 						deps.Config.Agent.Timeout = d
 					} else {
@@ -263,8 +264,8 @@ func registerConfigMethods(gw *Gateway, deps Deps) {
 					if d, err := parseDurationStr(*req.Agent.ShellTimeout); err == nil {
 						if deps.Store != nil {
 							if err := deps.Store.SetConfig(ctx, "agent.shell_timeout", *req.Agent.ShellTimeout); err != nil {
-							zap.L().Error("持久化 agent.shell_timeout 失败", zap.Error(err))
-						}
+								zap.L().Error("持久化 agent.shell_timeout 失败", zap.Error(err))
+							}
 						}
 						deps.Config.Agent.ShellTimeout = d
 					} else {
@@ -288,6 +289,10 @@ func registerConfigMethods(gw *Gateway, deps Deps) {
 					deps.Config.Channel.WeCom = *req.Channel.WeCom
 					saveChannelToDB(ctx, deps.Store, "wecom", req.Channel.WeCom)
 				}
+				if req.Channel.WeChatBot != nil {
+					deps.Config.Channel.WeChatBot = *req.Channel.WeChatBot
+					saveChannelToDB(ctx, deps.Store, "wechatbot", req.Channel.WeChatBot)
+				}
 			}
 
 			// 更新 MCP 配置（同时写入数据库）
@@ -309,8 +314,8 @@ func registerConfigMethods(gw *Gateway, deps Deps) {
 							delete(deps.Config.MCP.Servers, name)
 							if deps.Store != nil {
 								if err := deps.Store.DeleteMCPServer(ctx, name); err != nil {
-								zap.L().Error("删除 MCP 服务端记录失败", zap.String("name", name), zap.Error(err))
-							}
+									zap.L().Error("删除 MCP 服务端记录失败", zap.String("name", name), zap.Error(err))
+								}
 							}
 							continue
 						}
@@ -337,8 +342,8 @@ func registerConfigMethods(gw *Gateway, deps Deps) {
 					}
 					if deps.Store != nil {
 						if err := deps.Store.SetConfig(ctx, "security.default_policy", p); err != nil {
-						zap.L().Error("持久化 security.default_policy 失败", zap.Error(err))
-					}
+							zap.L().Error("持久化 security.default_policy 失败", zap.Error(err))
+						}
 					}
 					deps.Config.Security.DefaultPolicy = p
 				}
@@ -381,7 +386,7 @@ func registerConfigMethods(gw *Gateway, deps Deps) {
 
 			platforms := []string{p.Platform}
 			if p.Platform == "" {
-				platforms = []string{"dingtalk", "feishu", "wecom"}
+				platforms = []string{"dingtalk", "feishu", "wecom", "wechatbot"}
 			}
 
 			reloaded := make([]string, 0, len(platforms))

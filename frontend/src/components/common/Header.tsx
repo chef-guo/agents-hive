@@ -37,6 +37,7 @@ export function Header({ connected, onToggleSidebar }: Props) {
   const pageTitleMap: Record<string, string> = {
     '/': t('chatLanding.title'),
     '/guide': t('nav.guide'),
+    '/settings': t('nav.preferences'),
     '/admin': t('nav.adminDashboard'),
     '/admin/agents': t('nav.adminAgents'),
     '/admin/scheduled-tasks': t('nav.adminScheduledTasks'),

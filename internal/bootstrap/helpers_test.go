@@ -14,6 +14,7 @@ import (
 	apiPkg "github.com/chef-guo/agents-hive/internal/api"
 	"github.com/chef-guo/agents-hive/internal/channel"
 	"github.com/chef-guo/agents-hive/internal/channel/feishu"
+	"github.com/chef-guo/agents-hive/internal/channel/wechatbot"
 	"github.com/chef-guo/agents-hive/internal/config"
 	"github.com/chef-guo/agents-hive/internal/master"
 	"github.com/chef-guo/agents-hive/internal/skills"
@@ -322,6 +323,51 @@ func TestBuildReloadChannelFunc_FeishuAppliesReloadables(t *testing.T) {
 	}
 	if pushService.lastCfg.Push.PerChatPerMinute != 7 {
 		t.Fatalf("reloadable cfg push.per_chat_per_minute = %d, want 7", pushService.lastCfg.Push.PerChatPerMinute)
+	}
+}
+
+func TestBuildReloadChannelFunc_WechatbotTogglesExistingRegistry(t *testing.T) {
+	logger := zap.NewNop()
+	router := channel.NewRouter(nil, logger)
+	cfg := config.Default()
+	cfg.SessionsDir = t.TempDir()
+	cfg.Channel.WeChatBot.Enabled = false
+	var mu sync.RWMutex
+	st := store.NewMemoryStore()
+
+	fn := BuildReloadChannelFuncWithStore(cfg, router, st, nil, nil, nil, nil, nil, nil, nil, nil, &mu, logger)
+	if fn == nil {
+		t.Fatal("expected non-nil reload func")
+	}
+	if err := fn("wechatbot"); err != nil {
+		t.Fatalf("reload disabled wechatbot failed: %v", err)
+	}
+	plugin, ok := router.GetPlugin(channel.PlatformWeChatBot)
+	if !ok {
+		t.Fatal("expected wechatbot plugin to stay registered for API service")
+	}
+	wbPlugin, ok := plugin.(*wechatbot.Plugin)
+	if !ok {
+		t.Fatalf("plugin type = %T, want *wechatbot.Plugin", plugin)
+	}
+	status, err := wbPlugin.Registry().Status(context.Background(), "owner-1")
+	if err != nil {
+		t.Fatalf("status disabled: %v", err)
+	}
+	if status.Enabled {
+		t.Fatalf("status.Enabled = true, want false")
+	}
+
+	cfg.Channel.WeChatBot.Enabled = true
+	if err := fn("wechatbot"); err != nil {
+		t.Fatalf("reload enabled wechatbot failed: %v", err)
+	}
+	status, err = wbPlugin.Registry().Status(context.Background(), "owner-1")
+	if err != nil {
+		t.Fatalf("status enabled: %v", err)
+	}
+	if !status.Enabled {
+		t.Fatalf("status.Enabled = false, want true")
 	}
 }
 

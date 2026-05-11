@@ -23,6 +23,7 @@ import (
 	"github.com/chef-guo/agents-hive/internal/channel/dingtalk"
 	"github.com/chef-guo/agents-hive/internal/channel/feishu"
 	pushsvc "github.com/chef-guo/agents-hive/internal/channel/push"
+	"github.com/chef-guo/agents-hive/internal/channel/wechatbot"
 	"github.com/chef-guo/agents-hive/internal/channel/wecom"
 	"github.com/chef-guo/agents-hive/internal/config"
 	"github.com/chef-guo/agents-hive/internal/controlplane"
@@ -92,6 +93,7 @@ type ServerComponents struct {
 	LLMClient           *llm.Client
 	Master              *master.Master
 	ChannelRouter       *channel.Router
+	WeChatBotService    wechatbot.ConnectionService
 	PushService         *pushsvc.Service
 	FeishuChatStateRepo feishu.ChatStateRepo
 	ACPPool             *acpclient.ACPClientPool
@@ -518,7 +520,7 @@ func InitServer(cfg *config.Config, configPath string, logger *zap.Logger) *Serv
 
 	// 14.1 延迟注册 IM 相关工具（依赖 channelRouter 和飞书凭证）
 	if sc.ChannelRouter != nil {
-		tools.RegisterSendIMMessage(sc.MCPHost, logger, sc.ChannelRouter)
+		tools.RegisterSendIMMessageWithStore(sc.MCPHost, logger, sc.ChannelRouter, sc.DB)
 		logger.Info("send_im_message 工具已注册")
 	}
 	if cfg.Channel.Feishu.AppID != "" && cfg.Channel.Feishu.AppSecret != "" {
@@ -1457,6 +1459,15 @@ func initChannels(sc *ServerComponents, cfg *config.Config, logger *zap.Logger) 
 		channelRouter.RegisterPlugin(wcPlugin)
 		logger.Info("企业微信 Channel 插件已注册")
 	}
+	wbCfg := wechatbot.ConfigFromApp(cfg.Channel.WeChatBot, cfg.SessionsDir)
+	registry := wechatbot.NewRegistry(wbCfg, channelRouter, sc.DB, logger)
+	plugin := wechatbot.NewPlugin(registry, logger)
+	if pgStore, ok := sc.DB.(*store.PostgresStore); ok && pgStore != nil {
+		plugin.SetMetricsWriter(observability.NewPgMetricsWriter(pgStore.Pool(), logger))
+	}
+	channelRouter.RegisterPlugin(plugin)
+	sc.WeChatBotService = wechatbot.NewService(registry, sc.DB)
+	logger.Info("官方 wechatbot Channel 插件已注册", zap.Bool("enabled", cfg.Channel.WeChatBot.Enabled))
 	return channelRouter
 }
 
@@ -1479,9 +1490,10 @@ func initGateway(sc *ServerComponents, cfg *config.Config, configPath string, lo
 		ConfigPath:    configPath,
 		Store:         sc.DB,
 		AIRouter:      sc.AIRouter,
-		ReloadChannelFunc: BuildReloadChannelFunc(
+		ReloadChannelFunc: BuildReloadChannelFuncWithStore(
 			cfg,
 			sc.ChannelRouter,
+			sc.DB,
 			sc.Master.GetHITLBroker(),
 			sc.FeishuChatStateRepo,
 			sc.Master,

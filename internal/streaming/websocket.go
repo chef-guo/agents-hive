@@ -13,6 +13,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/chef-guo/agents-hive/internal/auth"
+	"github.com/chef-guo/agents-hive/internal/errs"
 	"github.com/chef-guo/agents-hive/internal/master"
 )
 
@@ -260,7 +261,6 @@ func (h *WSHandler) HandleConnection(w http.ResponseWriter, r *http.Request) {
 		h.logger.Error("WebSocket 接受连接失败", zap.Error(err))
 		return
 	}
-	defer conn.Close(websocket.StatusNormalClosure, "closing")
 
 	h.logger.Info("WebSocket 连接已建立",
 		zap.String("ip", clientIP),
@@ -278,6 +278,24 @@ func (h *WSHandler) HandleConnection(w http.ResponseWriter, r *http.Request) {
 	// 提取当前连接的用户 session ID，用于广播过滤。
 	// 前端连接时应传入 ?session_id=xxx，auth 启用后用于隔离不同用户的广播。
 	userSessionID := r.URL.Query().Get("session_id")
+	if h.authEngine != nil && userSessionID != "" {
+		if authenticatedUser != nil {
+			if err := h.authorizeSessionSubscription(ctx, userSessionID, authenticatedUser.ID); err != nil {
+				h.logger.Warn("WebSocket 会话订阅被拒绝：无权访问",
+					zap.String("remote_addr", r.RemoteAddr),
+					zap.String("user_id", authenticatedUser.ID),
+					zap.String("session_id", userSessionID),
+					zap.Error(err),
+				)
+				conn.Close(4403, "forbidden")
+				return
+			}
+		} else if !staticTokenPassed {
+			conn.Close(4401, "missing user")
+			return
+		}
+	}
+	defer conn.Close(websocket.StatusNormalClosure, "closing")
 
 	// 订阅 WebSocket 广播
 	subID, broadcastCh := h.master.SubscribeWSBroadcast()
@@ -303,6 +321,28 @@ func (h *WSHandler) HandleConnection(w http.ResponseWriter, r *http.Request) {
 	h.logger.Debug("WebSocket 所有 goroutine 已退出，连接清理完成",
 		zap.String("ip", clientIP),
 	)
+}
+
+func (h *WSHandler) authorizeSessionSubscription(ctx context.Context, sessionID, userID string) error {
+	if h.master == nil {
+		return errs.New(errs.CodeInternal, "master 未初始化")
+	}
+	if sessionID == "" {
+		return nil
+	}
+	user := auth.UserFrom(ctx)
+	if user == nil || user.ID != userID {
+		return errs.New(errs.CodePermissionDenied, "未授权")
+	}
+	authCtx := auth.WithUser(auth.WithAuthEnabled(ctx), user)
+	record, err := h.master.GetSessionByID(authCtx, sessionID)
+	if err != nil {
+		return err
+	}
+	if record == nil || record.UserID != userID {
+		return errs.New(errs.CodePermissionDenied, "无权访问此会话")
+	}
+	return nil
 }
 
 // writeLoop 向 WebSocket 客户端发送 keepalive ping 和广播消息。

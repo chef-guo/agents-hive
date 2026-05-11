@@ -16,6 +16,7 @@ import (
 	"github.com/chef-guo/agents-hive/internal/channel"
 	"github.com/chef-guo/agents-hive/internal/channel/feishu"
 	"github.com/chef-guo/agents-hive/internal/channel/push"
+	"github.com/chef-guo/agents-hive/internal/channel/wechatbot"
 	"github.com/chef-guo/agents-hive/internal/config"
 	"github.com/chef-guo/agents-hive/internal/gateway"
 	"github.com/chef-guo/agents-hive/internal/master"
@@ -113,6 +114,7 @@ type Server struct {
 	workbenchBatchEvalStore       qualityworkbench.BatchEvalRunStore
 	workbenchReportStore          qualityworkbench.WeeklyReportStore
 	feishuHealthClient            *feishu.Client
+	wechatBotService              wechatbot.ConnectionService
 	pushService                   *push.Service
 	feishuAuditSink               feishu.AuditSink
 	sessionTodoStore              sessionTodoSnapshotStore
@@ -410,6 +412,10 @@ func (s *Server) SetMemoryStore(store memory.MemoryStore) {
 
 func (s *Server) SetFeishuHealthClient(client *feishu.Client) {
 	s.feishuHealthClient = client
+}
+
+func (s *Server) SetWeChatBotService(service wechatbot.ConnectionService) {
+	s.wechatBotService = service
 }
 
 // Mux 返回 server 当前 HTTP handler，供跨包集成测试复用已注册路由。

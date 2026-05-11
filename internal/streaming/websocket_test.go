@@ -1,11 +1,13 @@
 package streaming
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 
 	"go.uber.org/zap"
 
+	"github.com/chef-guo/agents-hive/internal/auth"
 	"github.com/chef-guo/agents-hive/internal/config"
 	"github.com/chef-guo/agents-hive/internal/master"
 	"github.com/chef-guo/agents-hive/internal/skills"
@@ -250,5 +252,44 @@ func TestWSHandler_ConnectionCounting(t *testing.T) {
 
 	if len(handler.ipConnections) != 0 {
 		t.Errorf("expected ipConnections to be empty, got %d entries", len(handler.ipConnections))
+	}
+}
+
+func TestWSHandler_AuthorizeSessionSubscription(t *testing.T) {
+	logger := zap.NewNop()
+	skillReg := skills.NewRegistry(logger)
+	agentReg := subagent.NewRegistry(logger)
+	st := store.NewMemoryStore()
+	if err := st.SaveSession(context.Background(), &store.SessionRecord{
+		ID:     "sess-owner",
+		Name:   "owner session",
+		UserID: "user-owner",
+	}); err != nil {
+		t.Fatalf("save session: %v", err)
+	}
+	m := master.NewMaster(
+		master.Config{Model: "test"},
+		config.HITLConfig{},
+		agentReg,
+		skillReg,
+		st,
+		logger,
+	)
+	handler := NewWSHandler(m, logger)
+
+	owner := &auth.User{ID: "user-owner", Status: "active"}
+	ownerCtx := auth.WithUser(context.Background(), owner)
+	if err := handler.authorizeSessionSubscription(ownerCtx, "sess-owner", owner.ID); err != nil {
+		t.Fatalf("owner subscription should be allowed: %v", err)
+	}
+
+	other := &auth.User{ID: "user-other", Status: "active"}
+	otherCtx := auth.WithUser(context.Background(), other)
+	if err := handler.authorizeSessionSubscription(otherCtx, "sess-owner", other.ID); err == nil {
+		t.Fatal("cross-user subscription should be rejected")
+	}
+
+	if err := handler.authorizeSessionSubscription(context.Background(), "sess-owner", owner.ID); err == nil {
+		t.Fatal("missing authenticated user should be rejected")
 	}
 }

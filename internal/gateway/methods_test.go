@@ -20,6 +20,7 @@ import (
 	"github.com/chef-guo/agents-hive/internal/mcphost"
 	"github.com/chef-guo/agents-hive/internal/plugin"
 	"github.com/chef-guo/agents-hive/internal/skills"
+	"github.com/chef-guo/agents-hive/internal/store"
 )
 
 // ─────────────────────────────────────────────
@@ -59,6 +60,21 @@ func doRPC(t *testing.T, gw *Gateway, method string, params interface{}, token s
 	var resp RPCResponse
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
 	return resp
+}
+
+type configChannelStore struct {
+	store.Store
+	records map[string]*store.ChannelConfigRecord
+}
+
+func newConfigChannelStore() *configChannelStore {
+	return &configChannelStore{records: make(map[string]*store.ChannelConfigRecord)}
+}
+
+func (s *configChannelStore) SaveChannelConfig(_ context.Context, rec *store.ChannelConfigRecord) error {
+	cp := *rec
+	s.records[rec.Platform] = &cp
+	return nil
 }
 
 // ─────────────────────────────────────────────
@@ -268,6 +284,53 @@ func TestConfigReload_WithCallback(t *testing.T) {
 	require.NoError(t, json.Unmarshal(resp.Result, &result))
 	assert.Equal(t, "reloaded", result["status"])
 	assert.True(t, called, "ReloadConfigFunc 应被调用")
+}
+
+func TestConfigUpdatePersistsWechatbotChannel(t *testing.T) {
+	cfg := config.Default()
+	var mu sync.RWMutex
+	db := newConfigChannelStore()
+
+	gw, token := newTestGateway(t)
+	registerConfigMethods(gw, Deps{
+		Config:   cfg,
+		ConfigMu: &mu,
+		Store:    db,
+	})
+
+	resp := doRPC(t, gw, "config.update", map[string]interface{}{
+		"channel": map[string]interface{}{
+			"wechatbot": map[string]interface{}{
+				"enabled": true,
+			},
+		},
+	}, token)
+	assert.Nil(t, resp.Error, "config.update should save wechatbot: %v", resp.Error)
+	assert.True(t, cfg.Channel.WeChatBot.Enabled)
+	rec := db.records["wechatbot"]
+	require.NotNil(t, rec)
+	assert.True(t, rec.Enabled)
+	assert.JSONEq(t, `{"enabled":true}`, rec.ConfigJSON)
+}
+
+func TestChannelReloadIncludesWechatbotByDefault(t *testing.T) {
+	cfg := config.Default()
+	var mu sync.RWMutex
+	var reloaded []string
+
+	gw, token := newTestGateway(t)
+	registerConfigMethods(gw, Deps{
+		Config:   cfg,
+		ConfigMu: &mu,
+		ReloadChannelFunc: func(platform string) error {
+			reloaded = append(reloaded, platform)
+			return nil
+		},
+	})
+
+	resp := doRPC(t, gw, "channel.reload", map[string]interface{}{}, token)
+	assert.Nil(t, resp.Error, "channel.reload should include wechatbot: %v", resp.Error)
+	assert.Equal(t, []string{"dingtalk", "feishu", "wecom", "wechatbot"}, reloaded)
 }
 
 // ─────────────────────────────────────────────

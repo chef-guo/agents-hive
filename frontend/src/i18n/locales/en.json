@@ -240,6 +240,43 @@
     "collapse": "Collapse",
     "expand": "Expand"
   },
+  "wechatConnection": {
+    "title": "WeChat Bot Connection",
+    "subtitle": "Connect an official wechatbot.dev iLink Bot. Ask contacts to message clawbot in WeChat.",
+    "sourceLabel": "WeChat",
+    "disabledHint": "Official WeChat Bot channel is not enabled. Ask an admin to enable channel.wechatbot.enabled.",
+    "account": "Bot Account",
+    "unbound": "Unbound",
+    "conversations": "Conversations",
+    "eventStream": "Event Stream",
+    "connect": "Connect WeChat Bot",
+    "connecting": "Connecting...",
+    "relogin": "Log in again",
+    "reconnecting": "Reconnecting...",
+    "logout": "Disconnect",
+    "disconnecting": "Disconnecting...",
+    "scanTitle": "Scan with WeChat to connect the Bot",
+    "scanHint": "After scanning, clawbot appears in WeChat. The official SDK only receives messages sent to clawbot, not normal private chats sent to your WeChat account.",
+    "qrRendering": "Generating QR code...",
+    "qrAlt": "WeChat Bot connection QR code",
+    "recentConversations": "Recent WeChat Bot Conversations",
+    "noConversations": "No WeChat Bot conversations yet",
+    "noConversationsHint": "Ask the contact to message clawbot in WeChat; then a replyable conversation appears here.",
+    "noSendContext": "This contact has no send context yet. Ask them to message clawbot in WeChat first.",
+    "noSendContextShort": "Waiting for a clawbot message first",
+    "status": {
+      "loading": "Loading",
+      "disabled": "Disabled",
+      "not_connected": "Not connected",
+      "waiting_qr_scan": "Waiting for scan",
+      "scanned": "Scanned",
+      "online": "Online",
+      "recovering": "Recovering",
+      "relogin_required": "Login required",
+      "offline": "Offline",
+      "error": "Error"
+    }
+  },
   "sidebar": {
     "searchSessions": "Search sessions..."
   },
@@ -499,17 +536,17 @@
     },
     "imChannels": {
       "title": "IM Integration",
-      "desc": "Connect DingTalk, Feishu, WeCom, or personal WeChat to chat with agents in IM",
+      "desc": "Connect DingTalk, Feishu, WeCom, or the official WeChat Bot to chat with agents in IM",
       "overview": {
         "title": "1. Supported IM Platforms & Architecture",
-        "desc": "The Channel system bridges IM messages to Agent sessions:\n\nIM Platform → Webhook → Channel Router → ACP Control Plane → Master Agent\n\nSupported platforms:\n• DingTalk (dingtalk) — Enterprise, requires DingTalk app creation\n• Feishu (feishu) — Enterprise, requires Feishu app creation\n• WeCom (wecom) — Enterprise, requires WeCom admin access\n• Personal WeChat — will enter settings through an official wechatbot user-level connection; legacy protocols have been removed\n\nMessage types: direct (DM), group (group chat), channel.",
-        "detail": "## Architecture Flow\n\n```\nIM User Message\n    ↓\nWebhook Endpoint (/api/v1/webhook/{platform})\n    ↓\nChannel Router (lookup Binding mapping)\n    ↓\nACP Control Plane (rate limiting, auth)\n    ↓\nMaster Agent (process and reply)\n    ↓\nIM Reply Message\n```\n\n## Supported Platforms\n\n| Platform | ID | Type | Requirements |\n|----------|-----|------|-------------|\n| DingTalk | `dingtalk` | Enterprise | Create DingTalk app |\n| Feishu | `feishu` | Enterprise | Create Feishu app |\n| WeCom | `wecom` | Enterprise | WeCom admin access |\n| Personal WeChat | TBD | Personal | Official wechatbot user-level settings will be added later; legacy protocols have been removed |\n\n## Message Types\n\n| Type | ID | Description |\n|------|-----|-------------|\n| Direct | `direct` | One-on-one private messages |\n| Group | `group` | Group chat messages |\n| Channel | `channel` | Channel/topic messages |"
+        "desc": "The Channel system bridges IM messages to Agent sessions:\n\nIM Platform → Webhook/Long Poll → Channel Router → ACP Control Plane → Master Agent\n\nSupported platforms:\n• DingTalk (dingtalk) — Enterprise, requires DingTalk app creation\n• Feishu (feishu) — Enterprise, requires Feishu app creation\n• WeCom (wecom) — Enterprise, requires WeCom admin access\n• WeChat Bot — official wechatbot/iLink Bot; only receives messages sent to clawbot, not normal private chats sent to a personal WeChat account\n\nMessage types: direct (DM), group (group chat), channel.",
+        "detail": "## Architecture Flow\n\n```\nIM User Message\n    ↓\nWebhook / Long Poll ingress\n    ↓\nChannel Router (lookup Binding mapping)\n    ↓\nACP Control Plane (rate limiting, auth)\n    ↓\nMaster Agent (process and reply)\n    ↓\nIM Reply Message\n```\n\n## Supported Platforms\n\n| Platform | ID | Type | Requirements |\n|----------|-----|------|-------------|\n| DingTalk | `dingtalk` | Enterprise | Create DingTalk app |\n| Feishu | `feishu` | Enterprise | Create Feishu app |\n| WeCom | `wecom` | Enterprise | WeCom admin access |\n| WeChat Bot | `wechatbot` | Official iLink Bot | Users connect official wechatbot in `/settings`; contacts must message clawbot, and Web replies require an existing send context |\n\n## Message Types\n\n| Type | ID | Description |\n|------|-----|-------------|\n| Direct | `direct` | One-on-one private messages |\n| Group | `group` | Group chat messages |\n| Channel | `channel` | Channel/topic messages |"
       },
       "channelConfig": {
         "title": "2. Platform Configuration",
-        "desc": "Enable and configure platforms in the channel section of config.json:\n\nDingTalk: requires app_key, app_secret, callback token, aes_key, and agent_id\nFeishu: requires app_id, app_secret, verification_token, and encrypt_key\nWeCom: requires corp_id, agent_id, secret, callback token, and encoding_aes_key\n\nPersonal WeChat will enter settings through an official wechatbot user-level connection; legacy protocol configuration has been removed.",
-        "tip": "Legacy personal WeChat protocol settings have been removed. Official wechatbot settings will be added later.",
-        "detail": "## DingTalk Configuration\n\n```json\n{\n  \"channel\": {\n    \"dingtalk\": {\n      \"enabled\": true,\n      \"app_key\": \"your-app-key\",\n      \"app_secret\": \"your-app-secret\",\n      \"token\": \"callback-token\",\n      \"aes_key\": \"callback-aes-key\",\n      \"agent_id\": \"your-agent-id\"\n    }\n  }\n}\n```\n\n## Feishu Configuration\n\n```json\n{\n  \"channel\": {\n    \"feishu\": {\n      \"enabled\": true,\n      \"app_id\": \"your-app-id\",\n      \"app_secret\": \"your-app-secret\",\n      \"verification_token\": \"your-verification-token\",\n      \"encrypt_key\": \"your-encrypt-key\"\n    }\n  }\n}\n```\n\n## WeCom Configuration\n\n```json\n{\n  \"channel\": {\n    \"wecom\": {\n      \"enabled\": true,\n      \"corp_id\": \"your-corp-id\",\n      \"agent_id\": \"your-agent-id\",\n      \"secret\": \"your-secret\",\n      \"token\": \"callback-token\",\n      \"encoding_aes_key\": \"your-encoding-aes-key\"\n    }\n  }\n}\n```\n\n## Personal WeChat\n\nPersonal WeChat will enter settings through an official wechatbot user-level connection; legacy protocol configuration has been removed."
+        "desc": "Enable and configure platforms in the channel section of config.json:\n\nDingTalk: requires app_key, app_secret, callback token, aes_key, and agent_id\nFeishu: requires app_id, app_secret, verification_token, and encrypt_key\nWeCom: requires corp_id, agent_id, secret, callback token, and encoding_aes_key\n\nWeChat Bot enters settings through an official wechatbot user-level connection; legacy protocol configuration has been removed.",
+        "tip": "Legacy personal WeChat protocol settings have been removed. Users can connect an official wechatbot iLink Bot in /settings. It only handles messages sent to clawbot.",
+        "detail": "## DingTalk Configuration\n\n```json\n{\n  \"channel\": {\n    \"dingtalk\": {\n      \"enabled\": true,\n      \"app_key\": \"your-app-key\",\n      \"app_secret\": \"your-app-secret\",\n      \"token\": \"callback-token\",\n      \"aes_key\": \"callback-aes-key\",\n      \"agent_id\": \"your-agent-id\"\n    }\n  }\n}\n```\n\n## Feishu Configuration\n\n```json\n{\n  \"channel\": {\n    \"feishu\": {\n      \"enabled\": true,\n      \"app_id\": \"your-app-id\",\n      \"app_secret\": \"your-app-secret\",\n      \"verification_token\": \"your-verification-token\",\n      \"encrypt_key\": \"your-encrypt-key\"\n    }\n  }\n}\n```\n\n## WeCom Configuration\n\n```json\n{\n  \"channel\": {\n    \"wecom\": {\n      \"enabled\": true,\n      \"corp_id\": \"your-corp-id\",\n      \"agent_id\": \"your-agent-id\",\n      \"secret\": \"your-secret\",\n      \"token\": \"callback-token\",\n      \"encoding_aes_key\": \"your-encoding-aes-key\"\n    }\n  }\n}\n```\n\n## WeChat Bot\n\nWeChat Bot enters settings through an official wechatbot user-level connection; legacy protocol configuration has been removed. It is not normal personal WeChat private-chat hosting; contacts must message clawbot in WeChat."
       },
       "webhook": {
         "title": "3. Webhook & Message Routing",
@@ -629,11 +666,12 @@
     "deleteMcpServer": "Delete",
     "mcpNeedRestart": "MCP changes require saving to file and restart",
     "imChannels": "IM Channels",
-    "imChannelsHint": "Configure DingTalk, Feishu, and WeCom integration. Changes require saving to file and restarting the service.",
-    "channelEnabled": "Enable IM Channels",
+    "imChannelsHint": "Enable DingTalk, Feishu, WeCom, and the official WeChat Bot entry per platform. Changes hot-reload immediately.",
     "dingtalk": "DingTalk",
     "feishu": "Feishu",
     "wecom": "WeCom",
+    "wechatbot": "WeChat Bot (official wechatbot)",
+    "wechatbotHint": "This only controls whether the official WeChat Bot entry is open. Users connect an iLink Bot from personal settings. Base URL, credential root, and log level are deployment settings.",
     "appKey": "App Key",
     "appSecret": "App Secret",
     "appId": "App ID",
@@ -673,8 +711,8 @@
     "feishuShowAgentProgress": "Show Agent Progress",
     "feishuShowAgentProgressHint": "Display intermediate states like \"Agent thinking...\" in the card. Default off.",
     "channelNeedRestart": "IM channel changes require saving to file and restart",
-    "wechatTitle": "Personal WeChat Connection",
-    "wechatDesc": "Personal WeChat will enter settings through an official wechatbot user-level connection; legacy protocols have been removed.",
+    "wechatTitle": "WeChat Bot Connection",
+    "wechatDesc": "WeChat Bot enters settings through an official wechatbot user-level connection; legacy protocols have been removed. It only handles messages sent to clawbot.",
     "saveConfig": "Save Config",
     "saving": "Saving...",
     "reload": "Reload",
@@ -689,7 +727,7 @@
     "notStarted": "Not started",
     "noConfigItems": "No configurable fields",
     "wechatTip1": "Legacy personal WeChat protocol settings have been removed",
-    "wechatTip2": "Official wechatbot settings will be added later",
+    "wechatTip2": "Users can connect an official wechatbot iLink Bot in /settings",
     "wechatTip3": "Enterprise IM channels remain configurable on this settings page",
     "wechatTip4": "No legacy protocol service is required"
   },

@@ -73,6 +73,8 @@ export function useWebSocket({ url, sessionId, enabled = true, onMessage, client
   // 错误消息限流
   const lastErrorMsg = useRef('');
   const lastErrorTime = useRef(0);
+  const subscribedSessionId = useRef(sessionId);
+  subscribedSessionId.current = sessionId;
 
   const onMessageRef = useRef(onMessage);
   onMessageRef.current = onMessage;
@@ -80,8 +82,8 @@ export function useWebSocket({ url, sessionId, enabled = true, onMessage, client
   const handleMessage = useCallback((msg: WSMessage) => {
     const isOtherSession = (sid?: string): boolean => {
       if (!sid) return false;
-      const cur = useChatStore.getState().currentSessionId;
-      return !!(cur && sid !== cur);
+      const cur = useChatStore.getState().currentSessionId || subscribedSessionId.current;
+      return !cur || sid !== cur;
     };
 
     switch (msg.type) {

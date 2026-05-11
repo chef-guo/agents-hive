@@ -10,11 +10,16 @@ import (
 	"github.com/chef-guo/agents-hive/internal/auth"
 	"github.com/chef-guo/agents-hive/internal/imctx"
 	"github.com/chef-guo/agents-hive/internal/mcphost"
+	"github.com/chef-guo/agents-hive/internal/store"
 )
 
 // IMRouter IM 路由器接口（避免直接依赖 channel 包）
 type IMRouter interface {
 	SendMessage(ctx context.Context, req imctx.SendRequest) error
+}
+
+type wechatConversationLookup interface {
+	GetWechatConversationByOwnerPeer(ctx context.Context, ownerUserID, peerWxid string) (*store.WechatConversationRecord, error)
 }
 
 // sendIMMessageInput send_im_message 工具的输入参数
@@ -27,6 +32,10 @@ type sendIMMessageInput struct {
 // RegisterSendIMMessage 注册 send_im_message 工具（导出函数，供 bootstrap 延迟调用）
 // 允许 Agent 主动发送 IM 消息
 func RegisterSendIMMessage(host *mcphost.Host, logger *zap.Logger, router IMRouter) {
+	RegisterSendIMMessageWithStore(host, logger, router, nil)
+}
+
+func RegisterSendIMMessageWithStore(host *mcphost.Host, logger *zap.Logger, router IMRouter, convStore wechatConversationLookup) {
 	schema, _ := json.Marshal(map[string]any{
 		"type": "object",
 		"properties": map[string]any{
@@ -87,13 +96,22 @@ func RegisterSendIMMessage(host *mcphost.Host, logger *zap.Logger, router IMRout
 				}
 				req.OwnerUserID = user.ID
 				req.TenantKey = user.ID
+				if convStore != nil {
+					conv, err := convStore.GetWechatConversationByOwnerPeer(ctx, user.ID, params.ChatID)
+					if err != nil || conv == nil {
+						return errorResult("无权访问此微信会话，或该联系人尚未形成可发送会话"), nil
+					}
+					if !conv.CanSend {
+						return errorResult("该联系人暂无可发送上下文，请先让对方在微信中发一条消息"), nil
+					}
+				}
 			}
 
 			// 发送消息
 			if err := router.SendMessage(ctx, req); err != nil {
 				logger.Error("发送 IM 消息失败",
 					zap.String("platform", params.Platform),
-					zap.String("chat_id", params.ChatID),
+					zap.String("chat_id_hash", imctx.SafeSenderID(params.ChatID)),
 					zap.Error(err))
 
 				return errorResult(fmt.Sprintf("发送失败: %v", err)), nil
@@ -101,7 +119,7 @@ func RegisterSendIMMessage(host *mcphost.Host, logger *zap.Logger, router IMRout
 
 			logger.Info("IM 消息发送成功",
 				zap.String("platform", params.Platform),
-				zap.String("chat_id", params.ChatID),
+				zap.String("chat_id_hash", imctx.SafeSenderID(params.ChatID)),
 				zap.Int("content_len", len(params.Content)))
 
 			return textResult(fmt.Sprintf("✅ 消息已发送到 %s (chat: %s)", params.Platform, params.ChatID)), nil

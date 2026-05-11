@@ -22,6 +22,8 @@ type MemoryStore struct {
 	schedules    map[string]*ScheduledPushRecord
 	tasks        map[string]*ScheduledTask
 	taskRuns     map[string]*ScheduledTaskRun
+	externalIDs  map[string]*UserExternalIDRecord
+	wechatConvs  map[string]*WechatConversationRecord
 }
 
 var _ SessionStore = (*MemoryStore)(nil)
@@ -29,11 +31,13 @@ var _ SessionStore = (*MemoryStore)(nil)
 // NewMemoryStore 创建内存存储实例（仅用于测试）
 func NewMemoryStore() *MemoryStore {
 	return &MemoryStore{
-		sessions:  make(map[string]*SessionRecord),
-		messages:  make(map[string][]MessageRecord),
-		schedules: make(map[string]*ScheduledPushRecord),
-		tasks:     make(map[string]*ScheduledTask),
-		taskRuns:  make(map[string]*ScheduledTaskRun),
+		sessions:    make(map[string]*SessionRecord),
+		messages:    make(map[string][]MessageRecord),
+		schedules:   make(map[string]*ScheduledPushRecord),
+		tasks:       make(map[string]*ScheduledTask),
+		taskRuns:    make(map[string]*ScheduledTaskRun),
+		externalIDs: make(map[string]*UserExternalIDRecord),
+		wechatConvs: make(map[string]*WechatConversationRecord),
 	}
 }
 
@@ -219,6 +223,145 @@ func (m *MemoryStore) UpdateSessionTags(_ context.Context, sessionID string, tag
 	if s, ok := m.sessions[sessionID]; ok {
 		s.Tags = tags
 	}
+	return nil
+}
+
+func externalIDKey(userID, providerType string) string {
+	return userID + "\x00" + providerType
+}
+
+func wechatConvOwnerPeerKey(ownerUserID, peerWxid string) string {
+	return ownerUserID + "\x00" + peerWxid
+}
+
+func (m *MemoryStore) UpsertUserExternalID(_ context.Context, rec *UserExternalIDRecord) error {
+	if rec == nil {
+		return errs.New(errs.CodeInvalidInput, "external id record is nil")
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.externalIDs == nil {
+		m.externalIDs = make(map[string]*UserExternalIDRecord)
+	}
+	now := time.Now()
+	cp := *rec
+	key := externalIDKey(rec.UserID, rec.ProviderType)
+	if old, ok := m.externalIDs[key]; ok {
+		cp.ID = old.ID
+		cp.CreatedAt = old.CreatedAt
+	} else {
+		cp.ID = int64(len(m.externalIDs) + 1)
+		cp.CreatedAt = now
+	}
+	cp.UpdatedAt = now
+	m.externalIDs[key] = &cp
+	return nil
+}
+
+func (m *MemoryStore) GetUserExternalID(_ context.Context, userID, providerType string) (*UserExternalIDRecord, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	rec, ok := m.externalIDs[externalIDKey(userID, providerType)]
+	if !ok {
+		return nil, ErrNotFound
+	}
+	cp := *rec
+	return &cp, nil
+}
+
+func (m *MemoryStore) DeleteUserExternalID(_ context.Context, userID, providerType string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.externalIDs, externalIDKey(userID, providerType))
+	return nil
+}
+
+func (m *MemoryStore) UpsertWechatConversation(_ context.Context, rec *WechatConversationRecord) error {
+	if rec == nil {
+		return errs.New(errs.CodeInvalidInput, "wechat conversation record is nil")
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.wechatConvs == nil {
+		m.wechatConvs = make(map[string]*WechatConversationRecord)
+	}
+	now := time.Now()
+	cp := *rec
+	key := wechatConvOwnerPeerKey(rec.OwnerUserID, rec.PeerWxid)
+	if old, ok := m.wechatConvs[key]; ok {
+		cp.ID = old.ID
+		cp.CreatedAt = old.CreatedAt
+	} else {
+		cp.ID = int64(len(m.wechatConvs) + 1)
+		cp.CreatedAt = now
+	}
+	cp.UpdatedAt = now
+	if cp.ChatType == "" {
+		cp.ChatType = "direct"
+	}
+	if cp.SendState == "" {
+		cp.SendState = "unknown"
+	}
+	m.wechatConvs[key] = &cp
+	return nil
+}
+
+func (m *MemoryStore) GetWechatConversationBySessionID(_ context.Context, sessionID string) (*WechatConversationRecord, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for _, rec := range m.wechatConvs {
+		if rec.SessionID == sessionID {
+			cp := *rec
+			return &cp, nil
+		}
+	}
+	return nil, ErrNotFound
+}
+
+func (m *MemoryStore) GetWechatConversationByOwnerPeer(_ context.Context, ownerUserID, peerWxid string) (*WechatConversationRecord, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	rec, ok := m.wechatConvs[wechatConvOwnerPeerKey(ownerUserID, peerWxid)]
+	if !ok {
+		return nil, ErrNotFound
+	}
+	cp := *rec
+	return &cp, nil
+}
+
+func (m *MemoryStore) ListWechatConversationsByOwner(_ context.Context, ownerUserID string) ([]*WechatConversationRecord, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var records []*WechatConversationRecord
+	for _, rec := range m.wechatConvs {
+		if rec.OwnerUserID != ownerUserID {
+			continue
+		}
+		cp := *rec
+		records = append(records, &cp)
+	}
+	sort.Slice(records, func(i, j int) bool {
+		if records[i].LastMessageAt == nil {
+			return false
+		}
+		if records[j].LastMessageAt == nil {
+			return true
+		}
+		return records[i].LastMessageAt.After(*records[j].LastMessageAt)
+	})
+	return records, nil
+}
+
+func (m *MemoryStore) UpdateWechatConversationSendState(_ context.Context, ownerUserID, peerWxid string, canSend bool, sendState string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	rec, ok := m.wechatConvs[wechatConvOwnerPeerKey(ownerUserID, peerWxid)]
+	if !ok {
+		return ErrNotFound
+	}
+	rec.CanSend = canSend
+	rec.SendState = sendState
+	rec.UpdatedAt = time.Now()
 	return nil
 }
 

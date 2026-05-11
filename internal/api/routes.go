@@ -30,6 +30,12 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/scheduled-tasks/{id}/runs", s.handleListScheduledTaskRuns)
 	mux.HandleFunc("GET /api/v1/auth/status", s.handleAuthStatus)
 	mux.HandleFunc("GET /api/v1/capabilities", s.handleListCapabilities)
+	mux.HandleFunc("GET /api/v1/wechat/status", s.handleWeChatStatus)
+	mux.HandleFunc("POST /api/v1/wechat/login", s.handleWeChatLogin)
+	mux.HandleFunc("POST /api/v1/wechat/relogin", s.handleWeChatRelogin)
+	mux.HandleFunc("POST /api/v1/wechat/logout", s.handleWeChatLogout)
+	mux.HandleFunc("GET /api/v1/wechat/events", s.handleWeChatEvents)
+	mux.HandleFunc("GET /api/v1/wechat/conversations", s.handleWeChatConversations)
 
 	// HITL endpoints
 	mux.HandleFunc("POST /api/v1/tasks/{id}/input", s.handleSubmitInput)

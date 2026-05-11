@@ -616,4 +616,41 @@ describe('R5 reconnect 可见性 + 无错误态 DOM', () => {
     expect.soft(screen.queryAllByRole('alert').length).toBe(0)
     expect.soft(useChatStore.getState().error).toBeFalsy()
   })
+
+  it('currentSessionId 为空时仍按订阅 sessionId 过滤聊天消息', async () => {
+    render(<Harness />)
+    await act(async () => {
+      useChatStore.setState({ currentSessionId: null, messages: [] })
+    })
+
+    await act(async () => {
+      captured.onMessage!({
+        type: 'message',
+        payload: {
+          session_id: 'sid-other',
+          partial: false,
+          role: 'assistant',
+          content: '不应显示的跨会话消息',
+        },
+      } as WSMessage)
+    })
+
+    expect(useChatStore.getState().messages).toHaveLength(0)
+    expect(screen.queryByText(/不应显示的跨会话消息/)).toBeNull()
+
+    await act(async () => {
+      captured.onMessage!({
+        type: 'message',
+        payload: {
+          session_id: 'sid-1',
+          partial: false,
+          role: 'assistant',
+          content: '应显示的当前会话消息',
+        },
+      } as WSMessage)
+    })
+
+    expect(useChatStore.getState().messages).toHaveLength(1)
+    expect(screen.getByText(/应显示的当前会话消息/)).toBeInTheDocument()
+  })
 })

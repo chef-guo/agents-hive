@@ -1,6 +1,7 @@
 import { useTranslation } from 'react-i18next';
 import { useAppStore } from '../store/app';
 import { Sun, Moon, Languages } from 'lucide-react';
+import { WeChatConnectionPanel } from '../components/settings/WeChatConnectionPanel';
 
 export function Settings() {
   const { t } = useTranslation();
@@ -10,12 +11,17 @@ export function Settings() {
   const setLanguage = useAppStore((s) => s.setLanguage);
 
   return (
-    <div className="p-6 max-w-3xl mx-auto">
-      <h2 className="text-lg font-semibold text-[var(--text-primary)] mb-6 font-display">
-        {t('nav.preferences')}
-      </h2>
+    <div className="p-6 max-w-5xl mx-auto">
+      <div className="mb-6">
+        <h2 className="text-xl font-semibold text-[var(--text-primary)] font-display">
+          {t('nav.preferences')}
+        </h2>
+        <p className="mt-1 text-sm text-[var(--text-secondary)]">
+          {t('settings.subtitle', '管理个人偏好和用户级连接。')}
+        </p>
+      </div>
 
-      <div className="bg-[var(--bg-card)] border border-[var(--border-color)] rounded-2xl shadow-sm overflow-hidden">
+      <div className="mb-6 bg-[var(--bg-card)] border border-[var(--border-color)] rounded-2xl shadow-sm overflow-hidden">
         {/* 主题 */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border-color)]">
           <div className="flex items-center gap-3">
@@ -80,6 +86,8 @@ export function Settings() {
           </div>
         </div>
       </div>
+
+      <WeChatConnectionPanel />
     </div>
   );
 }

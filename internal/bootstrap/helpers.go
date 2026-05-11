@@ -14,6 +14,7 @@ import (
 	"github.com/chef-guo/agents-hive/internal/channel"
 	"github.com/chef-guo/agents-hive/internal/channel/dingtalk"
 	"github.com/chef-guo/agents-hive/internal/channel/feishu"
+	"github.com/chef-guo/agents-hive/internal/channel/wechatbot"
 	"github.com/chef-guo/agents-hive/internal/channel/wecom"
 	"github.com/chef-guo/agents-hive/internal/config"
 	"github.com/chef-guo/agents-hive/internal/master"
@@ -514,6 +515,40 @@ func BuildReloadChannelFunc(
 	logger *zap.Logger,
 	reloadables ...feishu.Reloadable,
 ) func(string) error {
+	return BuildReloadChannelFuncWithStore(
+		cfg,
+		router,
+		nil,
+		hitlSubmitter,
+		lifecycleRepo,
+		lifecycleTerminator,
+		lifecycleWelcome,
+		getCommittedFeishuIngressMode,
+		setCommittedFeishuIngressMode,
+		getFeishuWebhookGateMode,
+		setFeishuWebhookGateMode,
+		configMu,
+		logger,
+		reloadables...,
+	)
+}
+
+func BuildReloadChannelFuncWithStore(
+	cfg *config.Config,
+	router *channel.Router,
+	wechatStore wechatbot.Store,
+	hitlSubmitter feishu.InputSubmitter,
+	lifecycleRepo feishu.ChatStateRepo,
+	lifecycleTerminator feishu.SessionTerminator,
+	lifecycleWelcome feishu.WelcomeSender,
+	getCommittedFeishuIngressMode func() config.FeishuIngressMode,
+	setCommittedFeishuIngressMode func(config.FeishuIngressMode),
+	getFeishuWebhookGateMode func() config.FeishuIngressMode,
+	setFeishuWebhookGateMode func(config.FeishuIngressMode),
+	configMu *sync.RWMutex,
+	logger *zap.Logger,
+	reloadables ...feishu.Reloadable,
+) func(string) error {
 	if router == nil {
 		return nil
 	}
@@ -641,6 +676,30 @@ func BuildReloadChannelFunc(
 			wcPlugin := wecom.New(channelCfg.WeCom, router, logger)
 			router.RegisterPlugin(wcPlugin)
 			logger.Info("企业微信通道已热重载")
+
+		case "wechatbot":
+			wbCfg := wechatbot.ConfigFromApp(channelCfg.WeChatBot, cfg.SessionsDir)
+			if existing, ok := router.GetPlugin(channel.PlatformWeChatBot); ok {
+				if configurable, ok := existing.(interface{ SetConfig(wechatbot.Config) }); ok {
+					configurable.SetConfig(wbCfg)
+					if !channelCfg.WeChatBot.Enabled {
+						logger.Info("官方 wechatbot 通道已禁用")
+					} else {
+						logger.Info("官方 wechatbot 通道已热重载")
+					}
+					return nil
+				}
+				_ = router.UnregisterPlugin(channel.PlatformWeChatBot)
+			}
+			registry := wechatbot.NewRegistry(wbCfg, router, wechatStore, logger)
+			plugin := wechatbot.NewPlugin(registry, logger)
+			if provider, ok := any(router).(interface {
+				MetricsWriter() observability.MetricsWriter
+			}); ok {
+				plugin.SetMetricsWriter(provider.MetricsWriter())
+			}
+			router.RegisterPlugin(plugin)
+			logger.Info("官方 wechatbot 通道已热重载", zap.Bool("enabled", channelCfg.WeChatBot.Enabled))
 
 		default:
 			return fmt.Errorf("不支持的 IM 通道平台: %s", platform)
