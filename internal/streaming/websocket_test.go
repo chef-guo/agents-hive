@@ -267,6 +267,13 @@ func TestWSHandler_AuthorizeSessionSubscription(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("save session: %v", err)
 	}
+	if err := st.SaveSession(context.Background(), &store.SessionRecord{
+		ID:     "im-wechatbot-user_owner-wx_peer",
+		Name:   "wechat session",
+		UserID: "user-owner",
+	}); err != nil {
+		t.Fatalf("save im session: %v", err)
+	}
 	m := master.NewMaster(
 		master.Config{Model: "test"},
 		config.HITLConfig{},
@@ -291,5 +298,9 @@ func TestWSHandler_AuthorizeSessionSubscription(t *testing.T) {
 
 	if err := handler.authorizeSessionSubscription(context.Background(), "sess-owner", owner.ID); err == nil {
 		t.Fatal("missing authenticated user should be rejected")
+	}
+
+	if err := handler.authorizeSessionSubscription(ownerCtx, "im-wechatbot-user_owner-wx_peer", owner.ID); err == nil {
+		t.Fatal("IM session subscription should be rejected for WebSocket")
 	}
 }

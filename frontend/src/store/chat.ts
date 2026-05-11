@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type { Message, InputRequest, FileAttachment, ModelInfo, ToolCallStatus } from '../types/api';
 import type { NodeClient } from '../api/node-client';
+import { ApiRequestError } from '../api/client';
 
 import { rfc3339Now } from '../utils/date';
 
@@ -386,6 +387,9 @@ export const useChatStore = create<ChatState>((set) => ({
     } catch (e: unknown) {
       const errorMsg = e instanceof Error ? e.message : '加载消息失败';
       set({ error: errorMsg });
+      if (e instanceof ApiRequestError && (e.code === 1006 || e.code === 6000)) {
+        throw e;
+      }
     }
   },
 

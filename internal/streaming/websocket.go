@@ -14,6 +14,7 @@ import (
 
 	"github.com/chef-guo/agents-hive/internal/auth"
 	"github.com/chef-guo/agents-hive/internal/errs"
+	"github.com/chef-guo/agents-hive/internal/imctx"
 	"github.com/chef-guo/agents-hive/internal/master"
 )
 
@@ -329,6 +330,9 @@ func (h *WSHandler) authorizeSessionSubscription(ctx context.Context, sessionID,
 	}
 	if sessionID == "" {
 		return nil
+	}
+	if strings.HasPrefix(sessionID, imctx.SessionIDPrefix+"-") {
+		return errs.New(errs.CodePermissionDenied, "IM 会话不开放给 WebSocket 订阅")
 	}
 	user := auth.UserFrom(ctx)
 	if user == nil || user.ID != userID {

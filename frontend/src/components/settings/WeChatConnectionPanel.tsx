@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import QRCode from 'qrcode';
-import { ExternalLink, LogOut, MessageCircle, QrCode, RefreshCw, RotateCcw, Smartphone, Wifi } from 'lucide-react';
+import { LogOut, MessageCircle, QrCode, RefreshCw, RotateCcw, Smartphone, Wifi } from 'lucide-react';
 import { useWechatConnection } from '../../hooks/useWechatConnection';
 import { formatDateTime } from '../../utils/date';
 import type { WeChatConnectionStatus, WeChatConversation } from '../../api/wechat';
@@ -122,7 +121,7 @@ export function WeChatConnectionPanel() {
         <div className="border-t border-[var(--border-color)] p-5 lg:border-l lg:border-t-0">
           <div className="mb-3 flex items-center justify-between">
             <h4 className="text-sm font-medium text-[var(--text-primary)]">
-              {t('wechatConnection.recentConversations', '最近微信会话')}
+              {t('wechatConnection.recentConversations', '最近微信联系人')}
             </h4>
             {lastEvent?.created_at && (
               <span className="text-[11px] text-[var(--text-secondary)]">
@@ -137,13 +136,13 @@ export function WeChatConnectionPanel() {
                 {t('wechatConnection.noConversations', '暂无微信会话')}
               </p>
               <p className="mt-1 text-xs text-[var(--text-secondary)]">
-                {t('wechatConnection.noConversationsHint', '请让对方给微信里的 clawbot 发消息，系统才会生成可回复会话。')}
+                {t('wechatConnection.noConversationsHint', '请让对方给微信里的 clawbot 发消息，系统会在这里显示最近联系人状态。')}
               </p>
             </div>
           ) : (
             <div className="space-y-2">
               {conversations.slice(0, 6).map((conversation) => (
-                <ConversationRow key={conversation.session_id} conversation={conversation} />
+                <ConversationRow key={conversation.peer_wxid} conversation={conversation} />
               ))}
             </div>
           )}
@@ -249,11 +248,11 @@ function QRCodeBlock({ qrUrl }: { qrUrl: string }) {
 function ConversationRow({ conversation }: { conversation: WeChatConversation }) {
   const { t } = useTranslation();
   const name = conversation.peer_nickname || conversation.peer_wxid;
+  const lastSeen = conversation.last_message_at
+    ? t('wechatConnection.lastSeenAt', '最近互动 {{time}}', { time: formatDateTime(conversation.last_message_at) })
+    : t('wechatConnection.contactStatusOnly', '仅显示联系人状态');
   return (
-    <Link
-      to={`/sessions/${conversation.session_id}`}
-      className="group flex items-center gap-3 rounded-xl border border-[var(--border-color)] px-3 py-2 transition-colors hover:border-[var(--accent-border)] hover:bg-[var(--bg-secondary)]"
-    >
+    <div className="flex items-center gap-3 rounded-xl border border-[var(--border-color)] px-3 py-2">
       {conversation.peer_avatar_url ? (
         <img src={conversation.peer_avatar_url} alt="" className="h-9 w-9 shrink-0 rounded-full object-cover" />
       ) : (
@@ -264,18 +263,15 @@ function ConversationRow({ conversation }: { conversation: WeChatConversation })
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
           <p className="truncate text-sm font-medium text-[var(--text-primary)]">{name}</p>
-          {!conversation.can_send && (
-            <span className="shrink-0 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] text-amber-700 dark:bg-amber-900/20 dark:text-amber-200">
-              {t('wechatConnection.noSendContext', '待对方消息')}
-            </span>
-          )}
+          <span className="shrink-0 rounded-full bg-[var(--bg-secondary)] px-2 py-0.5 text-[10px] text-[var(--text-secondary)]">
+            {t('wechatConnection.statusOnly', '状态')}
+          </span>
         </div>
         <p className="truncate text-xs text-[var(--text-secondary)]">
-          {conversation.last_message_preview || conversation.peer_wxid}
+          {lastSeen}
         </p>
       </div>
-      <ExternalLink className="h-4 w-4 shrink-0 text-[var(--text-secondary)] opacity-0 transition-opacity group-hover:opacity-100" />
-    </Link>
+    </div>
   );
 }
 

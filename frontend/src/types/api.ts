@@ -10,12 +10,6 @@ export interface Session {
   tags: string[];
   is_active: boolean;
   is_starred?: boolean;
-  source?: 'wechatbot' | string;
-  source_label?: string;
-  peer_avatar_url?: string;
-  can_send?: boolean;
-  send_state?: string;
-  last_message_preview?: string;
 }
 
 export interface SessionDetail extends Session {

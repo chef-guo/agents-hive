@@ -243,7 +243,6 @@
   "wechatConnection": {
     "title": "微信 Bot 连接",
     "subtitle": "使用官方 wechatbot.dev 连接 iLink Bot。请让对方给微信里的 clawbot 发消息。",
-    "sourceLabel": "微信",
     "disabledHint": "官方微信 Bot 通道未启用，请先让管理员开启 channel.wechatbot.enabled。",
     "account": "Bot 账号",
     "unbound": "未绑定",
@@ -259,11 +258,12 @@
     "scanHint": "扫码后会在微信里出现 clawbot。当前官方 SDK 只接收发给 clawbot 的消息，不会读取你微信号本人的普通私聊。",
     "qrRendering": "二维码生成中...",
     "qrAlt": "微信 Bot 连接二维码",
-    "recentConversations": "最近微信 Bot 会话",
-    "noConversations": "暂无微信 Bot 会话",
-    "noConversationsHint": "请让对方给微信里的 clawbot 发消息，系统才会生成可回复会话。",
-    "noSendContext": "该联系人暂无可发送上下文，请先让对方给微信里的 clawbot 发一条消息。",
-    "noSendContextShort": "等待对方先给 clawbot 发消息",
+    "recentConversations": "最近微信 Bot 联系人",
+    "noConversations": "暂无微信 Bot 联系人",
+    "noConversationsHint": "请让对方给微信里的 clawbot 发消息，系统会在这里显示最近联系人状态。",
+    "statusOnly": "状态",
+    "contactStatusOnly": "仅显示联系人状态",
+    "lastSeenAt": "最近互动 {{time}}",
     "status": {
       "loading": "加载中",
       "disabled": "未启用",
@@ -540,7 +540,7 @@
       "overview": {
         "title": "1. 支持的 IM 平台与架构",
         "desc": "Channel 系统将 IM 消息桥接到 Agent 会话：\n\nIM 平台 → Webhook/Long Poll → Channel Router → ACP 控制平面 → Master Agent\n\n支持的平台：\n• 钉钉 (dingtalk) — 企业级，需要创建钉钉应用\n• 飞书 (feishu) — 企业级，需要创建飞书应用\n• 企业微信 (wecom) — 企业级，需要企业微信管理员权限\n• 微信 Bot — 官方 wechatbot/iLink Bot；只接收发给 clawbot 的消息，不读取个人微信普通私聊\n\n消息类型支持：私聊 (direct)、群聊 (group)、频道 (channel)。",
-        "detail": "## 架构流程\n\n```\nIM 用户消息\n    ↓\nWebhook / Long Poll 入口\n    ↓\nChannel Router（查找 Binding 映射）\n    ↓\nACP 控制平面（限流、鉴权）\n    ↓\nMaster Agent（处理并回复）\n    ↓\nIM 回复消息\n```\n\n## 支持的平台\n\n| 平台 | 标识 | 类型 | 要求 |\n|------|------|------|------|\n| 钉钉 | `dingtalk` | 企业级 | 创建钉钉应用 |\n| 飞书 | `feishu` | 企业级 | 创建飞书应用 |\n| 企业微信 | `wecom` | 企业级 | 企业微信管理员权限 |\n| 微信 Bot | `wechatbot` | 官方 iLink Bot | 普通用户在 `/settings` 连接官方 wechatbot；联系人必须给 clawbot 发消息，已有上下文会话可 Web 回复 |\n\n## 消息类型\n\n| 类型 | 标识 | 说明 |\n|------|------|------|\n| 私聊 | `direct` | 一对一私聊消息 |\n| 群聊 | `group` | 群组中的消息 |\n| 频道 | `channel` | 频道/话题中的消息 |"
+        "detail": "## 架构流程\n\n```\nIM 用户消息\n    ↓\nWebhook / Long Poll 入口\n    ↓\nChannel Router（查找 Binding 映射）\n    ↓\nACP 控制平面（限流、鉴权）\n    ↓\nMaster Agent（处理并回复）\n    ↓\nIM 回复消息\n```\n\n## 支持的平台\n\n| 平台 | 标识 | 类型 | 要求 |\n|------|------|------|------|\n| 钉钉 | `dingtalk` | 企业级 | 创建钉钉应用 |\n| 飞书 | `feishu` | 企业级 | 创建飞书应用 |\n| 企业微信 | `wecom` | 企业级 | 企业微信管理员权限 |\n| 微信 Bot | `wechatbot` | 官方 iLink Bot | 普通用户在 `/settings` 连接官方 wechatbot；联系人必须给 clawbot 发消息；普通 Web Chat 不展示 IM 会话 |\n\n## 消息类型\n\n| 类型 | 标识 | 说明 |\n|------|------|------|\n| 私聊 | `direct` | 一对一私聊消息 |\n| 群聊 | `group` | 群组中的消息 |\n| 频道 | `channel` | 频道/话题中的消息 |"
       },
       "channelConfig": {
         "title": "2. 各平台配置方法",

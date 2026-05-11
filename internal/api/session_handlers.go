@@ -37,19 +37,13 @@ type CreateSessionResponse struct {
 
 // SessionListItem 会话列表项
 type SessionListItem struct {
-	ID                 string    `json:"id"`
-	Name               string    `json:"name"`
-	MessageCount       int       `json:"message_count"`
-	LastAccessed       time.Time `json:"last_accessed"`
-	Tags               []string  `json:"tags,omitempty"`
-	IsActive           bool      `json:"is_active"`
-	IsStarred          bool      `json:"is_starred"`
-	Source             string    `json:"source,omitempty"`
-	SourceLabel        string    `json:"source_label,omitempty"`
-	PeerAvatarURL      string    `json:"peer_avatar_url,omitempty"`
-	CanSend            *bool     `json:"can_send,omitempty"`
-	SendState          string    `json:"send_state,omitempty"`
-	LastMessagePreview string    `json:"last_message_preview,omitempty"`
+	ID           string    `json:"id"`
+	Name         string    `json:"name"`
+	MessageCount int       `json:"message_count"`
+	LastAccessed time.Time `json:"last_accessed"`
+	Tags         []string  `json:"tags,omitempty"`
+	IsActive     bool      `json:"is_active"`
+	IsStarred    bool      `json:"is_starred"`
 }
 
 // SessionListResponse 会话列表响应
@@ -153,11 +147,8 @@ func (s *Server) handleListSessions(w http.ResponseWriter, r *http.Request) {
 	// 转换为 API 响应格式
 	items := make([]SessionListItem, 0, len(sessions))
 	for _, session := range sessions {
-		wechatConv, showWeChat := s.wechatConversationForList(r.Context(), session)
-		if strings.HasPrefix(session.ID, "im-") {
-			if !showWeChat {
-				continue
-			}
+		if isHiddenIMSessionForWeb(session.ID) {
+			continue
 		}
 
 		// 解析时间
@@ -172,21 +163,6 @@ func (s *Server) handleListSessions(w http.ResponseWriter, r *http.Request) {
 			IsActive:     session.ID == activeSessionID,
 			IsStarred:    session.IsStarred,
 		}
-		if showWeChat {
-			item.Source = "wechatbot"
-			item.SourceLabel = "微信"
-			item.PeerAvatarURL = wechatConv.PeerAvatarURL
-			canSend := wechatConv.CanSend
-			item.CanSend = &canSend
-			item.SendState = wechatConv.SendState
-			item.LastMessagePreview = wechatConv.LastMessagePreview
-			if wechatConv.PeerNickname != "" {
-				item.Name = wechatConv.PeerNickname
-			}
-			if wechatConv.LastMessageAt != nil {
-				item.LastAccessed = *wechatConv.LastMessageAt
-			}
-		}
 
 		items = append(items, item)
 	}
@@ -196,21 +172,8 @@ func (s *Server) handleListSessions(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (s *Server) wechatConversationForList(ctx context.Context, session *store.SessionRecord) (*store.WechatConversationRecord, bool) {
-	if session == nil || !strings.HasPrefix(session.ID, "im-wechatbot-") || s.store == nil {
-		return nil, false
-	}
-	conv, err := s.store.GetWechatConversationBySessionID(ctx, session.ID)
-	if err != nil || conv == nil {
-		return nil, false
-	}
-	if auth.IsAuthEnabled(ctx) {
-		user := auth.UserFrom(ctx)
-		if user == nil || user.ID == "" || conv.OwnerUserID != user.ID {
-			return nil, false
-		}
-	}
-	return conv, true
+func isHiddenIMSessionForWeb(sessionID string) bool {
+	return strings.HasPrefix(sessionID, imctx.SessionIDPrefix+"-")
 }
 
 // handleGetSession 处理 GET /api/v1/sessions/:id
@@ -379,6 +342,10 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	if isHiddenIMSessionForWeb(sessionID) {
+		writeJSON(w, http.StatusNotFound, ErrorResponse{Error: "会话不存在或无权访问", Code: errs.CodeNotFound})
+		return
+	}
 
 	var req SendMessageRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -403,11 +370,6 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !s.checkSessionOwnership(w, r, sess) {
-		return
-	}
-
-	if strings.HasPrefix(sessionID, "im-wechatbot-") {
-		s.handleSendWechatbotWebMessage(w, r, sessionID, req)
 		return
 	}
 
@@ -507,123 +469,6 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, SendMessageResponse{
 		Content:   resp.Content,
 		Completed: resp.Completed,
-	})
-}
-
-func (s *Server) handleSendWechatbotWebMessage(w http.ResponseWriter, r *http.Request, sessionID string, req SendMessageRequest) {
-	if len(req.Attachments) > 0 {
-		writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "微信会话暂不支持从 Web 发送附件", Code: errs.CodeBadRequest})
-		return
-	}
-	if req.ReasoningEffort != "" {
-		writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "微信会话 Web 出站不支持 reasoning_effort", Code: errs.CodeBadRequest})
-		return
-	}
-	if s.channelRouter == nil {
-		writeJSON(w, http.StatusConflict, ErrorResponse{Error: "请先在设置页连接微信", Code: errs.CodeChannelPlatformNotFound})
-		return
-	}
-	if s.store == nil {
-		writeJSON(w, http.StatusInternalServerError, ErrorResponse{Error: "微信会话存储未初始化", Code: errs.CodeInternal})
-		return
-	}
-	user := auth.UserFrom(r.Context())
-	if auth.IsAuthEnabled(r.Context()) && (user == nil || user.ID == "") {
-		writeJSON(w, http.StatusUnauthorized, ErrorResponse{Error: "未授权", Code: errs.CodePermissionDenied})
-		return
-	}
-	conv, err := s.store.GetWechatConversationBySessionID(r.Context(), sessionID)
-	if err != nil {
-		writeJSON(w, http.StatusNotFound, ErrorResponse{Error: "微信会话不存在", Code: errs.CodeNotFound})
-		return
-	}
-	if user != nil && conv.OwnerUserID != user.ID {
-		writeJSON(w, http.StatusForbidden, ErrorResponse{Error: "无权访问此微信会话", Code: errs.CodePermissionDenied})
-		return
-	}
-	if !conv.CanSend {
-		writeJSON(w, http.StatusConflict, ErrorResponse{Error: "该联系人暂无可发送上下文，请先让对方在微信中发一条消息", Code: errs.CodeInvalidInput})
-		return
-	}
-	if err := s.channelRouter.SendMessage(r.Context(), imctx.SendRequest{
-		Platform:    imctx.PlatformWeChatBot,
-		TenantKey:   conv.OwnerUserID,
-		OwnerUserID: conv.OwnerUserID,
-		ChatID:      conv.PeerWxid,
-		Content:     req.Content,
-		MsgType:     "text",
-	}); err != nil {
-		status, code, userMessage, sendState := classifyWechatbotSendError(err)
-		_ = s.store.UpdateWechatConversationSendState(r.Context(), conv.OwnerUserID, conv.PeerWxid, false, sendState)
-		s.recordWechatbotWebSendFailure(r.Context(), sessionID, req.Content, userMessage, sendState)
-		writeJSON(w, status, ErrorResponse{Error: userMessage, Code: code})
-		return
-	}
-	createdAt := time.Now().Format(time.RFC3339)
-	if s.store != nil {
-		_ = s.store.AddMessage(r.Context(), sessionID, "user", req.Content, map[string]any{
-			"source":      "web",
-			"im_outbound": true,
-			"platform":    "wechatbot",
-			"created_at":  createdAt,
-		})
-	}
-	s.master.BroadcastSessionMessage(sessionID, master.BroadcastMessage{
-		Type: master.EventTypeMessage,
-		Payload: map[string]any{
-			"role":       "user",
-			"content":    req.Content,
-			"timestamp":  createdAt,
-			"session_id": sessionID,
-			"source":     "web",
-			"platform":   "wechatbot",
-		},
-	})
-	writeJSON(w, http.StatusOK, SendMessageResponse{Completed: true})
-}
-
-func classifyWechatbotSendError(err error) (int, int, string, string) {
-	errText := strings.ToLower(err.Error())
-	switch {
-	case strings.Contains(errText, "no context_token") || strings.Contains(errText, "no context token"):
-		return http.StatusConflict, errs.CodeInvalidInput, "该联系人暂无可发送上下文，请先让对方在微信中发一条消息", "no_context"
-	case strings.Contains(errText, "not connected") || strings.Contains(errText, "not logged in"):
-		return http.StatusConflict, errs.CodeWeChatNotLoggedIn, "请先在设置页连接微信", "not_connected"
-	case strings.Contains(errText, "offline"):
-		return http.StatusConflict, errs.CodeWeChatNotLoggedIn, "微信连接已断开，请重新扫码", "offline"
-	case errs.IsCode(err, errs.CodeChannelPlatformNotFound):
-		return http.StatusConflict, errs.CodeChannelPlatformNotFound, "请先在设置页连接微信", "not_connected"
-	default:
-		return http.StatusBadGateway, errs.CodeChannelSendFailed, "微信发送失败，请稍后重试", "failed"
-	}
-}
-
-func (s *Server) recordWechatbotWebSendFailure(ctx context.Context, sessionID, attemptedContent, userMessage, sendState string) {
-	createdAt := time.Now().Format(time.RFC3339)
-	if s.store != nil {
-		_ = s.store.AddMessage(ctx, sessionID, "system", userMessage, map[string]any{
-			"source":        "web",
-			"im_outbound":   true,
-			"platform":      "wechatbot",
-			"send_status":   "failed",
-			"send_state":    sendState,
-			"is_error":      true,
-			"attempted_len": len(attemptedContent),
-			"error":         userMessage,
-			"created_at":    createdAt,
-		})
-	}
-	s.master.BroadcastSessionMessage(sessionID, master.BroadcastMessage{
-		Type: master.EventTypeError,
-		Payload: map[string]any{
-			"content":     userMessage,
-			"timestamp":   createdAt,
-			"session_id":  sessionID,
-			"source":      "web",
-			"platform":    "wechatbot",
-			"send_status": "failed",
-			"send_state":  sendState,
-		},
 	})
 }
 
@@ -1172,6 +1017,14 @@ func (s *Server) handleStopSession(w http.ResponseWriter, r *http.Request) {
 // 所有用户（包括 admin）只能访问自己的 session，遗留无主 session 也不可见。
 // 返回 true 表示允许继续，false 表示已向 w 写入错误响应。
 func (s *Server) checkSessionOwnership(w http.ResponseWriter, r *http.Request, session *store.SessionRecord) bool {
+	if session == nil {
+		writeJSON(w, http.StatusNotFound, ErrorResponse{Error: "会话不存在或无权访问", Code: errs.CodeNotFound})
+		return false
+	}
+	if isHiddenIMSessionForWeb(session.ID) {
+		writeJSON(w, http.StatusNotFound, ErrorResponse{Error: "会话不存在或无权访问", Code: errs.CodeNotFound})
+		return false
+	}
 	if !auth.IsAuthEnabled(r.Context()) {
 		return true
 	}

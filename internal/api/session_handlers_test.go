@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -14,7 +13,6 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/chef-guo/agents-hive/internal/auth"
-	"github.com/chef-guo/agents-hive/internal/channel"
 	"github.com/chef-guo/agents-hive/internal/config"
 	"github.com/chef-guo/agents-hive/internal/errs"
 	"github.com/chef-guo/agents-hive/internal/master"
@@ -22,27 +20,6 @@ import (
 	"github.com/chef-guo/agents-hive/internal/store"
 	"github.com/chef-guo/agents-hive/internal/subagent"
 )
-
-type apiWechatSendPlugin struct {
-	sent []channel.OutboundMessage
-	err  error
-}
-
-type masterStubProcessor struct{}
-
-func (p *masterStubProcessor) ProcessMessage(context.Context, string, string) (master.TaskResponse, error) {
-	return master.TaskResponse{Completed: true}, nil
-}
-
-func (p *apiWechatSendPlugin) Platform() channel.Platform { return channel.PlatformWeChatBot }
-func (p *apiWechatSendPlugin) Send(_ context.Context, msg channel.OutboundMessage) error {
-	p.sent = append(p.sent, msg)
-	return p.err
-}
-func (p *apiWechatSendPlugin) WebhookHandler() http.HandlerFunc {
-	return func(http.ResponseWriter, *http.Request) {}
-}
-func (p *apiWechatSendPlugin) Verify(*http.Request) bool { return true }
 
 // newTestServerForSessions creates a test server with session support
 func newTestServerForSessions(t *testing.T) (http.Handler, *master.Master, func()) {
@@ -197,7 +174,7 @@ func TestHandleListSessions_Empty(t *testing.T) {
 	}
 }
 
-func TestHandleListSessions_WechatbotVisibleOnlyForOwner(t *testing.T) {
+func TestHandleListSessions_HidesIMSessions(t *testing.T) {
 	logger := zap.NewNop()
 	st := store.NewMemoryStore()
 	m := master.NewMaster(master.Config{Model: "test"}, config.HITLConfig{}, subagent.NewRegistry(logger), skills.NewRegistry(logger), st, logger)
@@ -221,6 +198,7 @@ func TestHandleListSessions_WechatbotVisibleOnlyForOwner(t *testing.T) {
 	save("web-owner-1", "owner-1", "Web 会话")
 	save("im-wechatbot-owner-1-wx-peer", "owner-1", "微信会话")
 	save("im-feishu-tenant-chat", "owner-1", "飞书会话")
+	save("im-dingtalk-tenant-chat", "owner-1", "钉钉会话")
 	save("im-wechatbot-owner-2-wx-peer", "owner-2", "其他人的微信")
 
 	lastMessageAt := now.Add(time.Minute)
@@ -260,20 +238,16 @@ func TestHandleListSessions_WechatbotVisibleOnlyForOwner(t *testing.T) {
 		t.Fatalf("普通 Web 会话应继续可见: %+v", seen)
 	}
 	if _, ok := seen["im-feishu-tenant-chat"]; ok {
-		t.Fatalf("非 wechatbot IM 会话不应在 Web 列表展示")
+		t.Fatalf("飞书 IM 会话不应在 Web 列表展示")
+	}
+	if _, ok := seen["im-dingtalk-tenant-chat"]; ok {
+		t.Fatalf("钉钉 IM 会话不应在 Web 列表展示")
+	}
+	if _, ok := seen["im-wechatbot-owner-1-wx-peer"]; ok {
+		t.Fatalf("微信 IM 会话不应在 Web 列表展示")
 	}
 	if _, ok := seen["im-wechatbot-owner-2-wx-peer"]; ok {
 		t.Fatalf("其他 owner 的微信会话不应可见")
-	}
-	wx, ok := seen["im-wechatbot-owner-1-wx-peer"]
-	if !ok {
-		t.Fatalf("当前 owner 的 wechatbot 会话应可见: %+v", seen)
-	}
-	if wx.Source != "wechatbot" || wx.SourceLabel != "微信" || wx.Name != "客户 A" || wx.PeerAvatarURL == "" {
-		t.Fatalf("unexpected wechat metadata: %+v", wx)
-	}
-	if wx.CanSend == nil || !*wx.CanSend || wx.SendState != "ready" || wx.LastMessagePreview != "最近一条微信" {
-		t.Fatalf("unexpected wechat send state: %+v", wx)
 	}
 }
 
@@ -333,6 +307,93 @@ func TestHandleGetSession_MissingID(t *testing.T) {
 	// Go 1.22 router: GET /sessions/ doesn't match GET /sessions/{id}
 	if rec.Code != http.StatusNotFound && rec.Code != http.StatusMethodNotAllowed {
 		t.Errorf("expected 404 or 405, got %d", rec.Code)
+	}
+}
+
+func TestWebSessionHandlersRejectIMSessions(t *testing.T) {
+	logger := zap.NewNop()
+	st := store.NewMemoryStore()
+	m := master.NewMaster(master.Config{Model: "test"}, config.HITLConfig{}, subagent.NewRegistry(logger), skills.NewRegistry(logger), st, logger)
+	srv := NewServer(config.ServerConfig{Port: 0}, config.HITLConfig{}, config.WebUIConfig{}, m, nil, config.Default(), "", nil, st, nil, logger)
+
+	now := time.Now().Format(time.RFC3339)
+	for _, sessionID := range []string{"im-wechatbot-owner-1-wx-peer", "im-feishu-tenant-chat"} {
+		if err := st.SaveSession(context.Background(), &store.SessionRecord{
+			ID:             sessionID,
+			Name:           "IM 会话",
+			CreatedAt:      now,
+			UpdatedAt:      now,
+			LastAccessedAt: now,
+			UserID:         "owner-1",
+		}); err != nil {
+			t.Fatalf("save session %s: %v", sessionID, err)
+		}
+		if err := st.AddMessage(context.Background(), sessionID, "user", "不应出现在 Web", nil); err != nil {
+			t.Fatalf("save message %s: %v", sessionID, err)
+		}
+	}
+
+	tests := []struct {
+		name      string
+		sessionID string
+		call      func(http.ResponseWriter, *http.Request)
+		method    string
+		path      string
+		body      string
+	}{
+		{
+			name:      "微信详情不可读",
+			sessionID: "im-wechatbot-owner-1-wx-peer",
+			call:      srv.handleGetSession,
+			method:    http.MethodGet,
+			path:      "/api/v1/sessions/im-wechatbot-owner-1-wx-peer",
+		},
+		{
+			name:      "微信消息不可读",
+			sessionID: "im-wechatbot-owner-1-wx-peer",
+			call:      srv.handleGetMessages,
+			method:    http.MethodGet,
+			path:      "/api/v1/sessions/im-wechatbot-owner-1-wx-peer/messages",
+		},
+		{
+			name:      "微信不可从 Web 发送",
+			sessionID: "im-wechatbot-owner-1-wx-peer",
+			call:      srv.handleSendMessage,
+			method:    http.MethodPost,
+			path:      "/api/v1/sessions/im-wechatbot-owner-1-wx-peer/messages",
+			body:      `{"content":"你好"}`,
+		},
+		{
+			name:      "飞书详情不可读",
+			sessionID: "im-feishu-tenant-chat",
+			call:      srv.handleGetSession,
+			method:    http.MethodGet,
+			path:      "/api/v1/sessions/im-feishu-tenant-chat",
+		},
+		{
+			name:      "飞书消息不可读",
+			sessionID: "im-feishu-tenant-chat",
+			call:      srv.handleGetMessages,
+			method:    http.MethodGet,
+			path:      "/api/v1/sessions/im-feishu-tenant-chat/messages",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			body := strings.NewReader(tc.body)
+			req := httptest.NewRequest(tc.method, tc.path, body)
+			req.SetPathValue("id", tc.sessionID)
+			req = req.WithContext(auth.WithUser(auth.WithAuthEnabled(req.Context()), &auth.User{ID: "owner-1", Status: "active"}))
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+
+			tc.call(rec, req)
+
+			if rec.Code != http.StatusNotFound {
+				t.Fatalf("status = %d, want 404; body=%s", rec.Code, rec.Body.String())
+			}
+		})
 	}
 }
 
@@ -412,287 +473,6 @@ func TestHandleSendMessage_InvalidJSON(t *testing.T) {
 
 	if rec.Code != http.StatusBadRequest {
 		t.Errorf("expected 400, got %d", rec.Code)
-	}
-}
-
-func TestHandleSendMessage_WechatbotSessionRoutesToIM(t *testing.T) {
-	logger := zap.NewNop()
-	st := store.NewMemoryStore()
-	router := channel.NewRouter(&masterStubProcessor{}, logger)
-	plugin := &apiWechatSendPlugin{}
-	router.RegisterPlugin(plugin)
-	m := master.NewMaster(master.Config{Model: "test"}, config.HITLConfig{}, subagent.NewRegistry(logger), skills.NewRegistry(logger), st, logger)
-	subID, broadcasts := m.SubscribeWSBroadcast()
-	defer m.UnsubscribeWSBroadcast(subID)
-	srv := NewServer(config.ServerConfig{Port: 0}, config.HITLConfig{}, config.WebUIConfig{}, m, nil, config.Default(), "", router, st, nil, logger)
-
-	sessionID := "im-wechatbot-owner-1-wx-peer"
-	now := time.Now().Format(time.RFC3339)
-	if err := st.SaveSession(context.Background(), &store.SessionRecord{
-		ID:             sessionID,
-		Name:           "微信会话",
-		CreatedAt:      now,
-		UpdatedAt:      now,
-		LastAccessedAt: now,
-		UserID:         "owner-1",
-		Tags:           []string{"wechat"},
-	}); err != nil {
-		t.Fatalf("save session: %v", err)
-	}
-	if err := st.UpsertWechatConversation(context.Background(), &store.WechatConversationRecord{
-		OwnerUserID:    "owner-1",
-		OwnerAccountID: "wx-owner",
-		PeerWxid:       "wx-peer",
-		SessionID:      sessionID,
-		CanSend:        true,
-		SendState:      "ready",
-	}); err != nil {
-		t.Fatalf("save conversation: %v", err)
-	}
-
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/sessions/"+sessionID+"/messages", strings.NewReader(`{"content":"你好"}`))
-	req.SetPathValue("id", sessionID)
-	req = req.WithContext(auth.WithUser(auth.WithAuthEnabled(req.Context()), &auth.User{ID: "owner-1", Status: "active"}))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-
-	srv.handleSendMessage(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
-	}
-	if len(plugin.sent) != 1 {
-		t.Fatalf("sent = %d, want 1", len(plugin.sent))
-	}
-	got := plugin.sent[0]
-	if got.OwnerUserID != "owner-1" || got.TenantKey != "owner-1" || got.ChatID != "wx-peer" || got.Content != "你好" {
-		t.Fatalf("unexpected outbound: %+v", got)
-	}
-	msgs, err := st.GetMessages(context.Background(), sessionID, 0)
-	if err != nil || len(msgs) != 1 || msgs[0].Content != "你好" {
-		t.Fatalf("message not appended, len=%d err=%v", len(msgs), err)
-	}
-	select {
-	case msg := <-broadcasts:
-		if msg.Type != master.EventTypeMessage || msg.SessionID != sessionID {
-			t.Fatalf("unexpected broadcast: %+v", msg)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("web wechat outbound did not broadcast user message")
-	}
-}
-
-func TestHandleSendMessage_WechatbotNoContextReturns409(t *testing.T) {
-	logger := zap.NewNop()
-	st := store.NewMemoryStore()
-	router := channel.NewRouter(&masterStubProcessor{}, logger)
-	router.RegisterPlugin(&apiWechatSendPlugin{})
-	m := master.NewMaster(master.Config{Model: "test"}, config.HITLConfig{}, subagent.NewRegistry(logger), skills.NewRegistry(logger), st, logger)
-	srv := NewServer(config.ServerConfig{Port: 0}, config.HITLConfig{}, config.WebUIConfig{}, m, nil, config.Default(), "", router, st, nil, logger)
-
-	sessionID := "im-wechatbot-owner-1-wx-peer"
-	now := time.Now().Format(time.RFC3339)
-	_ = st.SaveSession(context.Background(), &store.SessionRecord{
-		ID:             sessionID,
-		Name:           "微信会话",
-		CreatedAt:      now,
-		UpdatedAt:      now,
-		LastAccessedAt: now,
-		UserID:         "owner-1",
-	})
-	_ = st.UpsertWechatConversation(context.Background(), &store.WechatConversationRecord{
-		OwnerUserID:    "owner-1",
-		OwnerAccountID: "wx-owner",
-		PeerWxid:       "wx-peer",
-		SessionID:      sessionID,
-		CanSend:        false,
-		SendState:      "no_context",
-	})
-
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/sessions/"+sessionID+"/messages", strings.NewReader(`{"content":"你好"}`))
-	req.SetPathValue("id", sessionID)
-	req = req.WithContext(auth.WithUser(auth.WithAuthEnabled(req.Context()), &auth.User{ID: "owner-1", Status: "active"}))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-
-	srv.handleSendMessage(rec, req)
-	if rec.Code != http.StatusConflict {
-		t.Fatalf("status = %d, want 409; body=%s", rec.Code, rec.Body.String())
-	}
-}
-
-func TestHandleSendMessage_WechatbotSendFailureRecordsAndBroadcasts(t *testing.T) {
-	logger := zap.NewNop()
-	st := store.NewMemoryStore()
-	router := channel.NewRouter(&masterStubProcessor{}, logger)
-	plugin := &apiWechatSendPlugin{err: errors.New("sdk temporary unavailable")}
-	router.RegisterPlugin(plugin)
-	m := master.NewMaster(master.Config{Model: "test"}, config.HITLConfig{}, subagent.NewRegistry(logger), skills.NewRegistry(logger), st, logger)
-	subID, broadcasts := m.SubscribeWSBroadcast()
-	defer m.UnsubscribeWSBroadcast(subID)
-	srv := NewServer(config.ServerConfig{Port: 0}, config.HITLConfig{}, config.WebUIConfig{}, m, nil, config.Default(), "", router, st, nil, logger)
-
-	sessionID := "im-wechatbot-owner-1-wx-peer"
-	now := time.Now().Format(time.RFC3339)
-	if err := st.SaveSession(context.Background(), &store.SessionRecord{
-		ID:             sessionID,
-		Name:           "微信会话",
-		CreatedAt:      now,
-		UpdatedAt:      now,
-		LastAccessedAt: now,
-		UserID:         "owner-1",
-	}); err != nil {
-		t.Fatalf("save session: %v", err)
-	}
-	if err := st.UpsertWechatConversation(context.Background(), &store.WechatConversationRecord{
-		OwnerUserID:    "owner-1",
-		OwnerAccountID: "wx-owner",
-		PeerWxid:       "wx-peer",
-		SessionID:      sessionID,
-		CanSend:        true,
-		SendState:      "ready",
-	}); err != nil {
-		t.Fatalf("save conversation: %v", err)
-	}
-
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/sessions/"+sessionID+"/messages", strings.NewReader(`{"content":"你好"}`))
-	req.SetPathValue("id", sessionID)
-	req = req.WithContext(auth.WithUser(auth.WithAuthEnabled(req.Context()), &auth.User{ID: "owner-1", Status: "active"}))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-
-	srv.handleSendMessage(rec, req)
-
-	if rec.Code != http.StatusBadGateway {
-		t.Fatalf("status = %d, want 502; body=%s", rec.Code, rec.Body.String())
-	}
-	msgs, err := st.GetMessages(context.Background(), sessionID, 0)
-	if err != nil {
-		t.Fatalf("get messages: %v", err)
-	}
-	if len(msgs) != 1 {
-		t.Fatalf("messages len = %d, want 1", len(msgs))
-	}
-	if msgs[0].Role != "system" || !strings.Contains(msgs[0].Content, "微信发送失败") {
-		t.Fatalf("unexpected failure message: %+v", msgs[0])
-	}
-	var meta map[string]any
-	if err := json.Unmarshal(msgs[0].Metadata, &meta); err != nil {
-		t.Fatalf("unmarshal metadata: %v", err)
-	}
-	if meta["send_status"] != "failed" || meta["is_error"] != true {
-		t.Fatalf("unexpected failure metadata: %+v", meta)
-	}
-	conv, err := st.GetWechatConversationByOwnerPeer(context.Background(), "owner-1", "wx-peer")
-	if err != nil {
-		t.Fatalf("get conversation: %v", err)
-	}
-	if conv.CanSend || conv.SendState != "failed" {
-		t.Fatalf("send state = can_send=%v state=%q, want false/failed", conv.CanSend, conv.SendState)
-	}
-	select {
-	case msg := <-broadcasts:
-		if msg.Type != master.EventTypeError || msg.SessionID != sessionID {
-			t.Fatalf("unexpected broadcast: %+v", msg)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("web wechat outbound failure did not broadcast error")
-	}
-}
-
-func TestHandleSendMessage_WechatbotWrappedNoContextReturns409(t *testing.T) {
-	logger := zap.NewNop()
-	st := store.NewMemoryStore()
-	router := channel.NewRouter(&masterStubProcessor{}, logger)
-	plugin := &apiWechatSendPlugin{err: errors.New("send failed: no context_token for user wx-peer")}
-	router.RegisterPlugin(plugin)
-	m := master.NewMaster(master.Config{Model: "test"}, config.HITLConfig{}, subagent.NewRegistry(logger), skills.NewRegistry(logger), st, logger)
-	srv := NewServer(config.ServerConfig{Port: 0}, config.HITLConfig{}, config.WebUIConfig{}, m, nil, config.Default(), "", router, st, nil, logger)
-
-	sessionID := "im-wechatbot-owner-1-wx-peer"
-	now := time.Now().Format(time.RFC3339)
-	_ = st.SaveSession(context.Background(), &store.SessionRecord{
-		ID:             sessionID,
-		Name:           "微信会话",
-		CreatedAt:      now,
-		UpdatedAt:      now,
-		LastAccessedAt: now,
-		UserID:         "owner-1",
-	})
-	_ = st.UpsertWechatConversation(context.Background(), &store.WechatConversationRecord{
-		OwnerUserID:    "owner-1",
-		OwnerAccountID: "wx-owner",
-		PeerWxid:       "wx-peer",
-		SessionID:      sessionID,
-		CanSend:        true,
-		SendState:      "ready",
-	})
-
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/sessions/"+sessionID+"/messages", strings.NewReader(`{"content":"你好"}`))
-	req.SetPathValue("id", sessionID)
-	req = req.WithContext(auth.WithUser(auth.WithAuthEnabled(req.Context()), &auth.User{ID: "owner-1", Status: "active"}))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-
-	srv.handleSendMessage(rec, req)
-	if rec.Code != http.StatusConflict {
-		t.Fatalf("status = %d, want 409; body=%s", rec.Code, rec.Body.String())
-	}
-	conv, err := st.GetWechatConversationByOwnerPeer(context.Background(), "owner-1", "wx-peer")
-	if err != nil {
-		t.Fatalf("get conversation: %v", err)
-	}
-	if conv.CanSend || conv.SendState != "no_context" {
-		t.Fatalf("send state = can_send=%v state=%q, want false/no_context", conv.CanSend, conv.SendState)
-	}
-}
-
-func TestWebSendToWechatRejectsCrossUser(t *testing.T) {
-	logger := zap.NewNop()
-	st := store.NewMemoryStore()
-	router := channel.NewRouter(&masterStubProcessor{}, logger)
-	plugin := &apiWechatSendPlugin{}
-	router.RegisterPlugin(plugin)
-	m := master.NewMaster(master.Config{Model: "test"}, config.HITLConfig{}, subagent.NewRegistry(logger), skills.NewRegistry(logger), st, logger)
-	srv := NewServer(config.ServerConfig{Port: 0}, config.HITLConfig{}, config.WebUIConfig{}, m, nil, config.Default(), "", router, st, nil, logger)
-
-	sessionID := "im-wechatbot-owner-1-wx-peer"
-	now := time.Now().Format(time.RFC3339)
-	if err := st.SaveSession(context.Background(), &store.SessionRecord{
-		ID:             sessionID,
-		Name:           "微信会话",
-		CreatedAt:      now,
-		UpdatedAt:      now,
-		LastAccessedAt: now,
-		UserID:         "owner-1",
-		Tags:           []string{"wechat"},
-	}); err != nil {
-		t.Fatalf("save session: %v", err)
-	}
-	if err := st.UpsertWechatConversation(context.Background(), &store.WechatConversationRecord{
-		OwnerUserID:    "owner-1",
-		OwnerAccountID: "wx-owner",
-		PeerWxid:       "wx-peer",
-		SessionID:      sessionID,
-		CanSend:        true,
-		SendState:      "ready",
-	}); err != nil {
-		t.Fatalf("save conversation: %v", err)
-	}
-
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/sessions/"+sessionID+"/messages", strings.NewReader(`{"content":"越权"}`))
-	req.SetPathValue("id", sessionID)
-	req = req.WithContext(auth.WithUser(auth.WithAuthEnabled(req.Context()), &auth.User{ID: "owner-2", Status: "active"}))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-
-	srv.handleSendMessage(rec, req)
-
-	if rec.Code != http.StatusNotFound {
-		t.Fatalf("status = %d, want 404; body=%s", rec.Code, rec.Body.String())
-	}
-	if len(plugin.sent) != 0 {
-		t.Fatalf("cross-user send should not reach plugin, sent=%d", len(plugin.sent))
 	}
 }
 

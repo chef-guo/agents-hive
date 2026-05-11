@@ -26,15 +26,11 @@ export interface WeChatConnectionStatus {
 }
 
 export interface WeChatConversation {
-  session_id: string;
   peer_wxid: string;
   peer_nickname?: string;
   peer_avatar_url?: string;
   chat_type: string;
-  last_message_preview?: string;
   last_message_at?: string;
-  can_send: boolean;
-  send_state: string;
 }
 
 export interface WeChatEvent {

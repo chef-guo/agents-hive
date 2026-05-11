@@ -2,6 +2,7 @@ import { useEffect, useCallback, useMemo } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { ArrowLeft, X } from 'lucide-react';
+import { ApiRequestError } from '../api/client';
 import { useSessionStore } from '../store/session';
 import { useChatStore } from '../store/chat';
 import { useHITLStore } from '../store/hitl';
@@ -56,7 +57,11 @@ export function Chat() {
       useTodosStore.getState().clear();
       // 切换会话时清理进度
       useTaskProgressStore.getState().clear();
-      fetchSession(client, id);
+      fetchSession(client, id).catch((err: unknown) => {
+        if (err instanceof ApiRequestError && (err.code === 1006 || err.code === 6000)) {
+          navigate('/');
+        }
+      });
       useTodosStore.getState().loadSnapshot(client, id);
       // 先加载消息，再拉取待处理权限请求（确保锚定位置正确）
       loadMessages(client, id, 100).then(() => {
@@ -74,6 +79,10 @@ export function Chat() {
             updateSessionName(id, title);
           }
         }
+      }).catch((err: unknown) => {
+        if (err instanceof ApiRequestError && (err.code === 1006 || err.code === 6000)) {
+          navigate('/');
+        }
       });
       loadModels(client);
     }
@@ -83,7 +92,7 @@ export function Chat() {
       useTaskProgressStore.getState().clear();
       useTodosStore.getState().clear();
     };
-  }, [id, client, fetchSession, loadMessages, clearMessages, loadModels, pendingMessage, sendMessage, updateSessionName]);
+  }, [id, client, fetchSession, loadMessages, clearMessages, loadModels, pendingMessage, sendMessage, updateSessionName, navigate]);
 
   // 会话被删除后自动跳转回会话列表
   useEffect(() => {
@@ -153,15 +162,7 @@ export function Chat() {
 
   // 从消息列表实时累加 input + output tokens（不用 stale 的 currentSession.total_tokens）
   const totalTokens = useMemo(() => calculateMessageTotalTokens(messages), [messages]);
-  const isWechatSession = currentSession?.source === 'wechatbot';
-  const wechatCannotSend = isWechatSession && currentSession?.can_send === false;
-  const inputDisabled = sending || streaming || wechatCannotSend;
-  const inputNotice = wechatCannotSend
-    ? t('wechatConnection.noSendContext', '该联系人暂无可发送上下文，请先让对方给微信里的 clawbot 发一条消息。')
-    : undefined;
-  const inputPlaceholder = wechatCannotSend
-    ? t('wechatConnection.noSendContextShort', '等待对方先给 clawbot 发消息')
-    : undefined;
+  const inputDisabled = sending || streaming;
 
   useEffect(() => {
     setSlots({
@@ -238,10 +239,8 @@ export function Chat() {
             onSend={handleSend}
             onStop={handleStop}
             disabled={inputDisabled}
-            placeholder={inputPlaceholder}
-            notice={inputNotice}
-            allowAttachments={!isWechatSession}
-            allowDeepThinking={!isWechatSession}
+            allowAttachments
+            allowDeepThinking
           />
         </div>
         {/* 右侧工作区：宽屏 stack，窄屏仅 Canvas 覆盖 */}

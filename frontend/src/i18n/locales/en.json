@@ -243,7 +243,6 @@
   "wechatConnection": {
     "title": "WeChat Bot Connection",
     "subtitle": "Connect an official wechatbot.dev iLink Bot. Ask contacts to message clawbot in WeChat.",
-    "sourceLabel": "WeChat",
     "disabledHint": "Official WeChat Bot channel is not enabled. Ask an admin to enable channel.wechatbot.enabled.",
     "account": "Bot Account",
     "unbound": "Unbound",
@@ -259,11 +258,12 @@
     "scanHint": "After scanning, clawbot appears in WeChat. The official SDK only receives messages sent to clawbot, not normal private chats sent to your WeChat account.",
     "qrRendering": "Generating QR code...",
     "qrAlt": "WeChat Bot connection QR code",
-    "recentConversations": "Recent WeChat Bot Conversations",
-    "noConversations": "No WeChat Bot conversations yet",
-    "noConversationsHint": "Ask the contact to message clawbot in WeChat; then a replyable conversation appears here.",
-    "noSendContext": "This contact has no send context yet. Ask them to message clawbot in WeChat first.",
-    "noSendContextShort": "Waiting for a clawbot message first",
+    "recentConversations": "Recent WeChat Bot Contacts",
+    "noConversations": "No WeChat Bot contacts yet",
+    "noConversationsHint": "Ask the contact to message clawbot in WeChat; recent contact status appears here.",
+    "statusOnly": "Status",
+    "contactStatusOnly": "Contact status only",
+    "lastSeenAt": "Last interaction {{time}}",
     "status": {
       "loading": "Loading",
       "disabled": "Disabled",
@@ -540,7 +540,7 @@
       "overview": {
         "title": "1. Supported IM Platforms & Architecture",
         "desc": "The Channel system bridges IM messages to Agent sessions:\n\nIM Platform → Webhook/Long Poll → Channel Router → ACP Control Plane → Master Agent\n\nSupported platforms:\n• DingTalk (dingtalk) — Enterprise, requires DingTalk app creation\n• Feishu (feishu) — Enterprise, requires Feishu app creation\n• WeCom (wecom) — Enterprise, requires WeCom admin access\n• WeChat Bot — official wechatbot/iLink Bot; only receives messages sent to clawbot, not normal private chats sent to a personal WeChat account\n\nMessage types: direct (DM), group (group chat), channel.",
-        "detail": "## Architecture Flow\n\n```\nIM User Message\n    ↓\nWebhook / Long Poll ingress\n    ↓\nChannel Router (lookup Binding mapping)\n    ↓\nACP Control Plane (rate limiting, auth)\n    ↓\nMaster Agent (process and reply)\n    ↓\nIM Reply Message\n```\n\n## Supported Platforms\n\n| Platform | ID | Type | Requirements |\n|----------|-----|------|-------------|\n| DingTalk | `dingtalk` | Enterprise | Create DingTalk app |\n| Feishu | `feishu` | Enterprise | Create Feishu app |\n| WeCom | `wecom` | Enterprise | WeCom admin access |\n| WeChat Bot | `wechatbot` | Official iLink Bot | Users connect official wechatbot in `/settings`; contacts must message clawbot, and Web replies require an existing send context |\n\n## Message Types\n\n| Type | ID | Description |\n|------|-----|-------------|\n| Direct | `direct` | One-on-one private messages |\n| Group | `group` | Group chat messages |\n| Channel | `channel` | Channel/topic messages |"
+        "detail": "## Architecture Flow\n\n```\nIM User Message\n    ↓\nWebhook / Long Poll ingress\n    ↓\nChannel Router (lookup Binding mapping)\n    ↓\nACP Control Plane (rate limiting, auth)\n    ↓\nMaster Agent (process and reply)\n    ↓\nIM Reply Message\n```\n\n## Supported Platforms\n\n| Platform | ID | Type | Requirements |\n|----------|-----|------|-------------|\n| DingTalk | `dingtalk` | Enterprise | Create DingTalk app |\n| Feishu | `feishu` | Enterprise | Create Feishu app |\n| WeCom | `wecom` | Enterprise | WeCom admin access |\n| WeChat Bot | `wechatbot` | Official iLink Bot | Users connect official wechatbot in `/settings`; contacts must message clawbot; normal Web Chat does not show IM sessions |\n\n## Message Types\n\n| Type | ID | Description |\n|------|-----|-------------|\n| Direct | `direct` | One-on-one private messages |\n| Group | `group` | Group chat messages |\n| Channel | `channel` | Channel/topic messages |"
       },
       "channelConfig": {
         "title": "2. Platform Configuration",

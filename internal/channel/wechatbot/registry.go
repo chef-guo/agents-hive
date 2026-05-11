@@ -327,32 +327,25 @@ type ConnectionStatus struct {
 	Error             string    `json:"error,omitempty"`
 }
 
-// Conversation 是 API 会话列表响应的内部 DTO。
+// Conversation 是设置页最近联系人状态 DTO。
+// 不向 Web 暴露内部 im-* session_id、消息内容预览或发送上下文。
 type Conversation struct {
-	SessionID          string     `json:"session_id"`
-	PeerWxid           string     `json:"peer_wxid"`
-	PeerNickname       string     `json:"peer_nickname,omitempty"`
-	PeerAvatarURL      string     `json:"peer_avatar_url,omitempty"`
-	ChatType           string     `json:"chat_type"`
-	LastMessagePreview string     `json:"last_message_preview,omitempty"`
-	LastMessageAt      *time.Time `json:"last_message_at,omitempty"`
-	CanSend            bool       `json:"can_send"`
-	SendState          string     `json:"send_state"`
+	PeerWxid      string     `json:"peer_wxid"`
+	PeerNickname  string     `json:"peer_nickname,omitempty"`
+	PeerAvatarURL string     `json:"peer_avatar_url,omitempty"`
+	ChatType      string     `json:"chat_type"`
+	LastMessageAt *time.Time `json:"last_message_at,omitempty"`
 }
 
 func conversationsFromRecords(records []*store.WechatConversationRecord) []Conversation {
 	out := make([]Conversation, 0, len(records))
 	for _, rec := range records {
 		out = append(out, Conversation{
-			SessionID:          rec.SessionID,
-			PeerWxid:           rec.PeerWxid,
-			PeerNickname:       rec.PeerNickname,
-			PeerAvatarURL:      rec.PeerAvatarURL,
-			ChatType:           rec.ChatType,
-			LastMessagePreview: rec.LastMessagePreview,
-			LastMessageAt:      rec.LastMessageAt,
-			CanSend:            rec.CanSend,
-			SendState:          rec.SendState,
+			PeerWxid:      rec.PeerWxid,
+			PeerNickname:  rec.PeerNickname,
+			PeerAvatarURL: rec.PeerAvatarURL,
+			ChatType:      rec.ChatType,
+			LastMessageAt: rec.LastMessageAt,
 		})
 	}
 	return out
