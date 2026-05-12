@@ -228,6 +228,13 @@ func (m *Master) buildToolPrompt(tools []mcphost.ToolDefinition) string {
 	b.WriteString("## 外部操作\n\n")
 	b.WriteString("直接使用 bash 和 webfetch 工具完成外部操作。\n")
 	b.WriteString("已配置的外部资源连接信息见下方。\n\n")
+	if hasPromptTool(tools, "im_api") {
+		b.WriteString("### IM 外发工具选择\n")
+		b.WriteString("- IM 外发统一优先使用 im_api。\n")
+		b.WriteString("- feishu_api 只用于飞书文档、表格、审批等飞书业务域，不要用 feishu_api 代替 IM 外发。\n")
+		b.WriteString("- 用户给出平台 hint 时必须匹配对应平台工具与 platform 参数，不得把微信、企微、钉钉请求发到飞书。\n")
+		b.WriteString("- 微信 list_recent_conversations 后如果没有明确目标会话或联系人，必须调用 question 工具向用户确认后再发送。\n\n")
+	}
 
 	// spawn_agent 使用规范（从 PromptLoader 加载）
 	if m.promptLoader != nil {
@@ -323,6 +330,15 @@ func (m *Master) buildToolPrompt(tools []mcphost.ToolDefinition) string {
 	}
 
 	return b.String()
+}
+
+func hasPromptTool(tools []mcphost.ToolDefinition, name string) bool {
+	for _, tool := range tools {
+		if strings.TrimSpace(tool.Name) == name {
+			return true
+		}
+	}
+	return false
 }
 
 // buildCompactionPipeline 根据配置构建可插拔压缩管线（P2-2）

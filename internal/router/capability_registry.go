@@ -80,12 +80,13 @@ var builtinToolRules = map[string]BuiltinToolRule{
 	"edit":                       {Domain: "filesystem", Invocation: InvocationDirectTool, Risk: RiskLocalWrite, SideEffect: true},
 	"enter_plan_mode":            {Domain: "planning", Invocation: InvocationDirectTool, Risk: RiskReadOnly, ReadOnly: true},
 	"exit_plan_mode":             {Domain: "planning", Invocation: InvocationDirectTool, Risk: RiskReadOnly, ReadOnly: true},
-	"feishu_api":                 {Domain: "messaging", Invocation: InvocationDirectTool, Risk: RiskExternalWrite, SideEffect: true, Capabilities: []Capability{CapabilityExternalSend}},
+	"feishu_api":                 {Domain: "messaging", Invocation: InvocationDirectTool, Risk: RiskExternalWrite, SideEffect: true, Capabilities: []Capability{CapabilityExternalSend, CapabilityExternalSendFeishu}},
 	"finish_plan":                {Domain: "planning", Invocation: InvocationDirectTool, Risk: RiskReadOnly, ReadOnly: true},
 	"generate_image":             {Domain: "media", Invocation: InvocationDirectTool, Risk: RiskLocalWrite, SideEffect: true},
 	"generate_video":             {Domain: "media", Invocation: InvocationDirectTool, Risk: RiskLocalWrite, SideEffect: true},
 	"glob":                       {Domain: "filesystem", Invocation: InvocationDirectTool, Risk: RiskReadOnly, ReadOnly: true},
 	"grep":                       {Domain: "filesystem", Invocation: InvocationDirectTool, Risk: RiskReadOnly, ReadOnly: true},
+	"im_api":                     {Domain: "messaging", Invocation: InvocationDirectTool, Risk: RiskExternalWrite, SideEffect: true, Capabilities: allExternalSendCapabilities()},
 	"ls":                         {Domain: "filesystem", Invocation: InvocationDirectTool, Risk: RiskReadOnly, ReadOnly: true},
 	"memory":                     {Domain: "agent", Invocation: InvocationDirectTool, Risk: RiskLocalWrite, SideEffect: true},
 	"multi_edit":                 {Domain: "filesystem", Invocation: InvocationDirectTool, Risk: RiskLocalWrite, SideEffect: true},
@@ -95,7 +96,7 @@ var builtinToolRules = map[string]BuiltinToolRule{
 	"question":                   {Domain: "agent", Invocation: InvocationDirectTool, Risk: RiskReadOnly, ReadOnly: true},
 	"read_file":                  {Domain: "filesystem", Invocation: InvocationDirectTool, Risk: RiskReadOnly, ReadOnly: true},
 	"remove_tool":                {Domain: "tools", Invocation: InvocationDirectTool, Risk: RiskLocalWrite, SideEffect: true, Capabilities: []Capability{CapabilityMetaToolRegister}},
-	"send_im_message":            {Domain: "messaging", Invocation: InvocationDirectTool, Risk: RiskExternalWrite, SideEffect: true, Capabilities: []Capability{CapabilityExternalSend}},
+	"send_im_message":            {Domain: "messaging", Invocation: InvocationDirectTool, Risk: RiskExternalWrite, SideEffect: true, Capabilities: allExternalSendCapabilities()},
 	"skill":                      {Domain: "skills", Invocation: InvocationDirectTool, Risk: RiskLocalWrite, SideEffect: true},
 	"skill_install":              {Domain: "skills", Invocation: InvocationDirectTool, Risk: RiskLocalWrite, SideEffect: true, Capabilities: []Capability{CapabilityMetaSkillCreate}},
 	"skill_search":               {Domain: "skills", Invocation: InvocationDirectTool, Risk: RiskReadOnly, ReadOnly: true},
@@ -110,6 +111,16 @@ var builtinToolRules = map[string]BuiltinToolRule{
 	"webfetch":                   {Domain: "web", Invocation: InvocationDirectTool, Risk: RiskReadOnly, ReadOnly: true},
 	"websearch":                  {Domain: "web", Invocation: InvocationDirectTool, Risk: RiskReadOnly, ReadOnly: true},
 	"write_file":                 {Domain: "filesystem", Invocation: InvocationDirectTool, Risk: RiskLocalWrite, SideEffect: true},
+}
+
+func allExternalSendCapabilities() []Capability {
+	return []Capability{
+		CapabilityExternalSend,
+		CapabilityExternalSendFeishu,
+		CapabilityExternalSendWechatBot,
+		CapabilityExternalSendWeCom,
+		CapabilityExternalSendDingTalk,
+	}
 }
 
 var shellCommandTools = map[string]bool{

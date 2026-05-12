@@ -39,6 +39,16 @@
     "tokens": []
   },
 
+  "agent": {
+    "_comment": "Agent 运行时配置示例；完整运行时配置会迁移到数据库，可通过 Web UI 或 API 修改。",
+    "im_api": {
+      "_comment": "统一 IM Agent API。环境变量: IM_API_ENABLED, IM_API_PREFERRED_OVER_LEGACY, IM_API_FORCE_DRY_RUN",
+      "enabled": true,
+      "preferred_over_legacy": false,
+      "force_dry_run": false
+    }
+  },
+
   "channel": {
     "_comment": "IM 通道启动配置。运行时通道配置会迁移到数据库；个人微信只保留官方 wechatbot 全局开关。",
     "enabled": false,

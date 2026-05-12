@@ -4,12 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
 	"go.uber.org/zap"
 
+	"github.com/chef-guo/agents-hive/internal/imctx"
 	"github.com/chef-guo/agents-hive/internal/mcphost"
+	"github.com/chef-guo/agents-hive/internal/toolctx"
 )
 
 // mockFeishuProvider 模拟飞书 API 提供者
@@ -51,6 +54,19 @@ type mockFeishuProvider struct {
 	lastChatID     string
 	lastContent    string
 	lastSheetRange string
+
+	callSequence        []string
+	getUserInfoTraceIDs []string
+	sendMessageTraceIDs []string
+}
+
+type captureFeishuAuditSink struct {
+	records []any
+}
+
+func (s *captureFeishuAuditSink) Write(_ context.Context, record any) error {
+	s.records = append(s.records, record)
+	return nil
 }
 
 func (m *mockFeishuProvider) SearchDocs(ctx context.Context, query string, count int) (json.RawMessage, error) {
@@ -73,6 +89,8 @@ func (m *mockFeishuProvider) SearchContacts(ctx context.Context, query string, p
 func (m *mockFeishuProvider) GetUserInfo(ctx context.Context, userID string) (json.RawMessage, error) {
 	m.lastAction = "get_user_info"
 	m.lastUserID = userID
+	m.callSequence = append(m.callSequence, "GetUserInfo:"+userID)
+	m.getUserInfoTraceIDs = append(m.getUserInfoTraceIDs, toolctx.GetToolContext(ctx).TurnIDOrTraceID())
 	return m.getUserInfoResult, m.getUserInfoErr
 }
 func (m *mockFeishuProvider) ListCalendarEvents(ctx context.Context, calendarID string, startTime, endTime time.Time) (json.RawMessage, error) {
@@ -89,6 +107,8 @@ func (m *mockFeishuProvider) SendMessage(ctx context.Context, chatID, content st
 	m.lastAction = "send_message"
 	m.lastChatID = chatID
 	m.lastContent = content
+	m.callSequence = append(m.callSequence, "SendMessage:"+chatID+":"+content)
+	m.sendMessageTraceIDs = append(m.sendMessageTraceIDs, toolctx.GetToolContext(ctx).TurnIDOrTraceID())
 	return m.sendMessageErr
 }
 func (m *mockFeishuProvider) CreateDoc(ctx context.Context, title string, folderToken string) (string, string, error) {
@@ -229,16 +249,43 @@ func (m *mockFeishuProvider) SendFile(ctx context.Context, chatID, fileKey strin
 
 func callFeishuAPI(t *testing.T, provider *mockFeishuProvider, params map[string]any) *mcphost.ToolResult {
 	t.Helper()
+	return callFeishuAPIWithContext(t, context.Background(), provider, params)
+}
+
+func callFeishuAPIWithContext(t *testing.T, ctx context.Context, provider *mockFeishuProvider, params map[string]any) *mcphost.ToolResult {
+	t.Helper()
 	logger := zap.NewNop()
 	host := mcphost.NewHost(logger)
 	RegisterFeishuTools(host, logger, provider, NewHumanReadableFormatter())
 
 	input, _ := json.Marshal(params)
-	result, err := host.ExecuteTool(context.Background(), "feishu_api", input)
+	result, err := host.ExecuteTool(ctx, "feishu_api", input)
 	if err != nil {
 		t.Fatalf("调用失败: %v", err)
 	}
 	return result
+}
+
+func executeFeishuAPITestTool(t *testing.T, host *mcphost.Host, ctx context.Context, params map[string]any) *mcphost.ToolResult {
+	t.Helper()
+	input, _ := json.Marshal(params)
+	result, err := host.ExecuteTool(ctx, "feishu_api", input)
+	if err != nil {
+		t.Fatalf("调用失败: %v", err)
+	}
+	return result
+}
+
+func assertStringSliceEqual(t *testing.T, got, want []string) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("调用序列长度不匹配: got=%v want=%v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("调用序列不匹配: got=%v want=%v", got, want)
+		}
+	}
 }
 
 // --- 工具注册 ---
@@ -620,11 +667,162 @@ func TestFeishuAPISendMessage(t *testing.T) {
 	}
 }
 
+func TestFeishuAPISendMessageWithOpenID(t *testing.T) {
+	p := &mockFeishuProvider{}
+	result := callFeishuAPI(t, p, map[string]any{
+		"action": "send_message", "open_id": "ou_123", "content": "hello",
+	})
+	if result.IsError {
+		t.Fatalf("预期成功: %s", result.DecodeContent())
+	}
+	if p.lastChatID != "ou_123" || p.lastContent != "hello" {
+		t.Errorf("open_id 未作为接收目标透传: target=%s content=%s", p.lastChatID, p.lastContent)
+	}
+}
+
+func TestFeishuAPISendMessageResolvesUserIDToOpenID(t *testing.T) {
+	p := &mockFeishuProvider{getUserInfoResult: json.RawMessage(`{"user_id":"afde2a69","open_id":"ou_e48"}`)}
+	result := callFeishuAPI(t, p, map[string]any{
+		"action": "send_message", "user_id": "afde2a69", "content": "hello",
+	})
+	if result.IsError {
+		t.Fatalf("预期成功: %s", result.DecodeContent())
+	}
+	if p.lastChatID != "ou_e48" {
+		t.Fatalf("user_id 应自动解析为 open_id，实际 target=%s", p.lastChatID)
+	}
+}
+
+func TestFeishuAPISendMessageResolvesLegacyChatIDUserID(t *testing.T) {
+	p := &mockFeishuProvider{getUserInfoResult: json.RawMessage(`{"user_id":"afde2a69","open_id":"ou_e48"}`)}
+	result := callFeishuAPI(t, p, map[string]any{
+		"action": "send_message", "chat_id": "afde2a69", "content": "hello",
+	})
+	if result.IsError {
+		t.Fatalf("预期成功: %s", result.DecodeContent())
+	}
+	if p.lastChatID != "ou_e48" {
+		t.Fatalf("legacy chat_id=user_id 应自动解析为 open_id，实际 target=%s", p.lastChatID)
+	}
+}
+
+func TestFeishuAPISendMessageRegisterWithOptionsReusesAdapterProviderPath(t *testing.T) {
+	logger := zap.NewNop()
+	host := mcphost.NewHost(logger)
+	p := &mockFeishuProvider{
+		getUserInfoResult: json.RawMessage(`{"user_id":"afde2a69","open_id":"ou_e48"}`),
+	}
+	RegisterFeishuToolsWithOptions(host, logger, p, NewHumanReadableFormatter(), FeishuToolOptions{
+		EnableBinaryTransfer: true,
+	})
+
+	for _, content := range []string{"first", "second"} {
+		result := executeFeishuAPITestTool(t, host, context.Background(), map[string]any{
+			"action": "send_message", "user_id": "afde2a69", "content": content,
+		})
+		if result.IsError {
+			t.Fatalf("预期成功: %s", result.DecodeContent())
+		}
+	}
+
+	assertStringSliceEqual(t, p.callSequence, []string{
+		"GetUserInfo:afde2a69",
+		"SendMessage:ou_e48:first",
+		"GetUserInfo:afde2a69",
+		"SendMessage:ou_e48:second",
+	})
+}
+
+func TestFeishuAPISendMessagePassesToolTraceContextThroughAdapterProviderCalls(t *testing.T) {
+	ctx := toolctx.WithToolContext(context.Background(), &toolctx.ToolContext{
+		TraceID:    "trace-send",
+		ToolCallID: "call-send",
+	})
+	p := &mockFeishuProvider{
+		getUserInfoResult: json.RawMessage(`{"user_id":"afde2a69","open_id":"ou_e48"}`),
+	}
+
+	result := callFeishuAPIWithContext(t, ctx, p, map[string]any{
+		"action": "send_message", "user_id": "afde2a69", "content": "hello",
+	})
+	if result.IsError {
+		t.Fatalf("预期成功: %s", result.DecodeContent())
+	}
+
+	assertStringSliceEqual(t, p.getUserInfoTraceIDs, []string{"trace-send"})
+	assertStringSliceEqual(t, p.sendMessageTraceIDs, []string{"trace-send"})
+}
+
+func TestFeishuAPIAuditSinkHashesTargets(t *testing.T) {
+	logger := zap.NewNop()
+	host := mcphost.NewHost(logger)
+	p := &mockFeishuProvider{}
+	sink := &captureFeishuAuditSink{}
+	rawOpenID := "ou_raw_user_001"
+	RegisterFeishuToolsWithOptions(host, logger, p, NewHumanReadableFormatter(), FeishuToolOptions{
+		EnableBinaryTransfer: true,
+		AuditSink:            sink,
+	})
+
+	result := executeFeishuAPITestTool(t, host, context.Background(), map[string]any{
+		"action":  "send_message",
+		"open_id": rawOpenID,
+		"content": "hello",
+	})
+	if result.IsError {
+		t.Fatalf("预期成功: %s", result.DecodeContent())
+	}
+	if len(sink.records) != 1 {
+		t.Fatalf("audit records = %d, want 1", len(sink.records))
+	}
+	record, ok := sink.records[0].(map[string]any)
+	if !ok {
+		t.Fatalf("audit record type = %T, want map[string]any", sink.records[0])
+	}
+	assertFeishuAuditField(t, record, "tool", "feishu_api")
+	assertFeishuAuditField(t, record, "action", "send_message")
+	assertFeishuAuditField(t, record, "platform", "feishu")
+	assertFeishuAuditField(t, record, "status", "ok")
+	assertFeishuAuditField(t, record, "outcome", "ok")
+	assertFeishuAuditField(t, record, "target_kind", "recipient")
+	assertFeishuAuditField(t, record, "target_id_hash", imctx.SafeSenderID(rawOpenID))
+	assertFeishuAuditField(t, record, "content_len", 5)
+	target, ok := record["target"].(map[string]any)
+	if !ok {
+		t.Fatalf("audit target type = %T, want map[string]any", record["target"])
+	}
+	assertFeishuAuditField(t, target, "kind", "recipient")
+	assertFeishuAuditField(t, target, "id_hash", imctx.SafeSenderID(rawOpenID))
+	for _, key := range []string{"chat_id", "receive_id", "open_id", "user_id", "email"} {
+		if _, exists := record[key]; exists {
+			t.Fatalf("audit record must not include raw target key %q: %#v", key, record)
+		}
+		if _, exists := target[key]; exists {
+			t.Fatalf("audit target must not include raw target key %q: %#v", key, target)
+		}
+	}
+	encoded, _ := json.Marshal(record)
+	if strings.Contains(string(encoded), rawOpenID) {
+		t.Fatalf("audit record leaked raw target id: %s", encoded)
+	}
+}
+
 func TestFeishuAPISendMessageMissingParams(t *testing.T) {
 	p := &mockFeishuProvider{}
 	result := callFeishuAPI(t, p, map[string]any{"action": "send_message"})
 	if !result.IsError {
 		t.Error("缺少参数应返回错误")
+	}
+}
+
+func assertFeishuAuditField(t *testing.T, record map[string]any, key string, want any) {
+	t.Helper()
+	got, exists := record[key]
+	if !exists {
+		t.Fatalf("audit field %q missing: %#v", key, record)
+	}
+	if got != want {
+		t.Fatalf("audit field %q = %v (%T), want %v (%T)", key, got, got, want, want)
 	}
 }
 

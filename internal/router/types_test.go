@@ -384,6 +384,67 @@ func TestBuildRouteDecisionMixedFeishuExternalSendConstrainsActions(t *testing.T
 	}
 }
 
+func TestBuildRouteDecisionExternalSendPlatformWechatbotBlocksFeishu(t *testing.T) {
+	decision := BuildRouteDecision(IntentFrame{
+		Kind:               IntentExternalWrite,
+		RequiresExternal:   true,
+		AllowsSideEffects:  true,
+		AllowedDomainsHint: []string{"wechatbot"},
+	}, []ToolProfile{
+		mustBuiltinToolProfileForTest(t, "feishu_api"),
+		mustBuiltinToolProfileForTest(t, "send_im_message"),
+	})
+
+	if containsString(decision.AllowedTools, "feishu_api") {
+		t.Fatalf("wechatbot intent must not allow feishu_api: %+v", decision)
+	}
+	if !containsString(decision.AllowedTools, "send_im_message") {
+		t.Fatalf("wechatbot intent should allow platform-capable IM tool: %+v", decision)
+	}
+}
+
+func TestBuildRouteDecisionExternalSendPlatformFeishuAllowsFeishuAndIMAPI(t *testing.T) {
+	decision := BuildRouteDecision(IntentFrame{
+		Kind:               IntentExternalWrite,
+		RequiresExternal:   true,
+		AllowsSideEffects:  true,
+		AllowedDomainsHint: []string{"feishu"},
+	}, []ToolProfile{
+		mustBuiltinToolProfileForTest(t, "feishu_api"),
+		mustBuiltinToolProfileForTest(t, "im_api"),
+	})
+
+	if !containsString(decision.AllowedTools, "feishu_api") {
+		t.Fatalf("feishu intent should allow feishu_api: %+v", decision)
+	}
+	if !containsString(decision.AllowedTools, "im_api") {
+		t.Fatalf("feishu intent should allow im_api: %+v", decision)
+	}
+}
+
+func TestBuildRouteDecisionExternalSendMultiPlatformRequiresQuestion(t *testing.T) {
+	decision := BuildRouteDecision(IntentFrame{
+		Kind:               IntentExternalWrite,
+		RequiresExternal:   true,
+		AllowsSideEffects:  true,
+		AllowedDomainsHint: []string{"feishu", "wechatbot"},
+	}, []ToolProfile{
+		mustBuiltinToolProfileForTest(t, "feishu_api"),
+		mustBuiltinToolProfileForTest(t, "im_api"),
+		mustBuiltinToolProfileForTest(t, "question"),
+	})
+
+	if decision.Mode != DecisionModeDiscover || decision.Reason != "external_send_multi_platform_requires_question" {
+		t.Fatalf("multi-platform route decision = mode %q reason %q, want question discovery", decision.Mode, decision.Reason)
+	}
+	if len(decision.AllowedTools) != 0 {
+		t.Fatalf("multi-platform intent must not allow external send tools: %+v", decision.AllowedTools)
+	}
+	if len(decision.VisibleOnly) != 1 || decision.VisibleOnly[0] != "question" {
+		t.Fatalf("multi-platform intent should expose question only, visible=%+v", decision.VisibleOnly)
+	}
+}
+
 func TestBuildRouteDecisionMixedOperationReadConstrainsMemoryAndTaskboard(t *testing.T) {
 	profiles := []ToolProfile{
 		InferToolProfile(mcphost.ToolDefinition{Name: "memory"}, ProfileHint{}),
@@ -407,6 +468,15 @@ func TestBuildRouteDecisionMixedOperationReadConstrainsMemoryAndTaskboard(t *tes
 	if strings.Contains(taskboardOps, "create") || strings.Contains(taskboardOps, "update") || strings.Contains(taskboardOps, "delete") {
 		t.Fatalf("taskboard write/delete operations must not be allowed for read intent: %q", taskboardOps)
 	}
+}
+
+func mustBuiltinToolProfileForTest(t *testing.T, name string) ToolProfile {
+	t.Helper()
+	profile, ok := BuiltinToolProfile(name)
+	if !ok {
+		t.Fatalf("BuiltinToolProfile(%q) missing", name)
+	}
+	return profile
 }
 
 func TestBuildRouteDecisionMixedOperationLocalWriteConstrainsMemoryAndTaskboard(t *testing.T) {
@@ -626,7 +696,7 @@ func TestBuiltinToolProfilesComeFromRegistry(t *testing.T) {
 		wantCaps     []Capability
 	}{
 		{name: "tool_search", wantDomain: "discovery", wantInvoke: InvocationDiscoveryOnly, wantRisk: RiskReadOnly, wantReadOnly: true},
-		{name: "send_im_message", wantDomain: "messaging", wantInvoke: InvocationDirectTool, wantRisk: RiskExternalWrite, wantCaps: []Capability{CapabilityExternalSend}},
+		{name: "send_im_message", wantDomain: "messaging", wantInvoke: InvocationDirectTool, wantRisk: RiskExternalWrite, wantCaps: allExternalSendCapabilities()},
 		{name: "bash", wantDomain: "filesystem", wantInvoke: InvocationDirectTool, wantRisk: RiskRuntimeExec, wantCaps: []Capability{CapabilityRuntimeExec}},
 		{name: "create_tool", wantDomain: "tools", wantInvoke: InvocationDirectTool, wantRisk: RiskLocalWrite, wantCaps: []Capability{CapabilityMetaToolRegister}},
 		{name: "remove_tool", wantDomain: "tools", wantInvoke: InvocationDirectTool, wantRisk: RiskLocalWrite, wantCaps: []Capability{CapabilityMetaToolRegister}},

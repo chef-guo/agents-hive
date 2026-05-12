@@ -2,6 +2,7 @@ package router
 
 import (
 	"bytes"
+	"encoding/json"
 	"testing"
 	"time"
 )
@@ -55,6 +56,28 @@ func TestDecisionSpanFromRouteDecisionCapturesReplayFields(t *testing.T) {
 	}
 	if span.Mode != DecisionModeAllow || span.Reason != "matched intent and capability profile" {
 		t.Fatalf("decision fields mismatch: mode=%q reason=%q", span.Mode, span.Reason)
+	}
+}
+
+func TestDecisionSpanJSONIncludesAllowedDomainsHint(t *testing.T) {
+	decision := BuildRouteDecision(IntentFrame{
+		Kind:               IntentExternalWrite,
+		AllowsSideEffects:  true,
+		AllowedDomainsHint: []string{"wechatbot"},
+	}, []ToolProfile{
+		mustBuiltinToolProfileForTest(t, "send_im_message"),
+	})
+	span := NewDecisionSpan(decision, nil, DecisionSpanOptions{TraceID: "trace-im"})
+
+	payload, err := json.Marshal(span)
+	if err != nil {
+		t.Fatalf("json.Marshal: %v", err)
+	}
+	if !bytes.Contains(payload, []byte(`"allowed_domains_hint":["wechatbot"]`)) {
+		t.Fatalf("span JSON missing allowed_domains_hint: %s", payload)
+	}
+	if len(span.Intent.AllowedDomainsHint) != 1 || span.Intent.AllowedDomainsHint[0] != "wechatbot" {
+		t.Fatalf("span intent allowed domains hint = %+v", span.Intent.AllowedDomainsHint)
 	}
 }
 

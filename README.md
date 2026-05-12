@@ -1,92 +1,70 @@
 # agents-hive
 
-agents-hive 是面向 ReAct Agent 的工程化 Harness 与质量控制系统。它以 Runtime 为执行内核，以 Quality Control Plane 为治理外层，把工具 / Skill / MCP 准入、SubAgent / ACP 协作、Memory / Context、IM Channel、权限审计、Replay / Journal、评测门禁和优化回滚纳入同一条可验证执行链路，让 Agent 从“能调用工具的聊天助手”升级为可托管、可约束、可复盘、可评分、可回归、可持续进化的复杂任务执行单元。
-
 [![Go Version](https://img.shields.io/badge/Go-1.25+-00ADD8?style=flat&logo=go)](https://golang.org)
+[![Node.js](https://img.shields.io/badge/Node.js-22+-339933?style=flat&logo=nodedotjs&logoColor=white)](https://nodejs.org)
+[![React](https://img.shields.io/badge/React-19-61DAFB?style=flat&logo=react&logoColor=111111)](https://react.dev)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?style=flat&logo=typescript&logoColor=white)](https://www.typescriptlang.org)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?style=flat&logo=postgresql&logoColor=white)](https://www.postgresql.org)
+[![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?style=flat&logo=docker&logoColor=white)](https://docs.docker.com/compose/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-## 项目定位
+agents-hive 是面向 ReAct Agent 的工程化执行底座与质量控制平面。它不只是让模型接上工具，而是把一次复杂任务从入口、计划、工具调用、权限审批、SubAgent 协作、记忆上下文、IM 触达、执行轨迹、质量评测到优化回滚，收束到同一条可追踪、可复盘、可治理的运行链路。
 
-agents-hive 的核心目标是把 Agent 从“能运行”推进到“可运营、可验证、可持续改进”：
+它解决的不是“怎么让模型调用函数”，而是更难的生产问题：Agent 为什么做这个决策、调用了哪些能力、是否越权、失败发生在哪一步、能不能重放和评估、下一次能否避免同类错误。Hive 让 Agent 从“会聊天、会调用工具”的助手，升级为可托管、可约束、可审计、可评分、可回归、可持续进化的复杂任务执行单元。
 
-- 给用户可直接使用的 Web / CLI / IM 入口，但所有入口都进入同一条可追踪的会话和执行链路。
-- 给 Agent 受控的 ReAct 执行循环，覆盖工具选择、计划状态、定时任务、上下文 / 记忆、SubAgent / ACP 协作和 HITL。
-- 给团队质量闭环：Replay / Journal、质量事件、失败分类、回归样本和评测门禁。
-- 给企业运行治理：权限、沙箱、成本 / 配额、审计、多租户、运行策略，以及人工审批的优化与回滚。
+一句话概括：**agents-hive = Agent Runtime + Agent Harness + Quality Control Plane + Ops Workbench**。
 
-它不是纯 SDK、聊天壳或工具集合。更准确地说，它是 Agent Runtime + Agent Harness + Quality Control Plane + Ops Workbench。
+## 为什么是 Hive
+
+- **不是聊天壳**：Web、CLI、HTTP API、IM Channel 都进入同一套会话、权限、工具、记忆和审计链路。
+- **不是工具集合**：工具、Skill、MCP、自定义扩展和插件进程统一纳入能力发现、准入、审批和运行策略。
+- **不是一次性 demo**：Replay / Journal / Trace / Trajectory 让每一步执行都能复盘，失败可以归因，样本可以沉淀为回归评测。
+- **不是黑盒自动优化**：质量候选池、prompt smoke eval、优化建议、人工审批和 rollback 组成可控闭环，避免生产行为静默漂移。
+- **不是单 Agent 孤岛**：Master Agent、Plan Runtime、SubAgent、远程 ACP Agent 和 Channel Router 共同支撑长任务、多入口和跨平台协作。
 
 ## 核心能力
 
-**Agent Runtime**
+| 能力 | Hive 提供什么 |
+|------|---------------|
+| Agent Runtime | ReAct 主循环、工具调用、HITL、上下文压缩、长任务恢复和 session-scoped todos |
+| Quality Control Plane | Replay / Journal、质量事件、失败分类、回归样本、批量评测和优化回滚 |
+| Tool / Skill / MCP | 内置工具、自定义工具、MCP Host、Skills、插件运行时、能力准入和危险操作审批 |
+| Memory / Context | PostgreSQL 持久化、记忆治理、上下文注入、用量统计和 token accounting |
+| SubAgent / ACP | 探索、总结、标题生成、压缩等内置 SubAgent，以及远程 Agent / ACP 集成 |
+| IM Channel | 飞书、钉钉、企业微信、微信等通道复用统一会话、权限、HITL 和审计链路 |
+| Ops Workbench | LLM / Prompt / Skill / Channel / 用户 / 配额 / 定时任务 / 质量治理的 Web 控制台 |
 
-- Master Agent 基于 ReAct 循环执行任务，支持工具调用、用户确认、上下文压缩和长任务恢复。
-- Plan Runtime 将长任务拆成 session-scoped todos，并在 UI 中实时展示进度。
-- 意图契约在外部发送等副作用任务上做结构化完成度检查，最终回复写入和广播前会判断是否真正完成、需要追问、需要重试或应当失败。
-- 定时任务 Runtime 支持按 cron 或 interval 自动执行 session 任务和 IM 推送任务，带 owner 隔离、运行历史、手动触发、启动恢复和后台 claim/run。
-- SubAgent 支持探索、总结、标题生成、压缩等独立角色，也支持远程 Agent / ACP 集成。
-- 工具发现、能力准入、并行分发和 Skill 调用分层治理，降低工具暴露成本并提升任务分发质量。
-
-**工具与扩展**
-
-- 内置文件、搜索、Shell、Patch、Web、LSP、图片/语音/视频、IM 发送、任务板、记忆等工具。
-- MCP Host 统一承载内置工具、自定义工具和外部 MCP Server。
-- Skills 系统用 Markdown 描述能力包，支持本地、DB 覆盖、按需安装和权限治理。
-- 工具准入、脚本执行、危险操作审批和运行时策略统一纳入治理链路。
-- 插件运行时支持将扩展能力以独立进程接入。
-
-**会话与可观测性**
-
-- PostgreSQL 持久化会话、消息、配置、Prompt、Skill、质量用例和运行数据。
-- Session fork / revert / regenerate / trace / trajectory 支持调试和回放。
-- Replay Gallery、Session Replay、Quality Workbench 用于复盘 Agent 行为和生成评估样本。
-- 用量统计、token accounting、质量候选池、自动优化建议、工具路由指标、意图完成指标和定时任务运行记录为后续治理提供数据面。
-
-**管理台**
-
-- LLM Provider / Model 管理。
-- Prompt 热更新和 smoke eval。
-- Skill 管理和按需加载治理。
-- Scheduled Tasks 支持任务 CRUD、cron/interval 调度、启停、立即运行、运行历史和管理员全局列表。
-- 用户、认证、配额和用量统计。
-- Memory Governance、Quality Workbench、自动优化、运行时策略查看。
-
-**Channel 集成**
-
-- 支持飞书、钉钉、企业微信、微信等 IM Channel。
-- 飞书方向包含入站解析、交互回调、身份解析、出站发送、推送、观测、可靠性、安全和多租户治理文档。
-- 微信机器人通道支持官方 wechatbot/iLink 接入，并复用统一 Channel 渲染、审计和会话链路。
-- Channel 侧和 Web UI 共享会话、权限、HITL 和审计链路。
-
-## 界面概览
-
-> 截图建议放在 `assets/screenshots/`，保持 16:10 或 16:9 桌面视口。README 只放核心界面，不放本地规划或过程截图。
+## 效果预览
 
 **Chat Runtime**
 
 ![Chat Runtime](assets/screenshots/chat-runtime.png)
 
-主聊天工作台，展示流式回复、工具调用、HITL、附件、Todos 和执行状态。建议截图中包含一次真实工具调用或任务进度，而不是空白聊天页。
+主聊天工作台统一承载会话、流式回复、工具调用、HITL、附件、Todos 和执行状态。
 
-**Replay / Journal**
+**Session Replay**
 
-![Replay Journal](assets/screenshots/replay-journal.png)
+![Session Replay](assets/screenshots/session-replay.png)
 
-执行回放视图，展示消息、工具调用、质量事件、trace 和关键决策时间线。建议截图中选中一个失败或重试节点，体现“过程可查、失败可归因”。
+会话回放视图按时间线展示消息、工具调用、质量事件、trace 和关键决策，方便复盘 Agent 行为。
 
-**Quality Workbench**
+**Control Plane**
 
-![Quality Workbench](assets/screenshots/quality-workbench.png)
+![Control Plane](assets/screenshots/settings-control-plane.png)
 
-质量治理工作台，展示失败聚类、回归样本、批量 replay、评测结果和优化建议。建议截图保留左侧导航和主表格，让读者看到这是控制面而不是单页报表。
-
-**Scheduled Tasks**
-
-![Scheduled Tasks](assets/screenshots/scheduled-tasks.png)
-
-定时任务管理页，展示 cron / interval 调度、启停、立即运行和运行历史。建议截图包含任务列表与运行记录抽屉或详情区。
+控制台集中管理 LLM、Prompt、Skill、Channel、权限、Memory、质量治理和运行时配置。
 
 ## 快速开始
+
+### 一句话交给 Coding Agent 安装
+
+如果你在用 Codex、Claude Code、Cursor、Windsurf 或其他 coding agent，可以直接把下面这句话发给它：
+
+```text
+如果还没 clone agents-hive，就先 clone https://github.com/chef-guo/agents-hive.git，然后按 README 的 Docker Compose 路径启动：生成 .env，构建 hive-sandbox:latest，执行 docker compose up -d，并告诉我访问地址和还缺哪些配置。
+```
+
+这条提示词会让 coding agent 优先走 Docker Compose，避免遗漏 sandbox 镜像、PostgreSQL 和前端 embed 构建这些容易卡住的步骤。
 
 ### Docker Compose
 
@@ -106,6 +84,9 @@ EOF
 
 mkdir -p /opt/hive/workdir/sessions
 
+# sandbox 容器运行在宿主机 Docker daemon 上，需要先构建
+docker build -t hive-sandbox:latest -f docker/sandbox/Dockerfile .
+
 docker compose up -d
 docker compose logs -f hive
 ```
@@ -116,18 +97,17 @@ docker compose logs -f hive
 http://localhost:8080
 ```
 
-如果需要单独构建镜像：
+如果需要单独构建主服务镜像：
 
 ```bash
 docker build -t hive:latest .
-docker build -t hive-sandbox:latest -f docker/sandbox/Dockerfile .
 ```
 
-部署细节以 [docker-compose.yml](docker-compose.yml) 和 [docker/config.docker.json](docker/config.docker.json) 为准。sandbox bind mount 路径必须在宿主机和 Hive 容器内一致，默认使用 `/opt/hive/workdir`。
+sandbox bind mount 路径必须在宿主机和 Hive 容器内一致，默认使用 `/opt/hive/workdir`。如果修改该路径，需要同步修改 [docker-compose.yml](docker-compose.yml) 和 [docker/config.docker.json](docker/config.docker.json)。
 
 ### 本地开发
 
-本地开发需要 Go、Node.js、PostgreSQL。
+本地开发需要 Go 1.25+、Node.js、PostgreSQL。
 
 ```bash
 git clone https://github.com/chef-guo/agents-hive.git
@@ -135,6 +115,12 @@ cd agents-hive
 
 cp config.example.json config.json
 # 编辑 config.json 或设置 POSTGRES_* / DATABASE_URL 等环境变量
+# 首次启动 LLM 配置可通过 CLAW_API_KEY / OPENAI_API_KEY 注入，后续可在 Web UI 修改
+
+cd frontend
+npm install
+npm run build
+cd ..
 
 go build -o claw ./cmd/claw
 go build -o server ./cmd/server
@@ -143,7 +129,7 @@ go build -o server ./cmd/server
 启动后端：
 
 ```bash
-./server
+./server --config config.json
 ```
 
 启动前端开发服务器：
@@ -157,8 +143,8 @@ npm run dev
 CLI 模式：
 
 ```bash
-./claw "分析当前项目结构"
-./claw -i
+./claw -c config.json "分析当前项目结构"
+./claw -c config.json -i
 ```
 
 ## 架构概览
@@ -252,7 +238,7 @@ npm test
 - Settings：运行时配置、MCP、权限、IM Channel、远程 Agent。
 - Admin：LLM、Prompt、Skill、用户、用量、Memory、质量工作台、自动优化、定时任务。
 
-UI 设计约束见 [DESIGN.md](DESIGN.md)。
+UI 变更请保持现有组件、布局密度、颜色和交互约定；不要手工编辑 `internal/webui/dist/`。
 
 ## API 入口
 
@@ -316,3 +302,9 @@ MIT License
 ## 联系方式
 
 - Issues: https://github.com/chef-guo/agents-hive/issues
+
+## 感谢
+![Control Plane](assets/screenshots/thank.png)  
+
+
+

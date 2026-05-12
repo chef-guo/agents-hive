@@ -104,6 +104,12 @@ var DefaultToolRecallConfigValue = ToolRecallConfig{
 	LogCandidates:      DefaultToolRecallLogCandidates,
 }
 
+var DefaultIMAPIConfig = IMAPIConfig{
+	Enabled:             true,
+	PreferredOverLegacy: false,
+	ForceDryRun:         false,
+}
+
 // DefaultCompactionPipelineStages 默认管线阶段：tool_budget -> session_memory -> truncate
 var DefaultCompactionPipelineStages = []string{"tool_budget", "session_memory", "truncate"}
 

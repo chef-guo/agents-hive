@@ -28,6 +28,7 @@ import (
 	"github.com/chef-guo/agents-hive/internal/config"
 	"github.com/chef-guo/agents-hive/internal/controlplane"
 	"github.com/chef-guo/agents-hive/internal/gateway"
+	"github.com/chef-guo/agents-hive/internal/imcore"
 	"github.com/chef-guo/agents-hive/internal/journal"
 	"github.com/chef-guo/agents-hive/internal/llm"
 	"github.com/chef-guo/agents-hive/internal/master"
@@ -523,6 +524,7 @@ func InitServer(cfg *config.Config, configPath string, logger *zap.Logger) *Serv
 		tools.RegisterSendIMMessageWithStore(sc.MCPHost, logger, sc.ChannelRouter, sc.DB)
 		logger.Info("send_im_message 工具已注册")
 	}
+	imService := imcore.NewService()
 	if cfg.Channel.Feishu.AppID != "" && cfg.Channel.Feishu.AppSecret != "" {
 		feishuClient := feishu.NewClient(cfg.Channel.Feishu.AppID, cfg.Channel.Feishu.AppSecret, logger)
 		feishuClient.ApplyOutboundConfig(cfg.Channel.Feishu)
@@ -531,7 +533,9 @@ func InitServer(cfg *config.Config, configPath string, logger *zap.Logger) *Serv
 			EnableBinaryTransfer: cfg.Channel.Feishu.BinaryTransferEnabledResolved(),
 			AuditSink:            feishu.NewJSONLAuditSink(""),
 		})
+		imService.Register(imcore.NewFeishuAdapter(adapter))
 	}
+	registerIMAPIService(sc, cfg, logger, imService)
 
 	// 15. Gateway
 	sc.Gateway = initGateway(sc, cfg, configPath, logger)
@@ -684,6 +688,28 @@ func initMCPHost(_ *config.Config, logger *zap.Logger) (*mcphost.Host, []*mcphos
 	mcphost.RegisterBuiltinPrompts(mcpHost, logger)
 	// 外部 MCP 服务端连接由 connectMCPServers 在 DB 配置加载后执行
 	return mcpHost, nil
+}
+
+func registerIMAPIService(sc *ServerComponents, cfg *config.Config, logger *zap.Logger, service *imcore.Service) {
+	if sc == nil || sc.MCPHost == nil || cfg == nil || !cfg.Agent.IMAPI.Enabled {
+		return
+	}
+	if service == nil {
+		service = imcore.NewService()
+	}
+	if sc.ChannelRouter != nil {
+		if sc.DB != nil {
+			service.Register(imcore.NewWechatBotAdapter(sc.DB, sc.ChannelRouter))
+		}
+		service.Register(imcore.NewSendOnlyAdapter(imcore.PlatformWeCom, sc.ChannelRouter))
+		service.Register(imcore.NewSendOnlyAdapter(imcore.PlatformDingTalk, sc.ChannelRouter))
+	}
+	tools.RegisterIMAPIToolWithOptions(sc.MCPHost, logger, service, tools.IMAPIToolOptions{
+		ForceDryRun: cfg.Agent.IMAPI.ForceDryRun,
+	})
+	logger.Info("im_api 统一 IM 工具已注册",
+		zap.Bool("force_dry_run", cfg.Agent.IMAPI.ForceDryRun),
+		zap.Bool("preferred_over_legacy", cfg.Agent.IMAPI.PreferredOverLegacy))
 }
 
 // connectMCPServers 根据 cfg.MCP.Servers 并行连接所有外部 MCP 服务端（在 DB 配置加载后调用）

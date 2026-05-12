@@ -44,7 +44,7 @@ func TestFormatSearchDocsEmpty(t *testing.T) {
 func TestFormatSearchContacts(t *testing.T) {
 	f := NewHumanReadableFormatter()
 	raw := json.RawMessage(`[
-		{"name":"张三","email":"zhangsan@example.com","mobile":"13800000001","user_id":"u1","status":"active"},
+		{"name":"张三","email":"zhangsan@example.com","mobile":"13800000001","user_id":"u1","open_id":"ou_1","status":"active"},
 		{"name":"李四","email":"","mobile":"","user_id":"u2","status":"frozen"}
 	]`)
 	got, err := f.Format(context.Background(), "search_contacts", raw)
@@ -54,7 +54,9 @@ func TestFormatSearchContacts(t *testing.T) {
 	assertContains(t, got, "找到 2 个联系人")
 	assertContains(t, got, "1. 张三")
 	assertContains(t, got, "邮箱: zhangsan@example.com")
+	assertContains(t, got, "open_id: ou_1")
 	assertContains(t, got, "2. 李四（已冻结）")
+	assertContains(t, got, "send_message 的 user_id 字段")
 }
 
 func TestFormatGetUserInfo(t *testing.T) {

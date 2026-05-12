@@ -4,11 +4,15 @@ package router
 type Capability string
 
 const (
-	CapabilityMetaSkillCreate  Capability = "meta.skill.create"
-	CapabilityMetaSkillModify  Capability = "meta.skill.modify"
-	CapabilityMetaToolRegister Capability = "meta.tool.register"
-	CapabilityExternalSend     Capability = "external.send"
-	CapabilityRuntimeExec      Capability = "runtime.exec"
+	CapabilityMetaSkillCreate       Capability = "meta.skill.create"
+	CapabilityMetaSkillModify       Capability = "meta.skill.modify"
+	CapabilityMetaToolRegister      Capability = "meta.tool.register"
+	CapabilityExternalSend          Capability = "external.send"
+	CapabilityExternalSendFeishu    Capability = "external.send.feishu"
+	CapabilityExternalSendWechatBot Capability = "external.send.wechatbot"
+	CapabilityExternalSendWeCom     Capability = "external.send.wecom"
+	CapabilityExternalSendDingTalk  Capability = "external.send.dingtalk"
+	CapabilityRuntimeExec           Capability = "runtime.exec"
 )
 
 // CapabilityKind 标记目录条目的真实类别。

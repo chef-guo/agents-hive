@@ -32,16 +32,6 @@
 
 ---
 
-## ~~[P1] IM 通道 HITL 权限审批~~ **OBSOLETE**（2026-04-17）
-
-**Status:** 已由 `openspec/changes/add-spec-driven-cognition` Phase 1（Permission Minimalism）替代。不再需要 IM 侧交互式卡片 / 文本审批链路。
-
-**替代方案：** SafeExecutor-first —— IM 通道 shell 命令必经 `MatchPolicy`，`PolicyDeny` 无论会话类型一律拒绝（堵住 `rm -rf /` 打穿路径），`PolicyAsk` 在 IM 上自动放行并打 metric + audit log。回滚路径：`security.permission_mode = "strict"` 一键推全量 HITL。详见 `docs/架构设计/安全权限模型.md`。
-
-**原 P1 方案 Why 已被推翻：** 真正的红线是 `PolicyDeny`，而不是"所有 im- session 都走审批"。PolicyAsk 在 IM 通道没有 UI 落地，强推审批 = 死锁到 timeout，UX 崩溃且无安全增益。
-
----
-
 ## [P2] 域 F Phase 2：场景路由测试 + 业务工具实现
 
 **What:** 为已上线的 system/business 场景路由补充端到端测试；实现 Skill 中引用但尚未存在的业务工具。

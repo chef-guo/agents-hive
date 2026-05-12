@@ -317,12 +317,19 @@ type AgentConfig struct {
 	Skills              SkillsConfig              `json:"skills,omitempty"`                // 远程/本地 skill 配置
 	ToolPolicy          ToolPolicyConfig          `json:"tool_policy,omitempty"`           // 工具过滤策略配置
 	ToolRecall          ToolRecallConfig          `json:"tool_recall,omitempty"`           // 每轮隐藏工具召回配置
+	IMAPI               IMAPIConfig               `json:"im_api,omitempty"`                // 统一 IM 工具配置
 	MaxSessionCost      float64                   `json:"max_session_cost,omitempty"`      // per-session 成本预算上限（USD），<=0 不限制（需要 PostgreSQL 成本追踪启用）
 	QualityGuards       QualityGuardsConfig       `json:"quality_guards,omitempty"`        // 质量护栏灰度开关（见 docs/计划与路线/Agent-质量护栏治理计划.md）
 	PlanRuntime         PlanRuntimeConfig         `json:"plan_runtime,omitempty"`          // session 级 plan/todos runtime，默认开启；可显式配置关闭
 	Reflection          ReflectionConfig          `json:"reflection,omitempty"`            // 运行时反思 note，默认开启；shadow 能力默认关闭
 	ReasoningEffortAuto ReasoningEffortAutoConfig `json:"reasoning_effort_auto,omitempty"` // 推理努力级别自动分类，默认开启
 	Observability       ObservabilityConfig       `json:"observability,omitempty"`         // agent 运行时可观测配置
+}
+
+type IMAPIConfig struct {
+	Enabled             bool `json:"enabled,omitempty"`
+	PreferredOverLegacy bool `json:"preferred_over_legacy,omitempty"`
+	ForceDryRun         bool `json:"force_dry_run,omitempty"`
 }
 
 // ToolRecallConfig 控制每轮根据用户消息临时召回隐藏工具。
@@ -444,6 +451,7 @@ func Default() *Config {
 		SpecDriven: DefaultSpecDrivenConfig,
 		Agent: AgentConfig{
 			ToolRecall: DefaultToolRecallConfigValue,
+			IMAPI:      DefaultIMAPIConfig,
 			PlanRuntime: PlanRuntimeConfig{
 				Enabled: true,
 			},
@@ -497,6 +505,7 @@ func (c *Config) CLIDefaults() {
 			PipelineStages:      DefaultCompactionPipelineStages,
 			ToolOutputMaxTokens: DefaultCompactionToolOutputMaxTokens,
 		},
+		IMAPI: DefaultIMAPIConfig,
 		PlanRuntime: PlanRuntimeConfig{
 			Enabled: true,
 		},
@@ -709,6 +718,15 @@ func (c *Config) applyEnvOverrides() {
 	if v := os.Getenv("CUSTOM_TOOLS_DIR"); v != "" {
 		c.CustomToolsDir = v
 	}
+	if v := os.Getenv("IM_API_ENABLED"); v != "" {
+		c.Agent.IMAPI.Enabled = parseBoolEnv(v, c.Agent.IMAPI.Enabled)
+	}
+	if v := os.Getenv("IM_API_PREFERRED_OVER_LEGACY"); v != "" {
+		c.Agent.IMAPI.PreferredOverLegacy = parseBoolEnv(v, c.Agent.IMAPI.PreferredOverLegacy)
+	}
+	if v := os.Getenv("IM_API_FORCE_DRY_RUN"); v != "" {
+		c.Agent.IMAPI.ForceDryRun = parseBoolEnv(v, c.Agent.IMAPI.ForceDryRun)
+	}
 
 }
 
@@ -846,7 +864,20 @@ func (c *Config) Resolve() {
 		c.Agent.MaxSessionCost = 0
 	}
 	c.Agent.ToolRecall = NormalizeToolRecallConfig(c.Agent.ToolRecall)
+	c.Agent.IMAPI = NormalizeIMAPIConfig(c.Agent.IMAPI)
 	c.Memory = NormalizeMemoryConfig(c.Memory)
+}
+
+func NormalizeIMAPIConfig(cfg IMAPIConfig) IMAPIConfig {
+	return cfg
+}
+
+func parseBoolEnv(value string, fallback bool) bool {
+	parsed, err := strconv.ParseBool(strings.TrimSpace(value))
+	if err != nil {
+		return fallback
+	}
+	return parsed
 }
 
 func DefaultToolRecallConfig() ToolRecallConfig {

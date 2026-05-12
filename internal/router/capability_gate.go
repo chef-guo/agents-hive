@@ -1,6 +1,9 @@
 package router
 
-import "slices"
+import (
+	"slices"
+	"strings"
+)
 
 type CapabilityGateInput struct {
 	IntentRequired []Capability
@@ -18,11 +21,69 @@ type CapabilityGateResult struct {
 }
 
 func RequiredCapabilitiesForIntent(intent IntentFrame) []Capability {
+	if intent.Kind == IntentExternalWrite {
+		platforms := normalizedPlatformHints(intent.AllowedDomainsHint)
+		if len(platforms) == 0 {
+			return []Capability{CapabilityExternalSend}
+		}
+		if len(platforms) > 1 {
+			return []Capability{Capability("external.send.unsatisfied_multi_platform")}
+		}
+		if capability, ok := externalSendCapabilityForPlatform(platforms[0]); ok {
+			return []Capability{capability}
+		}
+		return []Capability{CapabilityExternalSend}
+	}
 	rule, ok := intentCapabilityRule(intent.Kind)
 	if !ok {
 		return nil
 	}
 	return rule.Required
+}
+
+func normalizedPlatformHints(hints []string) []string {
+	if len(hints) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(hints))
+	for _, hint := range hints {
+		platform := normalizePlatformHint(hint)
+		if platform == "" || slices.Contains(out, platform) {
+			continue
+		}
+		out = append(out, platform)
+	}
+	return out
+}
+
+func normalizePlatformHint(hint string) string {
+	switch strings.TrimSpace(strings.ToLower(hint)) {
+	case "feishu", "lark":
+		return "feishu"
+	case "wechatbot", "wechat", "weixin", "wx":
+		return "wechatbot"
+	case "wecom", "work_wechat", "workwechat", "enterprise_wechat", "qiwei":
+		return "wecom"
+	case "dingtalk", "dingding":
+		return "dingtalk"
+	default:
+		return strings.TrimSpace(strings.ToLower(hint))
+	}
+}
+
+func externalSendCapabilityForPlatform(platform string) (Capability, bool) {
+	switch normalizePlatformHint(platform) {
+	case "feishu":
+		return CapabilityExternalSendFeishu, true
+	case "wechatbot":
+		return CapabilityExternalSendWechatBot, true
+	case "wecom":
+		return CapabilityExternalSendWeCom, true
+	case "dingtalk":
+		return CapabilityExternalSendDingTalk, true
+	default:
+		return "", false
+	}
 }
 
 func ProfileHasSideEffect(profile ToolProfile) bool {

@@ -149,13 +149,13 @@ func perTurnRecalledToolSetWithIntent(session *SessionState, catalog []mcphost.T
 	recalls := tools.RecallToolCatalog(catalog, latestUserQuery, recallCfg.Limit)
 	recalls = appendDiscoveredToolRecalls(recalls, catalog, session)
 	recalls = ensureExternalSendCandidates(recalls, catalog, intent, recallCfg.SideEffectMinScore)
+	recalls = applyPlatformAwareExternalSendVisibility(recalls, catalog, intent, recallCfg.SideEffectMinScore)
 	if len(recalls) == 0 {
 		profiles := recalledToolProfiles(nil, skillMetas)
 		obs.CandidateProfiles = profiles
 		obs.RouteDecision = router.BuildRouteDecisionWithBlocks(normalizeRouteIntent(intent), profiles, "exec", sessionReflectionBlocks(session))
 		return nil, obs
 	}
-	recalls = pruneGenericIMWhenFeishuDomainEntryRecalled(recalls)
 	intent = normalizeRouteIntent(intent)
 	profiles := recalledToolProfiles(recalls, skillMetas)
 	obs.CandidateProfiles = profiles
@@ -226,6 +226,103 @@ func ensureExternalSendCandidates(recalls []tools.ToolRecallHit, catalog []mcpho
 		seen[name] = true
 	}
 	return recalls
+}
+
+func applyPlatformAwareExternalSendVisibility(recalls []tools.ToolRecallHit, catalog []mcphost.ToolDefinition, intent router.IntentFrame, score float64) []tools.ToolRecallHit {
+	if !isExplicitExternalSendIntent(intent) {
+		return recalls
+	}
+	if hasToolVisibilitySignal(intent.Signals, "external_send_multi_platform_requires_question") {
+		return pruneExternalSendToolsForQuestion(recalls)
+	}
+	hints := normalizedExternalSendPlatformHints(intent.AllowedDomainsHint)
+	if len(hints) == 0 {
+		return recalls
+	}
+	recalls = ensureUnifiedIMCandidates(recalls, catalog, score)
+	if len(hints) == 1 && hints[0] != "feishu" {
+		return pruneToolRecallByName(recalls, "feishu_api")
+	}
+	return recalls
+}
+
+func ensureUnifiedIMCandidates(recalls []tools.ToolRecallHit, catalog []mcphost.ToolDefinition, score float64) []tools.ToolRecallHit {
+	if score <= 0 {
+		score = 1
+	}
+	seen := make(map[string]bool, len(recalls))
+	for i, recall := range recalls {
+		name := strings.TrimSpace(recall.Tool.Name)
+		if name != "" {
+			seen[name] = true
+			if name == "im_api" || name == "send_im_message" {
+				recalls[i].Score = score
+			}
+		}
+	}
+	for _, tool := range catalog {
+		name := strings.TrimSpace(tool.Name)
+		if name != "im_api" && name != "send_im_message" {
+			continue
+		}
+		if seen[name] {
+			continue
+		}
+		recalls = append(recalls, tools.ToolRecallHit{Tool: tool, Score: score})
+		seen[name] = true
+	}
+	return recalls
+}
+
+func pruneExternalSendToolsForQuestion(recalls []tools.ToolRecallHit) []tools.ToolRecallHit {
+	out := recalls[:0]
+	for _, recall := range recalls {
+		profile := router.InferToolProfile(recall.Tool, router.ProfileHint{})
+		if profileSupportsExternalSend(profile) {
+			continue
+		}
+		out = append(out, recall)
+	}
+	return out
+}
+
+func pruneToolRecallByName(recalls []tools.ToolRecallHit, name string) []tools.ToolRecallHit {
+	out := recalls[:0]
+	for _, recall := range recalls {
+		if strings.TrimSpace(recall.Tool.Name) == name {
+			continue
+		}
+		out = append(out, recall)
+	}
+	return out
+}
+
+func normalizedExternalSendPlatformHints(hints []string) []string {
+	out := make([]string, 0, len(hints))
+	seen := make(map[string]bool, len(hints))
+	for _, hint := range hints {
+		platform := strings.ToLower(strings.TrimSpace(hint))
+		switch platform {
+		case "feishu", "wechatbot", "wecom", "dingtalk":
+		default:
+			continue
+		}
+		if seen[platform] {
+			continue
+		}
+		seen[platform] = true
+		out = append(out, platform)
+	}
+	return out
+}
+
+func hasToolVisibilitySignal(signals []string, want string) bool {
+	for _, signal := range signals {
+		if strings.TrimSpace(signal) == want {
+			return true
+		}
+	}
+	return false
 }
 
 func isExplicitExternalSendIntent(intent router.IntentFrame) bool {
@@ -538,7 +635,7 @@ func recalledToolProfiles(recalls []tools.ToolRecallHit, skillMetas []skills.Ski
 			continue
 		}
 		seen[name] = true
-		profiles = append(profiles, router.InferToolProfile(recall.Tool, router.ProfileHint{}))
+		profiles = append(profiles, router.InferToolProfile(recall.Tool, profileHintForVisibilityTool(name)))
 	}
 	for _, meta := range skillMetas {
 		name := strings.TrimSpace(meta.Name)
@@ -549,6 +646,28 @@ func recalledToolProfiles(recalls []tools.ToolRecallHit, skillMetas []skills.Ski
 		profiles = append(profiles, router.InferSkillWorkflowProfile(name, meta.Description))
 	}
 	return profiles
+}
+
+func profileHintForVisibilityTool(name string) router.ProfileHint {
+	if name != "im_api" {
+		return router.ProfileHint{}
+	}
+	return router.ProfileHint{
+		Kind:       router.CapabilityKindBuiltinTool,
+		Domain:     "messaging",
+		Source:     router.CapabilitySourceBuiltin,
+		Invocation: router.InvocationDirectTool,
+		Risk:       router.RiskExternalWrite,
+		Trust:      router.TrustBuiltIn,
+		SideEffect: true,
+		Capabilities: []router.Capability{
+			router.CapabilityExternalSend,
+			router.CapabilityExternalSendFeishu,
+			router.CapabilityExternalSendWechatBot,
+			router.CapabilityExternalSendWeCom,
+			router.CapabilityExternalSendDingTalk,
+		},
+	}
 }
 
 func stringSet(items []string) map[string]bool {
@@ -569,27 +688,6 @@ func cloneStringMap(in map[string]string) map[string]string {
 	out := make(map[string]string, len(in))
 	for key, value := range in {
 		out[key] = value
-	}
-	return out
-}
-
-func pruneGenericIMWhenFeishuDomainEntryRecalled(recalls []tools.ToolRecallHit) []tools.ToolRecallHit {
-	hasFeishuAPI := false
-	for _, recall := range recalls {
-		if recall.Tool.Name == "feishu_api" {
-			hasFeishuAPI = true
-			break
-		}
-	}
-	if !hasFeishuAPI {
-		return recalls
-	}
-	out := recalls[:0]
-	for _, recall := range recalls {
-		if recall.Tool.Name == "send_im_message" {
-			continue
-		}
-		out = append(out, recall)
 	}
 	return out
 }

@@ -90,7 +90,11 @@ func detectToolChoice(userQuery string, skillsIndex map[string]bool) string {
 }
 
 func detectToolChoiceWithIntent(userQuery string, skillsIndex map[string]bool, refs []imctx.DocRef, intent router.IntentFrame) string {
-	if isStructuredExternalSendIntent(intent) {
+	return detectToolChoiceWithIntentAndMessages(userQuery, skillsIndex, refs, intent, nil)
+}
+
+func detectToolChoiceWithIntentAndMessages(userQuery string, skillsIndex map[string]bool, refs []imctx.DocRef, intent router.IntentFrame, messages []llm.MessageWithTools) string {
+	if isStructuredExternalSendIntent(intent) && shouldForceExternalSendToolChoice(intent, messages) {
 		return ToolChoiceRequired
 	}
 	return detectToolChoiceWithContext(userQuery, skillsIndex, refs)
@@ -140,6 +144,10 @@ func shouldEvaluateToolChoiceForTurn(userQuery string, refs []imctx.DocRef, guar
 }
 
 func toolChoiceRequiredTrigger(userQuery string, skillsIndex map[string]bool, refs []imctx.DocRef, intent router.IntentFrame) string {
+	return toolChoiceRequiredTriggerWithMessages(userQuery, skillsIndex, refs, intent, nil)
+}
+
+func toolChoiceRequiredTriggerWithMessages(userQuery string, skillsIndex map[string]bool, refs []imctx.DocRef, intent router.IntentFrame, messages []llm.MessageWithTools) string {
 	q := strings.TrimSpace(userQuery)
 	if len(refs) > 0 {
 		return "refs"
@@ -147,7 +155,7 @@ func toolChoiceRequiredTrigger(userQuery string, skillsIndex map[string]bool, re
 	if q == "" {
 		return "auto"
 	}
-	if isStructuredExternalSendIntent(intent) {
+	if isStructuredExternalSendIntent(intent) && shouldForceExternalSendToolChoice(intent, messages) {
 		return "external_send"
 	}
 	if skillRefPattern.MatchString(q) {
@@ -165,6 +173,17 @@ func toolChoiceRequiredTrigger(userQuery string, skillsIndex map[string]bool, re
 		}
 	}
 	return "auto"
+}
+
+func shouldForceExternalSendToolChoice(intent router.IntentFrame, messages []llm.MessageWithTools) bool {
+	if len(messages) == 0 {
+		return true
+	}
+	evidence := collectExternalSendEvidence(messagesFromLatestUser(messages), intent)
+	if evidence.MessagingFailed || evidence.QuestionAsked || evidence.NoSendableRecipient {
+		return false
+	}
+	return !evidence.SendAttemptValid
 }
 
 func hasRequiredIntentCallableTool(tools []mcphost.ToolDefinition, intent router.IntentFrame) bool {

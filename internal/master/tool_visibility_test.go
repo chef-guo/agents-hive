@@ -405,7 +405,7 @@ func TestModelVisibleToolsFromPreparedMessages_UsesLatestUserMessage(t *testing.
 	}
 }
 
-func TestModelVisibleTools_FeishuDomainRecallPrefersFeishuAPIOverGenericIM(t *testing.T) {
+func TestModelVisibleTools_FeishuDomainRecallKeepsFeishuAPIAndUnifiedIM(t *testing.T) {
 	session := &SessionState{ID: "s1"}
 	catalog := []mcphost.ToolDefinition{
 		{Name: "read_file", Core: true},
@@ -444,8 +444,70 @@ func TestModelVisibleTools_FeishuDomainRecallPrefersFeishuAPIOverGenericIM(t *te
 	if !hasTool(visible, "feishu_api") {
 		t.Fatal("feishu domain recall should include feishu_api")
 	}
-	if hasTool(visible, "send_im_message") {
-		t.Fatal("feishu domain recall should not expose generic IM tool when feishu_api is the better domain entry")
+	if !hasTool(visible, "send_im_message") {
+		t.Fatal("feishu domain recall should keep the unified IM send tool visible")
+	}
+}
+
+func TestModelVisibleTools_NonFeishuPlatformHintsPruneFeishuAPIAndKeepUnifiedIM(t *testing.T) {
+	cases := []struct {
+		name     string
+		query    string
+		platform string
+	}{
+		{name: "wechatbot", query: "给微信用户发一条消息", platform: "wechatbot"},
+		{name: "wecom", query: "给企微用户发一条消息", platform: "wecom"},
+		{name: "dingtalk", query: "给钉钉用户发一条消息", platform: "dingtalk"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			session := &SessionState{ID: "s-" + tc.name}
+			catalog := imVisibilityCatalogForPlatformTests()
+			intent := externalSendIntentForPlatformVisibilityTest(tc.platform)
+
+			visible := visibleToolsForIntent(session, catalog, tc.query, config.DefaultToolRecallConfig(), intent)
+			if hasTool(visible, "feishu_api") {
+				t.Fatalf("%s send should not expose feishu_api, visible=%v", tc.platform, toolNamesForTest(visible))
+			}
+			if !hasTool(visible, "send_im_message") {
+				t.Fatalf("%s send should expose send_im_message, visible=%v", tc.platform, toolNamesForTest(visible))
+			}
+			if !hasTool(visible, "im_api") {
+				t.Fatalf("%s send should prefer im_api when catalog has it, visible=%v", tc.platform, toolNamesForTest(visible))
+			}
+		})
+	}
+}
+
+func TestModelVisibleTools_MultiPlatformExternalSendRequiresQuestion(t *testing.T) {
+	session := &SessionState{ID: "s-multi-platform"}
+	catalog := append(imVisibilityCatalogForPlatformTests(), mcphost.ToolDefinition{Name: "question", Core: true})
+	intent := router.IntentFrame{
+		Kind:              router.IntentExternalWrite,
+		AllowsSideEffects: true,
+		RequiresExternal:  true,
+		Signals:           []string{"external_send_multi_platform_requires_question"},
+	}
+
+	visible, obs := modelVisibleToolsForSessionWithRecallObservationAndSkillsAndIntent(
+		session,
+		catalog,
+		nil,
+		"飞书和微信都发一遍",
+		config.DefaultToolRecallConfig(),
+		intent,
+	)
+
+	for _, name := range []string{"feishu_api", "send_im_message", "im_api"} {
+		if hasTool(visible, name) {
+			t.Fatalf("multi-platform send must not directly expose %s, visible=%v", name, toolNamesForTest(visible))
+		}
+		if obs.Entries[name].TaskCallable {
+			t.Fatalf("multi-platform send must not mark %s callable: %#v", name, obs.Entries[name])
+		}
+	}
+	if !hasTool(visible, "question") {
+		t.Fatalf("multi-platform send should keep question visible, visible=%v", toolNamesForTest(visible))
 	}
 }
 
@@ -973,6 +1035,33 @@ func hasTool(tools []mcphost.ToolDefinition, name string) bool {
 
 func externalSendIntentForVisibilityTest() router.IntentFrame {
 	return router.IntentFrame{Kind: router.IntentExternalWrite, AllowsSideEffects: true, RequiresExternal: true}
+}
+
+func externalSendIntentForPlatformVisibilityTest(platform string) router.IntentFrame {
+	intent := externalSendIntentForVisibilityTest()
+	intent.AllowedDomainsHint = []string{platform}
+	return intent
+}
+
+func imVisibilityCatalogForPlatformTests() []mcphost.ToolDefinition {
+	return []mcphost.ToolDefinition{
+		{Name: "tool_search", Core: true},
+		{
+			Name:        "send_im_message",
+			Description: "发送消息到 IM 平台（钉钉/飞书/企业微信/个人微信）",
+			InputSchema: []byte(`{"type":"object","properties":{"platform":{"type":"string","enum":["dingtalk","feishu","wecom","wechatbot"]},"chat_id":{"type":"string"},"content":{"type":"string"}}}`),
+		},
+		{
+			Name:        "im_api",
+			Description: "统一 IM Agent API，支持 search_recipients、list_recent_conversations、resolve_recipient、send_message",
+			InputSchema: []byte(`{"type":"object","properties":{"action":{"type":"string","enum":["search_recipients","list_recent_conversations","resolve_recipient","send_message"]},"platform":{"type":"string","enum":["dingtalk","feishu","wecom","wechatbot"]},"content":{"type":"string"}}}`),
+		},
+		{
+			Name:        "feishu_api",
+			Description: "飞书应用 API 工具。访问飞书文档、通讯录、消息、审批、任务、电子表格、多维表格和资源。",
+			InputSchema: []byte(`{"type":"object","properties":{"action":{"type":"string","enum":["search_contacts","send_message","search_docs"]},"query":{"type":"string"},"chat_id":{"type":"string"},"content":{"type":"string"}}}`),
+		},
+	}
 }
 
 func visibleToolsForIntent(session *SessionState, catalog []mcphost.ToolDefinition, query string, recallCfg config.ToolRecallConfig, intent router.IntentFrame) []mcphost.ToolDefinition {

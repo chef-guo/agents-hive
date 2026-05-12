@@ -81,6 +81,20 @@ func BuildRouteDecisionWithOptions(intent IntentFrame, profiles []ToolProfile, o
 		}
 		return decision
 	}
+	if externalSendRequiresPlatformQuestion(intent) {
+		decision.VisibleOnly = []string{"question"}
+		decision.Reason = "external_send_multi_platform_requires_question"
+		for _, profile := range profiles {
+			if profile.Name == "" {
+				continue
+			}
+			if (ToolNamePolicy{}).Normalize(profile.Name) == "question" {
+				continue
+			}
+			decision.BlockedTools = append(decision.BlockedTools, BlockedTool{Name: profile.Name, Reason: "external_send_multi_platform_requires_question"})
+		}
+		return decision
+	}
 	for _, profile := range profiles {
 		if profile.Name == "" {
 			continue
@@ -245,7 +259,7 @@ func isCallable(intent IntentFrame, profile ToolProfile) (string, map[string]str
 		}
 		return "", nil, false
 	case IntentExternalWrite:
-		if intent.AllowsSideEffects && !profile.OpenWorld && slices.Contains(profile.Capabilities, CapabilityExternalSend) {
+		if intent.AllowsSideEffects && !profile.OpenWorld && externalSendCallableForIntent(intent, profile) {
 			if allowed := MixedAllowedToolInputsForIntent(intent, profile.Name); len(allowed) > 0 {
 				return profile.Name, allowed, true
 			}
@@ -258,6 +272,25 @@ func isCallable(intent IntentFrame, profile ToolProfile) (string, map[string]str
 	default:
 		return "", nil, false
 	}
+}
+
+func externalSendRequiresPlatformQuestion(intent IntentFrame) bool {
+	return intent.Kind == IntentExternalWrite && len(normalizedPlatformHints(intent.AllowedDomainsHint)) > 1
+}
+
+func externalSendCallableForIntent(intent IntentFrame, profile ToolProfile) bool {
+	platforms := normalizedPlatformHints(intent.AllowedDomainsHint)
+	if len(platforms) == 0 {
+		return slices.Contains(profile.Capabilities, CapabilityExternalSend)
+	}
+	if len(platforms) > 1 {
+		return false
+	}
+	capability, ok := externalSendCapabilityForPlatform(platforms[0])
+	if !ok {
+		return slices.Contains(profile.Capabilities, CapabilityExternalSend)
+	}
+	return slices.Contains(profile.Capabilities, capability)
 }
 
 func externalSendMixedToolBlockedForIntent(intent IntentFrame, profile ToolProfile) bool {

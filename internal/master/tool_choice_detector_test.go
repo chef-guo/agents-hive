@@ -103,6 +103,71 @@ func TestDetectToolChoice_UsesStructuredExternalSendIntent(t *testing.T) {
 	}
 }
 
+func TestDetectToolChoice_ExternalSendRelaxesAfterValidSendAttempt(t *testing.T) {
+	intent := router.IntentFrame{Kind: router.IntentExternalWrite, AllowsSideEffects: true, RequiresExternal: true}
+	messages := []llm.MessageWithTools{
+		{Role: "user", Content: llm.NewTextContent("现在能不能发")},
+		{Role: "assistant", ToolCalls: []llm.ToolCall{{ID: "send-1", Name: "feishu_api", Arguments: json.RawMessage(`{"action":"send_message","open_id":"ou_1","content":"天气"}`)}}},
+		{Role: "tool", ToolCallID: "send-1", ToolName: "feishu_api", Content: llm.NewTextContent("消息已发送到 ou_1")},
+	}
+	got := detectToolChoiceWithIntentAndMessages("现在能不能发", nil, nil, intent, messages)
+	if got == ToolChoiceRequired {
+		t.Fatalf("external-send 已有有效发送证据后不应继续 required，got %q", got)
+	}
+	if trigger := toolChoiceRequiredTriggerWithMessages("现在能不能发", nil, nil, intent, messages); trigger != "auto" {
+		t.Fatalf("trigger = %q, want auto", trigger)
+	}
+}
+
+func TestDetectToolChoice_ExternalSendRelaxesOnlyAfterSamePlatformSend(t *testing.T) {
+	intent := router.IntentFrame{
+		Kind:               router.IntentExternalWrite,
+		AllowsSideEffects:  true,
+		RequiresExternal:   true,
+		AllowedDomainsHint: []string{"wechatbot"},
+	}
+	messages := []llm.MessageWithTools{
+		{Role: "user", Content: llm.NewTextContent("给微信用户也发一条")},
+		{Role: "assistant", ToolCalls: []llm.ToolCall{{ID: "send-1", Name: "feishu_api", Arguments: json.RawMessage(`{"action":"send_message","open_id":"ou_1","content":"hi"}`)}}},
+		{Role: "tool", ToolCallID: "send-1", ToolName: "feishu_api", Content: llm.NewTextContent("消息已发送到 ou_1")},
+	}
+	got := detectToolChoiceWithIntentAndMessages("给微信用户也发一条", nil, nil, intent, messages)
+	if got != ToolChoiceRequired {
+		t.Fatalf("wrong-platform send must keep required, got %q", got)
+	}
+}
+
+func TestDetectToolChoice_ExternalSendStopsRequiredWhenNoSendableRecipient(t *testing.T) {
+	intent := router.IntentFrame{
+		Kind:               router.IntentExternalWrite,
+		AllowsSideEffects:  true,
+		RequiresExternal:   true,
+		AllowedDomainsHint: []string{"wechatbot"},
+	}
+	messages := []llm.MessageWithTools{
+		{Role: "user", Content: llm.NewTextContent("给微信用户也发一条")},
+		{Role: "assistant", ToolCalls: []llm.ToolCall{{ID: "list-1", Name: "im_api", Arguments: json.RawMessage(`{"action":"list_recent_conversations","platform":"wechatbot"}`)}}},
+		{Role: "tool", ToolCallID: "list-1", ToolName: "im_api", Content: llm.NewTextContent(`[]`)},
+	}
+	got := detectToolChoiceWithIntentAndMessages("给微信用户也发一条", nil, nil, intent, messages)
+	if got == ToolChoiceRequired {
+		t.Fatalf("no sendable recipient should stop required loop, got %q", got)
+	}
+}
+
+func TestDetectToolChoice_ExternalSendRelaxesAfterMessagingFailure(t *testing.T) {
+	intent := router.IntentFrame{Kind: router.IntentExternalWrite, AllowsSideEffects: true, RequiresExternal: true}
+	messages := []llm.MessageWithTools{
+		{Role: "user", Content: llm.NewTextContent("现在能不能发")},
+		{Role: "assistant", ToolCalls: []llm.ToolCall{{ID: "send-1", Name: "feishu_api", Arguments: json.RawMessage(`{"action":"send_message","user_id":"afde2a69","content":"天气"}`)}}},
+		{Role: "tool", ToolCallID: "send-1", ToolName: "feishu_api", IsError: true, Content: llm.NewTextContent("发送失败")},
+	}
+	got := detectToolChoiceWithIntentAndMessages("现在能不能发", nil, nil, intent, messages)
+	if got == ToolChoiceRequired {
+		t.Fatalf("external-send 发送失败后应允许模型直接报告失败/下一步，不应继续强制工具，got %q", got)
+	}
+}
+
 func TestShouldEvaluateToolChoiceForTurn_StructuredExternalSendBypassesQualityGuardFlag(t *testing.T) {
 	intent := router.IntentFrame{Kind: router.IntentExternalWrite, AllowsSideEffects: true, RequiresExternal: true}
 	if !shouldEvaluateToolChoiceForTurn("给郭松发一下今天的天气信息", nil, config.QualityGuardsConfig{}, intent) {

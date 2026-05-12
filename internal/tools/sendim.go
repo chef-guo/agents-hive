@@ -4,10 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"go.uber.org/zap"
 
-	"github.com/chef-guo/agents-hive/internal/auth"
+	"github.com/chef-guo/agents-hive/internal/imcore"
 	"github.com/chef-guo/agents-hive/internal/imctx"
 	"github.com/chef-guo/agents-hive/internal/mcphost"
 	"github.com/chef-guo/agents-hive/internal/store"
@@ -20,6 +21,7 @@ type IMRouter interface {
 
 type wechatConversationLookup interface {
 	GetWechatConversationByOwnerPeer(ctx context.Context, ownerUserID, peerWxid string) (*store.WechatConversationRecord, error)
+	ListWechatConversationsByOwner(ctx context.Context, ownerUserID string) ([]*store.WechatConversationRecord, error)
 }
 
 // sendIMMessageInput send_im_message 工具的输入参数
@@ -36,6 +38,13 @@ func RegisterSendIMMessage(host *mcphost.Host, logger *zap.Logger, router IMRout
 }
 
 func RegisterSendIMMessageWithStore(host *mcphost.Host, logger *zap.Logger, router IMRouter, convStore wechatConversationLookup) {
+	service := imcore.NewService(
+		imcore.NewSendOnlyAdapter(imcore.PlatformDingTalk, router),
+		imcore.NewSendOnlyAdapter(imcore.PlatformFeishu, router),
+		imcore.NewSendOnlyAdapter(imcore.PlatformWeCom, router),
+		imcore.NewWechatBotAdapter(convStore, router),
+	)
+
 	schema, _ := json.Marshal(map[string]any{
 		"type": "object",
 		"properties": map[string]any{
@@ -84,37 +93,18 @@ func RegisterSendIMMessageWithStore(host *mcphost.Host, logger *zap.Logger, rout
 				return errorResult("content 参数不能为空"), nil
 			}
 
-			req := imctx.SendRequest{
-				Platform: imctx.Platform(params.Platform),
-				ChatID:   params.ChatID,
-				Content:  params.Content,
-			}
-			if req.Platform == imctx.PlatformWeChatBot {
-				user := auth.UserFrom(ctx)
-				if user == nil || user.ID == "" {
-					return errorResult("wechatbot 发送需要已登录用户上下文，无法从模型输入 owner_user_id"), nil
-				}
-				req.OwnerUserID = user.ID
-				req.TenantKey = user.ID
-				if convStore != nil {
-					conv, err := convStore.GetWechatConversationByOwnerPeer(ctx, user.ID, params.ChatID)
-					if err != nil || conv == nil {
-						return errorResult("无权访问此微信会话，或该联系人尚未形成可发送会话"), nil
-					}
-					if !conv.CanSend {
-						return errorResult("该联系人暂无可发送上下文，请先让对方在微信中发一条消息"), nil
-					}
-				}
-			}
-
-			// 发送消息
-			if err := router.SendMessage(ctx, req); err != nil {
+			result, err := service.SendMessage(ctx, imcore.SendTarget{
+				Platform:       imcore.Platform(params.Platform),
+				ConversationID: params.ChatID,
+				Content:        params.Content,
+			})
+			if err != nil {
 				logger.Error("发送 IM 消息失败",
 					zap.String("platform", params.Platform),
 					zap.String("chat_id_hash", imctx.SafeSenderID(params.ChatID)),
 					zap.Error(err))
 
-				return errorResult(fmt.Sprintf("发送失败: %v", err)), nil
+				return errorResult(legacySendIMError(params.Platform, err)), nil
 			}
 
 			logger.Info("IM 消息发送成功",
@@ -122,7 +112,28 @@ func RegisterSendIMMessageWithStore(host *mcphost.Host, logger *zap.Logger, rout
 				zap.String("chat_id_hash", imctx.SafeSenderID(params.ChatID)),
 				zap.Int("content_len", len(params.Content)))
 
-			return textResult(fmt.Sprintf("✅ 消息已发送到 %s (chat: %s)", params.Platform, params.ChatID)), nil
+			targetID := result.TargetID
+			if targetID == "" {
+				targetID = params.ChatID
+			}
+			return textResult(fmt.Sprintf("✅ 消息已发送到 %s (chat: %s)", params.Platform, targetID)), nil
 		},
 	)
+}
+
+func legacySendIMError(platform string, err error) string {
+	msg := err.Error()
+	if strings.TrimSpace(platform) != "wechatbot" {
+		return fmt.Sprintf("发送失败: %v", err)
+	}
+	switch {
+	case msg == "wechatbot requires authenticated owner":
+		return "wechatbot 发送需要已登录用户上下文，无法从模型输入 owner_user_id"
+	case strings.Contains(msg, "not found or not owned"):
+		return "无权访问此微信会话，或该联系人尚未形成可发送会话"
+	case strings.Contains(msg, "not sendable"):
+		return "该联系人暂无可发送上下文，请先让对方在微信中发一条消息"
+	default:
+		return fmt.Sprintf("发送失败: %v", err)
+	}
 }

@@ -206,6 +206,11 @@ func (s *searchContactsStrategy) Format(raw json.RawMessage) (string, error) {
 		if c.UserID != "" {
 			fmt.Fprintf(&buf, "   user_id: %s\n", c.UserID)
 		}
+		if c.OpenID != "" {
+			fmt.Fprintf(&buf, "   open_id: %s\n", c.OpenID)
+		} else if c.UserID != "" {
+			buf.WriteString("   提示: 发消息前可用 get_user_info(user_id) 获取 open_id，或直接把 user_id 传给 send_message 的 user_id 字段。\n")
+		}
 	}
 	return buf.String(), nil
 }

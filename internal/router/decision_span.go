@@ -20,11 +20,12 @@ type DecisionSpan struct {
 
 // DecisionSpanIntent 是 replay 需要的意图投影，避免依赖完整分类器实现。
 type DecisionSpanIntent struct {
-	Kind       IntentKind `json:"kind"`
-	Subject    string     `json:"subject,omitempty"`
-	Confidence float64    `json:"confidence,omitempty"`
-	Source     string     `json:"source,omitempty"`
-	Degraded   bool       `json:"degraded,omitempty"`
+	Kind               IntentKind `json:"kind"`
+	Subject            string     `json:"subject,omitempty"`
+	AllowedDomainsHint []string   `json:"allowed_domains_hint,omitempty"`
+	Confidence         float64    `json:"confidence,omitempty"`
+	Source             string     `json:"source,omitempty"`
+	Degraded           bool       `json:"degraded,omitempty"`
 }
 
 // DecisionSpanCandidate 是候选工具画像的稳定投影。
@@ -78,11 +79,12 @@ func NewDecisionSpan(decision RouteDecision, candidates []ToolProfile, opts Deci
 		SessionIDHash: opts.SessionIDHash,
 		CreatedAt:     createdAt,
 		Intent: DecisionSpanIntent{
-			Kind:       decision.Intent.Kind,
-			Subject:    decision.Intent.Subject,
-			Confidence: decision.Intent.Confidence,
-			Source:     opts.IntentSource,
-			Degraded:   opts.IntentDegraded,
+			Kind:               decision.Intent.Kind,
+			Subject:            decision.Intent.Subject,
+			AllowedDomainsHint: cloneStrings(decision.Intent.AllowedDomainsHint),
+			Confidence:         decision.Intent.Confidence,
+			Source:             opts.IntentSource,
+			Degraded:           opts.IntentDegraded,
 		},
 		Candidates:     decisionSpanCandidates(candidates),
 		Allowed:        append([]string(nil), decision.AllowedTools...),

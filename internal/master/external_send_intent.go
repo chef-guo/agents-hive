@@ -64,14 +64,56 @@ func sideEffectIntentFromQuery(kind router.IntentKind, query, signal string, req
 }
 
 func externalSendIntentFromQuery(query, signal string) router.IntentFrame {
-	return router.IntentFrame{
-		Kind:              router.IntentExternalWrite,
-		Subject:           truncateRunes(strings.TrimSpace(query), 120),
-		RequiresExternal:  true,
-		AllowsSideEffects: true,
-		Confidence:        0.86,
-		Signals:           []string{signal},
+	hints, multiPlatform := externalSendAllowedDomainsHint(query)
+	signals := []string{signal}
+	if multiPlatform {
+		signals = appendSignalForToolVisibility(signals, "external_send_multi_platform_requires_question")
+		hints = nil
 	}
+	return router.IntentFrame{
+		Kind:               router.IntentExternalWrite,
+		Subject:            truncateRunes(strings.TrimSpace(query), 120),
+		RequiresExternal:   true,
+		AllowsSideEffects:  true,
+		Confidence:         0.86,
+		Signals:            signals,
+		AllowedDomainsHint: hints,
+	}
+}
+
+func externalSendAllowedDomainsHint(query string) ([]string, bool) {
+	q := strings.ToLower(strings.TrimSpace(query))
+	if q == "" {
+		return nil, false
+	}
+	hits := make([]string, 0, 4)
+	add := func(platform string) {
+		for _, existing := range hits {
+			if existing == platform {
+				return
+			}
+		}
+		hits = append(hits, platform)
+	}
+	if containsAny(q, "飞书", "feishu", "lark") {
+		add("feishu")
+	}
+	hasWeCom := containsAny(q, "企业微信", "企微", "wecom", "weixin work", "wechat work")
+	if hasWeCom {
+		add("wecom")
+	}
+	if containsAny(q, "钉钉", "dingtalk", "ding talk") {
+		add("dingtalk")
+	}
+	if (!hasWeCom && containsAny(q, "个人微信", "微信用户", "微信好友", "微信联系人", "微信里", "微信上", "wechatbot")) ||
+		(containsAny(q, "微信", "wechat") && !hasWeCom) ||
+		(containsAny(q, "和微信", "跟微信", "及微信", "与微信", "、微信", "/微信") && hasWeCom) {
+		add("wechatbot")
+	}
+	if len(hits) != 1 {
+		return nil, len(hits) > 1
+	}
+	return hits, false
 }
 
 func isExplicitExternalSendRequest(query string) bool {

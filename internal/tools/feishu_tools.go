@@ -4,10 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"go.uber.org/zap"
 
+	"github.com/chef-guo/agents-hive/internal/imcore"
+	"github.com/chef-guo/agents-hive/internal/imctx"
 	"github.com/chef-guo/agents-hive/internal/mcphost"
 )
 
@@ -66,6 +69,8 @@ type feishuAPIInput struct {
 	NodeToken       string `json:"node_token,omitempty"`
 	ParentNodeToken string `json:"parent_node_token,omitempty"`
 	UserID          string `json:"user_id,omitempty"`
+	ReceiveID       string `json:"receive_id,omitempty"`
+	Email           string `json:"email,omitempty"`
 	CalendarID      string `json:"calendar_id,omitempty"`
 	StartTime       string `json:"start_time,omitempty"`
 	EndTime         string `json:"end_time,omitempty"`
@@ -118,6 +123,7 @@ func RegisterFeishuTools(host *mcphost.Host, logger *zap.Logger, provider Feishu
 }
 
 func RegisterFeishuToolsWithOptions(host *mcphost.Host, logger *zap.Logger, provider FeishuToolProvider, formatter ResultFormatter, options FeishuToolOptions) {
+	feishuIMAdapter := imcore.NewFeishuAdapter(provider)
 	actions := []string{
 		// 文档
 		"search_docs", "get_doc_content", "create_doc", "edit_doc", "wiki_get_node", "wiki_list_nodes",
@@ -155,11 +161,14 @@ func RegisterFeishuToolsWithOptions(host *mcphost.Host, logger *zap.Logger, prov
 			"space_id":          map[string]any{"type": "string", "description": "Wiki space ID（wiki_list_nodes 必填；wiki_get_node 可选）"},
 			"node_token":        map[string]any{"type": "string", "description": "Wiki 节点 token（wiki_get_node，只有 wiki URL/token 时直接传此字段即可）"},
 			"parent_node_token": map[string]any{"type": "string", "description": "父 Wiki 节点 token（wiki_list_nodes，可选）"},
-			"user_id":           map[string]any{"type": "string", "description": "用户 ID（get_user_info）"},
+			"user_id":           map[string]any{"type": "string", "description": "用户 ID（get_user_info；send_message 时会自动解析为 open_id）"},
+			"open_id":           map[string]any{"type": "string", "description": "飞书用户 open_id（ou_ 开头；send_message/send_image/send_file 单聊优先使用；create_approval 为发起人 open_id）"},
+			"receive_id":        map[string]any{"type": "string", "description": "飞书接收 ID（支持 chat_id/open_id/user_id/email，send_message/send_image/send_file）"},
+			"email":             map[string]any{"type": "string", "description": "飞书用户邮箱（send_message/send_image/send_file 可用）"},
 			"calendar_id":       map[string]any{"type": "string", "description": "日历 ID（get_calendar_events，留空=主日历）"},
 			"start_time":        map[string]any{"type": "string", "description": "起始时间 RFC3339（get_calendar_events、list_approvals）"},
 			"end_time":          map[string]any{"type": "string", "description": "结束时间 RFC3339（get_calendar_events、list_approvals）"},
-			"chat_id":           map[string]any{"type": "string", "description": "聊天 ID（send_message、get_chat_info、get_chat_admins、list_chat_members）"},
+			"chat_id":           map[string]any{"type": "string", "description": "会话 chat_id（oc_ 开头；send_message/get_chat_info/get_chat_admins/list_chat_members）"},
 			"content":           map[string]any{"type": "string", "description": "内容（send_message、edit_doc、create_doc）"},
 			"data":              map[string]any{"type": "string", "description": "Base64 内容（upload_image、upload_file）"},
 			"count":             map[string]any{"type": "integer", "description": "结果数量（默认 10/20）"},
@@ -169,7 +178,6 @@ func RegisterFeishuToolsWithOptions(host *mcphost.Host, logger *zap.Logger, prov
 			// 审批参数
 			"approval_code": map[string]any{"type": "string", "description": "审批定义 code（list_approvals、create_approval）"},
 			"instance_id":   map[string]any{"type": "string", "description": "审批实例 ID（get_approval）"},
-			"open_id":       map[string]any{"type": "string", "description": "发起人 open_id（create_approval）"},
 			"form":          map[string]any{"type": "string", "description": "审批表单 JSON（create_approval）"},
 			// 多维表格参数
 			"app_token": map[string]any{"type": "string", "description": "多维表格 app_token"},
@@ -202,7 +210,7 @@ func RegisterFeishuToolsWithOptions(host *mcphost.Host, logger *zap.Logger, prov
 【文档】search_docs(query) | get_doc_content(document_id) | create_doc(title,folder_token?,content?) | edit_doc(document_id,content) | wiki_get_node(node_token,space_id?) | wiki_list_nodes(space_id,parent_node_token?,count?)
 【通讯录】search_contacts(query) | get_user_info(user_id)
 【日历】get_calendar_events(calendar_id?,start_time?,end_time?)
-【消息&群】send_message(chat_id,content) | upload_image(content) | upload_file(content,title) | send_image(chat_id,file_key) | send_file(chat_id,file_key) | get_chat_info(chat_id) | get_chat_admins(chat_id) | list_chat_members(chat_id)
+【消息&群】send_message(receive_id|chat_id|open_id|user_id|email,content) | upload_image(content) | upload_file(content,title) | send_image(receive_id|chat_id|open_id|user_id|email,file_key) | send_file(receive_id|chat_id|open_id|user_id|email,file_key) | get_chat_info(chat_id) | get_chat_admins(chat_id) | list_chat_members(chat_id)
 【审批】list_approvals(approval_code,start_time?,end_time?) | get_approval(instance_id) | create_approval(approval_code,open_id,form)
 【多维表格】list_bitable_tables(app_token) | list_bitable_records(app_token,table_id,filter?) | create_bitable_record(app_token,table_id,fields) | update_bitable_record(app_token,table_id,record_id,fields)
 【任务】create_task(summary,due_time?) | list_tasks() | complete_task(task_id)
@@ -218,7 +226,7 @@ func RegisterFeishuToolsWithOptions(host *mcphost.Host, logger *zap.Logger, prov
 				return errorResult("解析参数失败: " + err.Error()), nil
 			}
 			startedAt := time.Now()
-			result, err := dispatchFeishuAction(ctx, logger, provider, params)
+			result, err := dispatchFeishuAction(ctx, logger, provider, feishuIMAdapter, params)
 			if options.AuditSink != nil {
 				outcome := "ok"
 				errMsg := ""
@@ -229,19 +237,22 @@ func RegisterFeishuToolsWithOptions(host *mcphost.Host, logger *zap.Logger, prov
 					}
 				}
 				_ = options.AuditSink.Write(ctx, map[string]any{
-					"ts":          time.Now().UTC(),
-					"platform":    "feishu",
-					"action":      "tool.call",
-					"tool":        params.Action,
-					"outcome":     outcome,
-					"duration_ms": time.Since(startedAt).Milliseconds(),
-					"actor":       map[string]any{"type": "agent"},
+					"ts":             time.Now().UTC(),
+					"tool":           "feishu_api",
+					"action":         params.Action,
+					"platform":       "feishu",
+					"status":         outcome,
+					"outcome":        outcome,
+					"duration_ms":    time.Since(startedAt).Milliseconds(),
+					"actor_type":     "agent",
+					"target_kind":    feishuAuditTargetKind(params),
+					"target_id_hash": feishuAuditTargetHash(params),
 					"target": map[string]any{
-						"chat_id":     params.ChatID,
-						"document_id": params.DocumentID,
-						"space_id":    params.SpaceID,
+						"kind":    feishuAuditTargetKind(params),
+						"id_hash": feishuAuditTargetHash(params),
 					},
-					"error": errMsg,
+					"content_len": len(params.Content),
+					"error":       errMsg,
 				})
 			}
 			if err != nil {
@@ -260,7 +271,7 @@ func RegisterFeishuToolsWithOptions(host *mcphost.Host, logger *zap.Logger, prov
 }
 
 // dispatchFeishuAction 按 action 分发到对应 handler。
-func dispatchFeishuAction(ctx context.Context, logger *zap.Logger, provider FeishuToolProvider, params feishuAPIInput) (*mcphost.ToolResult, error) {
+func dispatchFeishuAction(ctx context.Context, logger *zap.Logger, provider FeishuToolProvider, imAdapter imcore.Adapter, params feishuAPIInput) (*mcphost.ToolResult, error) {
 	switch params.Action {
 	// 文档
 	case "search_docs":
@@ -285,15 +296,15 @@ func dispatchFeishuAction(ctx context.Context, logger *zap.Logger, provider Feis
 		return handleGetCalendarEvents(ctx, logger, provider, params)
 	// 消息 & 群
 	case "send_message":
-		return handleSendMessage(ctx, logger, provider, params)
+		return handleSendMessage(ctx, logger, imAdapter, params)
 	case "upload_image":
 		return handleUploadImage(ctx, logger, provider, params)
 	case "upload_file":
 		return handleUploadFile(ctx, logger, provider, params)
 	case "send_image":
-		return handleSendImage(ctx, logger, provider, params)
+		return handleSendImage(ctx, logger, provider, imAdapter, params)
 	case "send_file":
-		return handleSendFile(ctx, logger, provider, params)
+		return handleSendFile(ctx, logger, provider, imAdapter, params)
 	case "get_chat_info":
 		return handleGetChatInfo(ctx, logger, provider, params)
 	case "get_chat_admins":
@@ -334,6 +345,30 @@ func dispatchFeishuAction(ctx context.Context, logger *zap.Logger, provider Feis
 	default:
 		return errorResult(fmt.Sprintf("不支持的 action: %s", params.Action)), nil
 	}
+}
+
+func feishuAuditTargetKind(params feishuAPIInput) string {
+	switch {
+	case strings.TrimSpace(params.ReceiveID) != "", strings.TrimSpace(params.OpenID) != "", strings.TrimSpace(params.UserID) != "", strings.TrimSpace(params.Email) != "":
+		return "recipient"
+	case strings.TrimSpace(params.ChatID) != "":
+		return "conversation"
+	case strings.TrimSpace(params.DocumentID) != "":
+		return "document"
+	case strings.TrimSpace(params.SpaceID) != "":
+		return "wiki_space"
+	default:
+		return "none"
+	}
+}
+
+func feishuAuditTargetHash(params feishuAPIInput) string {
+	for _, raw := range []string{params.ReceiveID, params.OpenID, params.Email, params.UserID, params.ChatID, params.DocumentID, params.SpaceID} {
+		if trimmed := strings.TrimSpace(raw); trimmed != "" {
+			return imctx.SafeSenderID(trimmed)
+		}
+	}
+	return ""
 }
 
 // formatToolResult 对工具返回的原始 JSON 内容应用格式化。
@@ -401,7 +436,7 @@ func handleGetUserInfo(ctx context.Context, logger *zap.Logger, p FeishuToolProv
 	}
 	result, err := p.GetUserInfo(ctx, params.UserID)
 	if err != nil {
-		logger.Error("获取飞书用户信息失败", zap.String("user_id", params.UserID), zap.Error(err))
+		logger.Error("获取飞书用户信息失败", zap.String("user_id_hash", imctx.SafeSenderID(params.UserID)), zap.Error(err))
 		return errorResult(fmt.Sprintf("获取用户信息失败: %v", err)), nil
 	}
 	return textResult(string(result)), nil
@@ -441,18 +476,32 @@ func handleGetCalendarEvents(ctx context.Context, logger *zap.Logger, p FeishuTo
 	return textResult(string(result)), nil
 }
 
-func handleSendMessage(ctx context.Context, logger *zap.Logger, p FeishuToolProvider, params feishuAPIInput) (*mcphost.ToolResult, error) {
-	if params.ChatID == "" {
-		return errorResult("send_message 需要 chat_id 参数"), nil
+func handleSendMessage(ctx context.Context, logger *zap.Logger, adapter imcore.Adapter, params feishuAPIInput) (*mcphost.ToolResult, error) {
+	target, idType, err := resolveFeishuSendTargetInput(params)
+	if err != nil {
+		return errorResult("send_message 需要 receive_id/chat_id/open_id/user_id/email 参数: " + err.Error()), nil
 	}
 	if params.Content == "" {
 		return errorResult("send_message 需要 content 参数"), nil
 	}
-	if err := p.SendMessage(ctx, params.ChatID, params.Content); err != nil {
-		logger.Error("发送飞书消息失败", zap.String("chat_id", params.ChatID), zap.Error(err))
+	if adapter == nil {
+		return errorResult("feishu provider not configured"), nil
+	}
+	scope, err := imcore.CallerScopeFromContext(ctx, imcore.PlatformFeishu)
+	if err != nil {
+		return errorResult(err.Error()), nil
+	}
+	result, err := adapter.SendMessage(ctx, scope, imcore.SendTarget{
+		Platform:       imcore.PlatformFeishu,
+		RecipientID:    target,
+		ExternalIDType: idType,
+		Content:        params.Content,
+	})
+	if err != nil {
+		logger.Error("发送飞书消息失败", zap.String("receive_id_hash", imctx.SafeSenderID(target)), zap.Error(err))
 		return errorResult(fmt.Sprintf("发送失败: %v", err)), nil
 	}
-	return textResult(fmt.Sprintf("消息已发送到 %s", params.ChatID)), nil
+	return textResult(fmt.Sprintf("消息已发送到 %s", result.TargetID)), nil
 }
 
 func handleUploadImage(ctx context.Context, logger *zap.Logger, p FeishuToolProvider, params feishuAPIInput) (*mcphost.ToolResult, error) {
@@ -494,9 +543,10 @@ func handleUploadFile(ctx context.Context, logger *zap.Logger, p FeishuToolProvi
 	return textResult(string(result)), nil
 }
 
-func handleSendImage(ctx context.Context, logger *zap.Logger, p FeishuToolProvider, params feishuAPIInput) (*mcphost.ToolResult, error) {
-	if params.ChatID == "" {
-		return errorResult("send_image 需要 chat_id 参数"), nil
+func handleSendImage(ctx context.Context, logger *zap.Logger, p FeishuToolProvider, adapter imcore.Adapter, params feishuAPIInput) (*mcphost.ToolResult, error) {
+	target, err := resolveFeishuSendTarget(ctx, adapter, params)
+	if err != nil {
+		return errorResult("send_image 需要 receive_id/chat_id/open_id/user_id/email 参数: " + err.Error()), nil
 	}
 	imageKey := params.ImageKey
 	if imageKey == "" {
@@ -505,25 +555,65 @@ func handleSendImage(ctx context.Context, logger *zap.Logger, p FeishuToolProvid
 	if imageKey == "" {
 		return errorResult("send_image 需要 image_key 参数"), nil
 	}
-	if err := p.SendImage(ctx, params.ChatID, imageKey); err != nil {
-		logger.Error("发送飞书图片失败", zap.String("chat_id", params.ChatID), zap.Error(err))
+	if err := p.SendImage(ctx, target, imageKey); err != nil {
+		logger.Error("发送飞书图片失败", zap.String("receive_id_hash", imctx.SafeSenderID(target)), zap.Error(err))
 		return errorResult(fmt.Sprintf("发送图片失败: %v", err)), nil
 	}
-	return textResult(fmt.Sprintf("图片已发送到 %s", params.ChatID)), nil
+	return textResult(fmt.Sprintf("图片已发送到 %s", target)), nil
 }
 
-func handleSendFile(ctx context.Context, logger *zap.Logger, p FeishuToolProvider, params feishuAPIInput) (*mcphost.ToolResult, error) {
-	if params.ChatID == "" {
-		return errorResult("send_file 需要 chat_id 参数"), nil
+func handleSendFile(ctx context.Context, logger *zap.Logger, p FeishuToolProvider, adapter imcore.Adapter, params feishuAPIInput) (*mcphost.ToolResult, error) {
+	target, err := resolveFeishuSendTarget(ctx, adapter, params)
+	if err != nil {
+		return errorResult("send_file 需要 receive_id/chat_id/open_id/user_id/email 参数: " + err.Error()), nil
 	}
 	if params.FileKey == "" {
 		return errorResult("send_file 需要 file_key 参数"), nil
 	}
-	if err := p.SendFile(ctx, params.ChatID, params.FileKey); err != nil {
-		logger.Error("发送飞书文件失败", zap.String("chat_id", params.ChatID), zap.Error(err))
+	if err := p.SendFile(ctx, target, params.FileKey); err != nil {
+		logger.Error("发送飞书文件失败", zap.String("receive_id_hash", imctx.SafeSenderID(target)), zap.Error(err))
 		return errorResult(fmt.Sprintf("发送文件失败: %v", err)), nil
 	}
-	return textResult(fmt.Sprintf("文件已发送到 %s", params.ChatID)), nil
+	return textResult(fmt.Sprintf("文件已发送到 %s", target)), nil
+}
+
+func resolveFeishuSendTarget(ctx context.Context, adapter imcore.Adapter, params feishuAPIInput) (string, error) {
+	target, idType, err := resolveFeishuSendTargetInput(params)
+	if err != nil {
+		return "", err
+	}
+	if adapter == nil {
+		return "", fmt.Errorf("feishu provider not configured")
+	}
+	scope, err := imcore.CallerScopeFromContext(ctx, imcore.PlatformFeishu)
+	if err != nil {
+		return "", err
+	}
+	rec, err := adapter.ResolveRecipient(ctx, scope, imcore.RecipientLookup{
+		RecipientID:    target,
+		ExternalIDType: idType,
+	})
+	if err != nil {
+		return "", err
+	}
+	return rec.ID, nil
+}
+
+func resolveFeishuSendTargetInput(params feishuAPIInput) (target string, externalIDType string, err error) {
+	switch {
+	case strings.TrimSpace(params.ReceiveID) != "":
+		return strings.TrimSpace(params.ReceiveID), "receive_id", nil
+	case strings.TrimSpace(params.OpenID) != "":
+		return strings.TrimSpace(params.OpenID), "open_id", nil
+	case strings.TrimSpace(params.Email) != "":
+		return strings.TrimSpace(params.Email), "email", nil
+	case strings.TrimSpace(params.UserID) != "":
+		return strings.TrimSpace(params.UserID), "user_id", nil
+	case strings.TrimSpace(params.ChatID) != "":
+		return strings.TrimSpace(params.ChatID), "conversation_id", nil
+	default:
+		return "", "", fmt.Errorf("缺少接收目标")
+	}
 }
 
 func handleCreateDoc(ctx context.Context, logger *zap.Logger, p FeishuToolProvider, params feishuAPIInput) (*mcphost.ToolResult, error) {
@@ -605,7 +695,7 @@ func handleGetChatInfo(ctx context.Context, logger *zap.Logger, p FeishuToolProv
 	}
 	result, err := p.GetChatInfo(ctx, params.ChatID)
 	if err != nil {
-		logger.Error("获取群聊信息失败", zap.String("chat_id", params.ChatID), zap.Error(err))
+		logger.Error("获取群聊信息失败", zap.String("chat_id_hash", imctx.SafeSenderID(params.ChatID)), zap.Error(err))
 		return errorResult(fmt.Sprintf("获取群聊信息失败: %v", err)), nil
 	}
 	return textResult(string(result)), nil
@@ -617,7 +707,7 @@ func handleGetChatAdmins(ctx context.Context, logger *zap.Logger, p FeishuToolPr
 	}
 	result, err := p.GetChatInfo(ctx, params.ChatID)
 	if err != nil {
-		logger.Error("获取群管理员信息失败", zap.String("chat_id", params.ChatID), zap.Error(err))
+		logger.Error("获取群管理员信息失败", zap.String("chat_id_hash", imctx.SafeSenderID(params.ChatID)), zap.Error(err))
 		return errorResult(fmt.Sprintf("获取群管理员信息失败: %v", err)), nil
 	}
 	return textResult(string(result)), nil
@@ -633,7 +723,7 @@ func handleListChatMembers(ctx context.Context, logger *zap.Logger, p FeishuTool
 	}
 	result, err := p.ListChatMembers(ctx, params.ChatID, count)
 	if err != nil {
-		logger.Error("获取群成员列表失败", zap.String("chat_id", params.ChatID), zap.Error(err))
+		logger.Error("获取群成员列表失败", zap.String("chat_id_hash", imctx.SafeSenderID(params.ChatID)), zap.Error(err))
 		return errorResult(fmt.Sprintf("获取群成员列表失败: %v", err)), nil
 	}
 	return textResult(string(result)), nil

@@ -59,6 +59,51 @@ func TestRequiredCapabilitiesForIntent(t *testing.T) {
 	}
 }
 
+func TestCapabilityGateExternalSendPlatformHints(t *testing.T) {
+	tests := []struct {
+		name  string
+		hints []string
+		want  Capability
+	}{
+		{name: "feishu", hints: []string{"feishu"}, want: CapabilityExternalSendFeishu},
+		{name: "wechatbot", hints: []string{"wechatbot"}, want: CapabilityExternalSendWechatBot},
+		{name: "wecom", hints: []string{"wecom"}, want: CapabilityExternalSendWeCom},
+		{name: "dingtalk", hints: []string{"dingtalk"}, want: CapabilityExternalSendDingTalk},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			required := RequiredCapabilitiesForIntent(IntentFrame{Kind: IntentExternalWrite, AllowedDomainsHint: tt.hints})
+			if len(required) != 1 || required[0] != tt.want {
+				t.Fatalf("RequiredCapabilitiesForIntent(%q) = %+v, want %q", tt.name, required, tt.want)
+			}
+			umbrellaOnly := CheckCapabilityGate(CapabilityGateInput{
+				IntentRequired: required,
+				ToolGranted:    []Capability{CapabilityExternalSend},
+			})
+			if umbrellaOnly.Allowed {
+				t.Fatalf("umbrella external-send must not satisfy %q platform route", tt.name)
+			}
+		})
+	}
+}
+
+func TestCapabilityGateMultiPlatformExternalSendIsUnsatisfied(t *testing.T) {
+	required := RequiredCapabilitiesForIntent(IntentFrame{
+		Kind:               IntentExternalWrite,
+		AllowedDomainsHint: []string{"feishu", "wechatbot"},
+	})
+	if len(required) != 1 || required[0] == CapabilityExternalSend {
+		t.Fatalf("multi-platform requirements = %+v, want explicit unsatisfied capability", required)
+	}
+	got := CheckCapabilityGate(CapabilityGateInput{
+		IntentRequired: required,
+		ToolGranted:    allExternalSendCapabilities(),
+	})
+	if got.Allowed {
+		t.Fatalf("multi-platform external send must stay unauthorized: %+v", got)
+	}
+}
+
 func TestCapabilityRegistryReturnsCopies(t *testing.T) {
 	required := RequiredCapabilitiesForIntent(IntentFrame{Kind: IntentCreateSkill})
 	required[0] = CapabilityExternalSend
@@ -82,6 +127,7 @@ func TestBuiltinCapabilityRegistryCoversCommonHostToolNames(t *testing.T) {
 		"browser_interact",
 		"todo_write",
 		"taskboard",
+		"im_api",
 		"send_im_message",
 		"skill_install",
 		"skill_search",

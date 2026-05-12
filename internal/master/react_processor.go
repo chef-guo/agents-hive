@@ -434,7 +434,7 @@ func (m *Master) runReActLoop(
 			// 避免对自家 skill 的闲聊式介绍也强制 required。nil 时 detectToolChoice
 			// 退化为保守立场（只要命中 whatIs 模式就 required）。
 			skillsIndex := m.buildSkillsIndex(userID)
-			toolChoice = detectToolChoiceWithIntent(latestQuery, skillsIndex, refs, turnIntent)
+			toolChoice = detectToolChoiceWithIntentAndMessages(latestQuery, skillsIndex, refs, turnIntent, preparedMessages)
 			m.logger.Info("[quality-guards] P0-A tool_choice 决策",
 				zap.String("session_id", session.ID),
 				zap.Int("iteration", i+1),
@@ -445,7 +445,7 @@ func (m *Master) runReActLoop(
 				zap.String("intent_source", turnIntentResult.Source),
 				zap.Bool("intent_degraded", turnIntentResult.Degraded),
 			)
-			trigger := toolChoiceRequiredTrigger(latestQuery, skillsIndex, refs, turnIntent)
+			trigger := toolChoiceRequiredTriggerWithMessages(latestQuery, skillsIndex, refs, turnIntent, preparedMessages)
 			if turnIntent.Kind != "" {
 				m.enqueueMetric(observability.Metric{
 					Name:   "route_intent_kind_total",

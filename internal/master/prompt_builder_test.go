@@ -205,6 +205,33 @@ func TestBuildToolPrompt_ToolSearchDoesNotPromiseAuthorization(t *testing.T) {
 	assert.NotContains(t, prompt, "发现后的工具会在后续轮次进入可调用列表")
 }
 
+func TestBuildSystemPrompt_IncludesIMAPIPriorityGuidanceWhenVisible(t *testing.T) {
+	m, _ := newTestMaster(t)
+	prompt := m.buildSystemPrompt([]mcphost.ToolDefinition{
+		{Name: "im_api", Description: "统一 IM API"},
+		{Name: "feishu_api", Description: "飞书 API"},
+		{Name: "question", Description: "确认问题", Core: true},
+	})
+
+	assert.Contains(t, prompt, "IM 外发统一优先使用 im_api")
+	assert.Contains(t, prompt, "feishu_api 只用于飞书文档、表格、审批等飞书业务域")
+	assert.Contains(t, prompt, "不得把微信、企微、钉钉请求发到飞书")
+	assert.Contains(t, prompt, "微信 list_recent_conversations 后如果没有明确目标会话或联系人")
+	assert.Contains(t, prompt, "question 工具")
+}
+
+func TestBuildSystemPrompt_OmitsIMAPIPriorityGuidanceWhenUnavailable(t *testing.T) {
+	m, _ := newTestMaster(t)
+	prompt := m.buildSystemPrompt([]mcphost.ToolDefinition{
+		{Name: "feishu_api", Description: "飞书 API"},
+		{Name: "question", Description: "确认问题", Core: true},
+	})
+
+	assert.NotContains(t, prompt, "IM 外发统一优先使用 im_api")
+	assert.NotContains(t, prompt, "不要用 feishu_api 代替 IM 外发")
+	assert.NotContains(t, prompt, "list_recent_conversations")
+}
+
 func systemPromptContentFromEmbedded(planRuntimeEnabled bool) string {
 	var b strings.Builder
 	for _, key := range systemPromptKeys(planRuntimeEnabled) {

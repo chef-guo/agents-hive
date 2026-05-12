@@ -46,16 +46,19 @@ type ContractEvaluation struct {
 }
 
 type ContractEvidence struct {
-	ContentPrepared    bool
-	LookupAttempted    bool
-	RecipientResolved  bool
-	RecipientAmbiguous bool
-	RecipientMissing   bool
-	QuestionAsked      bool
-	SendAttempted      bool
-	SendAttemptValid   bool
-	MessagingFailed    bool
-	MessagingTool      string
+	ContentPrepared     bool
+	LookupAttempted     bool
+	RecipientResolved   bool
+	RecipientAmbiguous  bool
+	RecipientMissing    bool
+	QuestionAsked       bool
+	SendAttempted       bool
+	SendAttemptValid    bool
+	MessagingFailed     bool
+	MessagingTool       string
+	SendPlatform        string
+	WrongPlatform       bool
+	NoSendableRecipient bool
 }
 
 func NewIntentContract(intent router.IntentFrame) (IntentContract, bool) {
@@ -73,11 +76,17 @@ func (c IntentContract) Evaluate(messages []llm.MessageWithTools, response llm.C
 	if len(response.ToolCalls) > 0 {
 		current = append(current, llm.MessageWithTools{Role: "assistant", ToolCalls: response.ToolCalls})
 	}
-	return evaluateExternalSendContract(current)
+	return evaluateExternalSendContract(current, c.Intent)
 }
 
-func evaluateExternalSendContract(messages []llm.MessageWithTools) ContractEvaluation {
-	evidence := collectExternalSendEvidence(messages)
+func evaluateExternalSendContract(messages []llm.MessageWithTools, intent router.IntentFrame) ContractEvaluation {
+	evidence := collectExternalSendEvidence(messages, intent)
+	if evidence.NoSendableRecipient && !evidence.QuestionAsked {
+		return ContractEvaluation{Status: ContractNeedsUser, Reason: "external_send_no_sendable_recipient", Evidence: evidence}
+	}
+	if evidence.WrongPlatform && !evidence.SendAttemptValid {
+		return ContractEvaluation{Status: ContractIncomplete, Reason: "external_send_wrong_platform", Missing: []MissingRequirement{MissingSendAttempt}, Evidence: evidence}
+	}
 	if evidence.MessagingFailed {
 		return ContractEvaluation{Status: ContractBlocked, Reason: "external_send_tool_failed", Evidence: evidence}
 	}
@@ -135,13 +144,16 @@ const (
 )
 
 type externalSendCallFact struct {
-	Name string
-	Kind externalSendCallKind
+	Name     string
+	Kind     externalSendCallKind
+	Action   string
+	Platform string
 }
 
-func collectExternalSendEvidence(messages []llm.MessageWithTools) ContractEvidence {
+func collectExternalSendEvidence(messages []llm.MessageWithTools, intent router.IntentFrame) ContractEvidence {
 	var evidence ContractEvidence
 	callsByID := map[string]externalSendCallFact{}
+	platforms := intentPlatformSet(intent)
 	for _, msg := range messages {
 		for _, call := range msg.ToolCalls {
 			fact := classifyExternalSendToolCall(call)
@@ -159,14 +171,21 @@ func collectExternalSendEvidence(messages []llm.MessageWithTools) ContractEviden
 			case externalSendCallSend:
 				evidence.SendAttempted = true
 				evidence.MessagingTool = fact.Name
+				if strings.TrimSpace(fact.Platform) != "" {
+					evidence.SendPlatform = strings.TrimSpace(fact.Platform)
+				}
+				matchesPlatform := externalSendFactMatchesIntent(fact, platforms)
+				if !matchesPlatform {
+					evidence.WrongPlatform = true
+				}
 				hasContent, hasRecipient := sendCallPayloadFacts(call)
 				if hasContent {
 					evidence.ContentPrepared = true
 				}
-				if hasRecipient {
+				if hasRecipient && matchesPlatform {
 					evidence.RecipientResolved = true
 				}
-				if hasContent && hasRecipient {
+				if hasContent && hasRecipient && matchesPlatform {
 					evidence.SendAttemptValid = true
 				}
 			}
@@ -179,16 +198,41 @@ func collectExternalSendEvidence(messages []llm.MessageWithTools) ContractEviden
 			evidence.ContentPrepared = true
 		}
 		if fact.Kind == externalSendCallLookup {
-			applyContactLookupEvidence(&evidence, msg.Content.Text())
+			applyContactLookupEvidence(&evidence, msg.Content.Text(), fact)
 		}
-		if msg.IsError && (fact.Kind == externalSendCallSend || isExternalMessagingTool(msg.ToolName)) {
+		if msg.IsError && (fact.Kind == externalSendCallSend || isExternalMessagingTool(msg.ToolName)) && externalSendFactMatchesIntent(fact, platforms) {
 			evidence.MessagingFailed = true
 			if evidence.MessagingTool == "" {
 				evidence.MessagingTool = msg.ToolName
 			}
 		}
+		if !msg.IsError && fact.Kind == externalSendCallSend && externalSendFactMatchesIntent(fact, platforms) {
+			evidence.MessagingFailed = false
+			if evidence.MessagingTool == "" {
+				evidence.MessagingTool = fact.Name
+			}
+		}
 	}
 	return evidence
+}
+
+func intentPlatformSet(intent router.IntentFrame) map[string]bool {
+	out := map[string]bool{}
+	for _, platform := range intent.AllowedDomainsHint {
+		platform = strings.TrimSpace(platform)
+		if platform != "" {
+			out[platform] = true
+		}
+	}
+	return out
+}
+
+func externalSendFactMatchesIntent(fact externalSendCallFact, platforms map[string]bool) bool {
+	if len(platforms) == 0 {
+		return true
+	}
+	platform := strings.TrimSpace(fact.Platform)
+	return platform != "" && platforms[platform]
 }
 
 func toolResultCanPrepareExternalSendContent(msg llm.MessageWithTools, fact externalSendCallFact) bool {
@@ -209,13 +253,23 @@ func classifyExternalSendToolCall(call llm.ToolCall) externalSendCallFact {
 	case "question":
 		return externalSendCallFact{Name: name, Kind: externalSendCallQuestion}
 	case "send_im_message":
-		return externalSendCallFact{Name: name, Kind: externalSendCallSend}
+		return externalSendCallFact{Name: name, Kind: externalSendCallSend, Platform: toolPlatformFromArgs(call.Arguments)}
+	case "im_api":
+		action := toolActionFromArgs(call.Arguments)
+		platform := toolPlatformFromArgs(call.Arguments)
+		switch action {
+		case "search_recipients", "list_recent_conversations", "resolve_recipient":
+			return externalSendCallFact{Name: name, Kind: externalSendCallLookup, Action: action, Platform: platform}
+		case "send_message":
+			return externalSendCallFact{Name: name, Kind: externalSendCallSend, Action: action, Platform: platform}
+		}
 	case "feishu_api":
-		switch toolActionFromArgs(call.Arguments) {
+		action := toolActionFromArgs(call.Arguments)
+		switch action {
 		case "search_contacts", "get_user_info", "get_chat_info", "list_chat_members":
-			return externalSendCallFact{Name: name, Kind: externalSendCallLookup}
+			return externalSendCallFact{Name: name, Kind: externalSendCallLookup, Action: action, Platform: "feishu"}
 		case "send_message", "send_image", "send_file":
-			return externalSendCallFact{Name: name, Kind: externalSendCallSend}
+			return externalSendCallFact{Name: name, Kind: externalSendCallSend, Action: action, Platform: "feishu"}
 		}
 	}
 	return externalSendCallFact{Name: name}
@@ -231,13 +285,23 @@ func toolActionFromArgs(args json.RawMessage) string {
 	return strings.TrimSpace(payload.Action)
 }
 
+func toolPlatformFromArgs(args json.RawMessage) string {
+	var payload struct {
+		Platform string `json:"platform"`
+	}
+	if err := json.Unmarshal(args, &payload); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(payload.Platform)
+}
+
 func sendCallPayloadFacts(call llm.ToolCall) (bool, bool) {
 	var payload map[string]any
 	if err := json.Unmarshal(call.Arguments, &payload); err != nil {
 		return false, false
 	}
 	hasContent := firstNonEmptyStringFromMap(payload, "content", "text", "message") != ""
-	hasRecipient := firstNonEmptyStringFromMap(payload, "chat_id", "open_id", "user_id", "receive_id", "email", "recipient", "to") != ""
+	hasRecipient := firstNonEmptyStringFromMap(payload, "receive_id", "chat_id", "open_id", "user_id", "email", "recipient", "to", "recipient_id", "conversation_id") != ""
 	return hasContent, hasRecipient
 }
 
@@ -255,14 +319,18 @@ func firstNonEmptyStringFromMap(payload map[string]any, keys ...string) string {
 	return ""
 }
 
-func applyContactLookupEvidence(e *ContractEvidence, content string) {
+func applyContactLookupEvidence(e *ContractEvidence, content string, fact externalSendCallFact) {
 	count, ok := countContactCandidates(content)
 	if !ok {
 		return
 	}
 	switch {
 	case count == 0:
-		e.RecipientMissing = true
+		if fact.Name == "im_api" && fact.Action == "list_recent_conversations" && fact.Platform == "wechatbot" {
+			e.NoSendableRecipient = true
+		} else {
+			e.RecipientMissing = true
+		}
 	case count == 1:
 		e.RecipientResolved = true
 	case count > 1:
@@ -271,6 +339,10 @@ func applyContactLookupEvidence(e *ContractEvidence, content string) {
 }
 
 func countContactCandidates(content string) (int, bool) {
+	var topLevel []json.RawMessage
+	if err := json.Unmarshal([]byte(content), &topLevel); err == nil {
+		return len(topLevel), true
+	}
 	var payload map[string]json.RawMessage
 	if err := json.Unmarshal([]byte(content), &payload); err != nil {
 		return 0, false
@@ -306,7 +378,7 @@ func jsonArrayLen(raw json.RawMessage) (int, bool) {
 
 func isExternalMessagingTool(name string) bool {
 	switch strings.TrimSpace(name) {
-	case "feishu_api", "send_im_message":
+	case "feishu_api", "send_im_message", "im_api":
 		return true
 	default:
 		return false

@@ -16,6 +16,49 @@ func TestResolveTurnIntent_DetectsExplicitExternalSendRequest(t *testing.T) {
 	}
 }
 
+func TestExternalSendIntentFromQuery_PlatformHints(t *testing.T) {
+	cases := []struct {
+		name string
+		q    string
+		want []string
+	}{
+		{name: "feishu", q: "给飞书用户郭松发一条消息", want: []string{"feishu"}},
+		{name: "wechatbot", q: "给微信用户也发一条", want: []string{"wechatbot"}},
+		{name: "wecom", q: "给企微用户张三发通知", want: []string{"wecom"}},
+		{name: "dingtalk", q: "给钉钉群发一下", want: []string{"dingtalk"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			intent := externalSendIntentFromQuery(tc.q, "test_signal")
+			if !equalStringSlices(intent.AllowedDomainsHint, tc.want) {
+				t.Fatalf("AllowedDomainsHint = %#v, want %#v; intent=%+v", intent.AllowedDomainsHint, tc.want, intent)
+			}
+			if hasString(intent.Signals, "external_send_multi_platform_requires_question") {
+				t.Fatalf("single-platform query should not require multi-platform question: %+v", intent)
+			}
+		})
+	}
+}
+
+func TestExternalSendIntentFromQuery_WeComDoesNotImplyWechatBot(t *testing.T) {
+	intent := externalSendIntentFromQuery("给企业微信用户张三发通知", "test_signal")
+
+	if !equalStringSlices(intent.AllowedDomainsHint, []string{"wecom"}) {
+		t.Fatalf("企业微信/企微 must map only to wecom, got %#v", intent.AllowedDomainsHint)
+	}
+}
+
+func TestExternalSendIntentFromQuery_MultiPlatformRequiresQuestion(t *testing.T) {
+	intent := externalSendIntentFromQuery("飞书和微信都发一遍", "test_signal")
+
+	if len(intent.AllowedDomainsHint) != 0 {
+		t.Fatalf("multi-platform send must not directly authorize domains, got %#v", intent.AllowedDomainsHint)
+	}
+	if !hasString(intent.Signals, "external_send_multi_platform_requires_question") {
+		t.Fatalf("multi-platform send should require question signal: %+v", intent)
+	}
+}
+
 func TestResolveTurnIntent_ContinuationRequiresPendingExternalSend(t *testing.T) {
 	session := &SessionState{ID: "s1"}
 	withoutPending := resolveTurnIntent(session, "现在能不能发", router.IntentFrame{Kind: router.IntentAnswer})
@@ -98,4 +141,25 @@ func TestResolveTurnIntent_DoesNotRecoverNegatedMCPManagement(t *testing.T) {
 	if intent.Kind == router.IntentManageTool {
 		t.Fatalf("negated MCP wording must not become manage-tool intent: %+v", intent)
 	}
+}
+
+func hasString(items []string, want string) bool {
+	for _, item := range items {
+		if item == want {
+			return true
+		}
+	}
+	return false
+}
+
+func equalStringSlices(got, want []string) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for i := range got {
+		if got[i] != want[i] {
+			return false
+		}
+	}
+	return true
 }
