@@ -47,3 +47,5 @@ AGENTS.md
 config.json
 scripts/
 openspec/
+config.prd.json
+hive-linux

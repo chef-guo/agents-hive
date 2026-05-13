@@ -318,4 +318,7 @@ MIT License
 ## 感谢
 ![Control Plane](assets/screenshots/thank.png)  
 
+## 交流群
+![Control Plane](assets/screenshots/chat.jpg)  
+
 
