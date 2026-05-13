@@ -25,22 +25,51 @@ type responsesPendingToolCall struct {
 	Arguments string
 }
 
+func responsesRequestPayloadBytes(params responses.ResponseNewParams) (int, bool) {
+	// NewStreaming 通过 SDK request option 注入 stream=true；这里只在副本上补齐用于诊断。
+	params.SetExtraFields(map[string]any{"stream": true})
+	payload, err := json.Marshal(params)
+	if err != nil {
+		return 0, false
+	}
+	return len(payload), true
+}
+
+func responsesAPIFormatForDiag(provider ProviderDef) string {
+	if provider.APIFormat == "" {
+		return "unset"
+	}
+	return provider.APIFormat
+}
+
+func responsesServiceTierForDiag(params responses.ResponseNewParams) string {
+	if params.ServiceTier == "" {
+		return "unset"
+	}
+	return string(params.ServiceTier)
+}
+
 // chatWithToolsStreamViaResponses 通过 Responses API 流式实现带工具调用的 Chat。
 func (c *Client) chatWithToolsStreamViaResponses(ctx context.Context, req ChatWithToolsRequest, onChunk StreamCallback) (*ChatWithToolsResponse, error) {
-	snapModel, _, _ := c.snapshot()
+	snapModel, snapBaseURL, snapProvider := c.snapshot()
 
 	// 构建 input items（与 chatWithToolsViaResponses 相同）
 	input := buildResponsesInputFromToolMessages(req.Messages)
 
 	// 构建工具定义
-	tools := convertToolsForResponses(req.Tools)
+	tools, err := convertToolsForResponses(req.Tools)
+	if err != nil {
+		return nil, err
+	}
 
 	params := responses.ResponseNewParams{
 		Model: snapModel,
 		Input: responses.ResponseNewParamsInputUnion{
 			OfInputItemList: input,
 		},
-		Tools: tools,
+	}
+	if len(tools) > 0 {
+		params.Tools = tools
 	}
 
 	// 系统提示 → Instructions
@@ -54,6 +83,15 @@ func (c *Client) chatWithToolsStreamViaResponses(ctx context.Context, req ChatWi
 	if req.MaxTokens > 0 {
 		params.MaxOutputTokens = param.NewOpt(req.MaxTokens)
 	}
+	applyResponsesRequestOptimizations(&params, responsesRequestOptions{
+		Provider:        snapProvider.Name,
+		Model:           snapModel,
+		UserID:          req.UserID,
+		PromptVersions:  req.PromptVersions,
+		Tools:           req.Tools,
+		CacheKeyEnabled: c.promptCacheKey,
+		ServiceTier:     c.serviceTier,
+	})
 
 	// P0-A：ToolChoice 透传（空字符串时跳过，保持旧 auto 行为）
 	if tc, ok := buildResponsesToolChoice(req.ToolChoice); ok {
@@ -71,17 +109,27 @@ func (c *Client) chatWithToolsStreamViaResponses(ctx context.Context, req ChatWi
 		}
 	}
 
+	requestPayloadBytes, hasRequestPayloadBytes := responsesRequestPayloadBytes(params)
+
 	// 启动流式请求
 	streamStart := time.Now()
 	stream := c.client.Responses.NewStreaming(ctx, params)
-	c.logger.Info("[stream-diag] Responses 流式请求已创建",
+	diagFields := []zap.Field{
 		zap.String("model", snapModel),
+		zap.String("base_url", snapBaseURL),
+		zap.String("api_format", responsesAPIFormatForDiag(snapProvider)),
 		zap.Int("input_count", len(input)),
 		zap.Int("tool_count", len(tools)),
 		zap.String("tool_choice", req.ToolChoice),
 		zap.String("reasoning_effort", effort),
+		zap.String("service_tier", responsesServiceTierForDiag(params)),
+		zap.Bool("prompt_cache_key_present", params.PromptCacheKey.Valid()),
 		zap.Int64("create_stream_ms", time.Since(streamStart).Milliseconds()),
-	)
+	}
+	if hasRequestPayloadBytes {
+		diagFields = append(diagFields, zap.Int("request_payload_bytes", requestPayloadBytes))
+	}
+	c.logger.Info("[stream-diag] Responses 流式请求已创建", diagFields...)
 	defer stream.Close()
 
 	// 累积状态

@@ -144,6 +144,8 @@ func (m *Master) prepareDirectExecParams(ctx context.Context, session *SessionSt
 			Provider:        provDef,
 			ReasoningEffort: baseCfg.ReasoningEffort,
 			StorePrivacy:    baseCfg.StorePrivacy,
+			PromptCacheKey:  baseCfg.PromptCacheKey,
+			ServiceTier:     baseCfg.ServiceTier,
 		})
 		if overrideClient != nil {
 			sessionLLM = overrideClient
@@ -304,6 +306,8 @@ func (m *Master) runReActLoop(
 	imRefsRead := false
 
 	for i := 0; ; i++ {
+		preModelStart := time.Now()
+
 		// P0-3 Phase 5.3: per-session 成本预算检查（每轮检查，防止 fan-out turn 耗尽预算后无感知）
 		if costErr := m.checkCostBudget(ctx, session.ID); costErr != nil {
 			decision := m.handleCostBudgetExceeded(ctx, session, responseID, costErr, sessionTraceID, sessionSpanID)
@@ -342,12 +346,14 @@ func (m *Master) runReActLoop(
 		}
 
 		// 读取消息快照，在锁外执行耗时的修复和压缩操作
+		repairStart := time.Now()
 		session.mu.Lock()
 		repairedMessages, patchedMsgs := repairOrphanedToolCalls(session.Messages, m.logger)
 		session.Messages = repairedMessages
 		msgsCopy := make([]llm.MessageWithTools, len(session.Messages))
 		copy(msgsCopy, session.Messages)
 		session.mu.Unlock()
+		repairToolCallsMs := time.Since(repairStart).Milliseconds()
 		// 将修复插入的假 tool result 持久化到 DB，避免重启后重复警告
 		for _, pm := range patchedMsgs {
 			m.appendSessionMessage(session, pm)
@@ -360,20 +366,32 @@ func (m *Master) runReActLoop(
 		)
 
 		// 使用新的上下文压缩机制（在锁外执行，避免长时间持锁）
+		contextCompressionStart := time.Now()
 		preparedMessages := m.prepareMessagesWithCompression(ctx, session, msgsCopy)
 		// 移除孤立的 tool result（压缩可能导致 assistant tool_call 被截断而 tool result 保留）
 		preparedMessages = removeOrphanedToolResults(preparedMessages, m.logger)
+		contextCompressionMs := time.Since(contextCompressionStart).Milliseconds()
 		latestQuery := extractLatestUserQuery(preparedMessages)
+		intentClassifyStart := time.Now()
+		intentClassifySkipped := true
 		if latestQuery != turnIntentQuery {
+			intentClassifySkipped = false
 			turnIntentQuery = latestQuery
-			turnIntentResult = router.NewIntentClassifier(
-				router.WithIntentLLMClassifier(m.intentLLMClassifier(sessionLLM)),
-				router.WithIntentClassifierTimeout(intentClassifierTimeout),
-			).Classify(ctx, session.ID, latestQuery)
-			turnIntent = resolveTurnIntent(session, latestQuery, turnIntentResult.Intent)
+			if m.config.FirstToken.FastPathEnabled {
+				turnIntentResult = fastPathTurnIntentResult(session, latestQuery)
+			} else {
+				turnIntentResult = router.NewIntentClassifier(
+					router.WithIntentLLMClassifier(m.intentLLMClassifier(sessionLLM)),
+					router.WithIntentClassifierTimeout(intentClassifierTimeout),
+				).Classify(ctx, session.ID, latestQuery)
+				turnIntentResult.Intent = resolveTurnIntent(session, latestQuery, turnIntentResult.Intent)
+			}
+			turnIntent = turnIntentResult.Intent
 			turnContract, hasTurnContract = NewIntentContract(turnIntent)
 			intentFulfillmentRetryCount = 0
 		}
+		intentClassifyMs := time.Since(intentClassifyStart).Milliseconds()
+		qualityContextStart := time.Now()
 		pendingAttachments, _, _ := session.GetPendingData()
 		memoryInjection := session.ConsumeQualityMemoryInjection()
 		m.emitQualityEvent(sessionTraceID, sessionSpanID, session.ID, agentquality.Event{
@@ -404,27 +422,14 @@ func (m *Master) runReActLoop(
 				ContaminationCheck:    contaminationStatus(memoryInjection),
 			},
 		})
+		qualityContextMs := time.Since(qualityContextStart).Milliseconds()
 
-		modelVisibleTools, toolRecallObs := modelVisibleToolsForSessionWithRecallObservationAndSkillsAndIntent(session, availableTools, m.skillMetasForModel(userID), latestQuery, m.config.ToolRecall, turnIntent)
-		m.logger.Info("发起 LLM 调用",
-			zap.String("session_id", session.ID),
-			zap.String("model", sessionLLM.Model()),
-			zap.Int("iteration", i+1),
-			zap.Int("tools_available", len(modelVisibleTools)),
-		)
-		llmCallStart := time.Now()
-		llmSpanID := observability.NewSpanID()
-		lastStreamBroadcast := time.Time{}
-		const streamThrottleInterval = 50 * time.Millisecond
-		// 诊断计数：chunk 到达节奏（排查"假流式"：provider 是否按 SSE 逐步吐 token）
-		var streamEventCount int
-		var textChunkCount int
-		var toolChunkCount int
-		var finalToolCallCount int
-		var firstChunkAt time.Time
-		var lastContentLen int
-		var lastToolPreviewFingerprint string
+		toolVisibilityStart := time.Now()
+		skillMetas := m.skillMetasForModel(userID)
+		modelVisibleTools, toolRecallObs := modelVisibleToolsForSessionWithRecallObservationAndSkillsAndIntent(session, availableTools, skillMetas, latestQuery, m.config.ToolRecall, turnIntent)
+		toolVisibilityMs := time.Since(toolVisibilityStart).Milliseconds()
 
+		llmRequestBuildStart := time.Now()
 		// P0-A：根据 feature flag 决定本轮 ToolChoice 策略。
 		// 但 IM 上下文里若已有文档引用，必须强制 required，否则模型会绕过工具直接口头分析。
 		var toolChoice string
@@ -475,6 +480,8 @@ func (m *Master) runReActLoop(
 			Temperature:     temperature,
 			MaxTokens:       maxTokens,
 			ReasoningEffort: m.resolveModelReasoningEffort(reasoningEffort, latestQuery, sessionLLM.Model()),
+			UserID:          userID,
+			PromptVersions:  promptVersions,
 			ToolChoice:      toolChoice,
 		}
 		agentState := &AgentState{
@@ -485,7 +492,30 @@ func (m *Master) runReActLoop(
 			Request:      &llmReq,
 			Evidence:     BuildToolEvidence(preparedMessages),
 		}
-		if err := m.middlewarePipeline.BeforeModel(ctx, agentState); err != nil {
+		llmRequestBuildMs := time.Since(llmRequestBuildStart).Milliseconds()
+		// 保持原有 LLM 耗时口径：从请求构造开始计，便于和既有流式诊断对齐。
+		llmCallStart := llmRequestBuildStart
+		middlewareBeforeModelStart := time.Now()
+		beforeModelErr := m.middlewarePipeline.BeforeModel(ctx, agentState)
+		middlewareBeforeModelMs := time.Since(middlewareBeforeModelStart).Milliseconds()
+		beforeModelMs := time.Since(preModelStart).Milliseconds()
+		m.logger.Info("[pre-model-diag] ReAct 调用前耗时",
+			zap.String("session_id", session.ID),
+			zap.Int("iteration", i+1),
+			zap.Int64("repair_tool_calls_ms", repairToolCallsMs),
+			zap.Int64("context_compression_ms", contextCompressionMs),
+			zap.Int64("intent_classify_ms", intentClassifyMs),
+			zap.Bool("intent_classify_skipped", intentClassifySkipped),
+			zap.Int64("quality_context_ms", qualityContextMs),
+			zap.Int64("tool_visibility_ms", toolVisibilityMs),
+			zap.Int64("llm_request_build_ms", llmRequestBuildMs),
+			zap.Int64("middleware_before_model_ms", middlewareBeforeModelMs),
+			zap.Int64("before_model_ms", beforeModelMs),
+			zap.Int("messages_before", len(msgsCopy)),
+			zap.Int("messages_prepared", len(preparedMessages)),
+			zap.Int("tools_available", len(modelVisibleTools)),
+		)
+		if beforeModelErr != nil {
 			m.emitQualityEvent(sessionTraceID, sessionSpanID, session.ID, agentquality.Event{
 				Name:        agentquality.EventAgentTurn,
 				Route:       routeFromSession(session),
@@ -493,8 +523,26 @@ func (m *Master) runReActLoop(
 				RetryReason: "middleware_before_model",
 				FinalStatus: agentquality.StatusFail,
 			})
-			return errs.Wrap(errs.CodePlanExecFailed, "BeforeModel middleware failed", err)
+			return errs.Wrap(errs.CodePlanExecFailed, "BeforeModel middleware failed", beforeModelErr)
 		}
+		m.logger.Info("发起 LLM 调用",
+			zap.String("session_id", session.ID),
+			zap.String("model", sessionLLM.Model()),
+			zap.Int("iteration", i+1),
+			zap.Int("tools_available", len(modelVisibleTools)),
+		)
+		llmSpanID := observability.NewSpanID()
+		lastStreamBroadcast := time.Time{}
+		const streamThrottleInterval = 50 * time.Millisecond
+		// 诊断计数：chunk 到达节奏（排查"假流式"：provider 是否按 SSE 逐步吐 token）
+		var streamEventCount int
+		var textChunkCount int
+		var toolChunkCount int
+		var finalToolCallCount int
+		var firstChunkAt time.Time
+		var lastContentLen int
+		var lastToolPreviewFingerprint string
+
 		resp, err := sessionLLM.ChatWithToolsStream(ctx, llmReq, func(chunk llm.StreamChunk) error {
 			chunkClass := classifyStreamChunk(chunk)
 			if chunk.Done {
@@ -1664,15 +1712,6 @@ func (m *Master) executeTool(ctx context.Context, session *SessionState, userID 
 		return toolResult{Content: content, IsError: true, Terminal: true}
 	}
 
-	// 广播工具调用开始事件
-	m.emitToolCallEvent(sessionID, ToolCallEvent{
-		ToolCallID: toolCall.ID,
-		ToolName:   toolCall.Name,
-		TurnID:     sessionTraceID,
-		Status:     "start",
-		SessionID:  sessionID,
-	})
-
 	// 检查 HITL 批准时是否有参数覆盖（如用户在审批卡片中更改了 theme_id）
 	args := toolCall.Arguments
 	overrideKey := sessionID + ":" + toolCall.Name
@@ -1686,6 +1725,20 @@ func (m *Master) executeTool(ctx context.Context, session *SessionState, userID 
 		args = ensureWenyanTitle(args, m.logger)
 	}
 
+	actionGuardApproved := make(map[string]bool)
+	if tr, ok := m.guardToolExecution(ctx, session, sessionID, userID, toolCall.ID, toolCall.Name, args, sessionTraceID, sessionSpanID, actionGuardApproved); !ok {
+		return tr
+	}
+
+	// 广播工具调用开始事件仅在 guard 放行后发出，避免被拦截工具显示为已开始执行。
+	m.emitToolCallEvent(sessionID, ToolCallEvent{
+		ToolCallID: toolCall.ID,
+		ToolName:   toolCall.Name,
+		TurnID:     sessionTraceID,
+		Status:     "start",
+		SessionID:  sessionID,
+	})
+
 	m.emitQualityEvent(sessionTraceID, sessionSpanID, sessionID, agentquality.Event{
 		Name:        agentquality.EventToolDecision,
 		Route:       routeFromSession(session),
@@ -1697,11 +1750,6 @@ func (m *Master) executeTool(ctx context.Context, session *SessionState, userID 
 			ArgsHash: hashToolArgs(args),
 		},
 	})
-
-	// 工具策略过滤检查：确保 LLM 不会调用被 profile/deny 排除的工具
-	if tr, ok := m.enforceToolExecutionGate(ctx, session, sessionID, toolCall.ID, toolCall.Name, args, sessionTraceID, sessionSpanID); !ok {
-		return tr
-	}
 
 	start := time.Now()
 	// 长时间运行的工具有自己的超时逻辑，不加额外 2 分钟超时：
@@ -1733,12 +1781,12 @@ func (m *Master) executeTool(ctx context.Context, session *SessionState, userID 
 		if runCall == nil {
 			return nil, fmt.Errorf("middleware passed nil tool call")
 		}
-		if tr, ok := m.enforceToolExecutionGate(runCtx, session, sessionID, toolCall.ID, runCall.Name, runCall.Arguments, sessionTraceID, sessionSpanID); !ok {
+		if tr, ok := m.guardToolExecution(runCtx, session, sessionID, userID, toolCall.ID, runCall.Name, runCall.Arguments, sessionTraceID, sessionSpanID, actionGuardApproved); !ok {
 			return &ToolResult{Result: textToolResult(tr.Content, true)}, nil
 		}
 		if m.toolBridge != nil {
 			result, execErr := m.toolBridge.ExecuteDirect(runCtx, runCall.Name, runCall.Arguments, skills.WithDirectExecutionGate(func(gateCtx context.Context, gateToolName string, gateInput json.RawMessage) error {
-				if tr, ok := m.enforceToolExecutionGate(gateCtx, session, sessionID, toolCall.ID, gateToolName, gateInput, sessionTraceID, sessionSpanID); !ok {
+				if tr, ok := m.guardToolExecution(gateCtx, session, sessionID, userID, toolCall.ID, gateToolName, gateInput, sessionTraceID, sessionSpanID, actionGuardApproved); !ok {
 					return errs.New(errs.CodePermissionDenied, tr.Content)
 				}
 				return nil

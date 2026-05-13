@@ -51,6 +51,8 @@ type ModelScore struct {
 	ReasoningEffort string
 	DisableJSONMode bool
 	StorePrivacy    bool
+	PromptCacheKey  bool
+	ServiceTier     string
 }
 
 // HasCapability 检查模型是否具有指定能力

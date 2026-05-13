@@ -93,7 +93,7 @@ func handleToolSearch(host *mcphost.Host, raw json.RawMessage) (*mcphost.ToolRes
 	for _, recall := range recalls {
 		def := recall.Tool
 		profile := router.InferToolProfile(def, router.ProfileHint{})
-		kind, domain, source, invocation, routeStatus := inferToolSearchMetadata(profile, qLower)
+		kind, domain, source, invocation, routeStatus, callableNow, executionNote := inferToolSearchMetadata(profile, qLower)
 		hits = append(hits, toolSearchHit{
 			Name:                def.Name,
 			Description:         def.Description,
@@ -111,8 +111,8 @@ func handleToolSearch(host *mcphost.Host, raw json.RawMessage) (*mcphost.ToolRes
 			Source:              source,
 			Invocation:          invocation,
 			RouteStatus:         routeStatus,
-			CallableNow:         false,
-			ExecutionNote:       "tool_search 只返回工具目录信息，不授权执行；是否可调用由本轮工具列表、RouteDecision、plan mode 和权限审批决定。",
+			CallableNow:         callableNow,
+			ExecutionNote:       executionNote,
 			Score:               recall.Score,
 		})
 	}
@@ -146,13 +146,61 @@ func inferToolDangerLevel(profile router.ToolProfile) string {
 	return "unknown"
 }
 
-func inferToolSearchMetadata(profile router.ToolProfile, queryLower string) (kind, domain, source, invocation, routeStatus string) {
+func inferToolSearchMetadata(profile router.ToolProfile, queryLower string) (kind, domain, source, invocation, routeStatus string, callableNow bool, executionNote string) {
 	kind = string(profile.Kind)
 	domain = profile.Domain
 	source = string(profile.Source)
 	invocation = string(profile.Invocation)
-	routeStatus = "discovery_only"
-	return kind, domain, source, invocation, routeStatus
+	routeStatus, callableNow = inferToolRouteStatus(profile)
+	executionNote = toolSearchExecutionNote(routeStatus, callableNow)
+	return kind, domain, source, invocation, routeStatus, callableNow, executionNote
+}
+
+func inferToolRouteStatus(profile router.ToolProfile) (string, bool) {
+	if profile.Name == "tool_search" || profile.Invocation == router.InvocationDiscoveryOnly {
+		return "discovery_only", false
+	}
+	if profile.OpenWorld || profile.Destructive || profile.Risk == router.RiskRuntimeExec || profile.Risk == router.RiskDestructive || profile.Risk == router.RiskUnknown {
+		return "blocked_dangerous", false
+	}
+	if router.IsMixedReadWriteTool(profile.Name) {
+		if len(router.MixedReadOnlyActions(profile.Name)) > 0 {
+			return "callable_with_action_constraints", true
+		}
+		return "requires_side_effect_intent", false
+	}
+	if profile.ReadOnly && !router.ProfileHasSideEffect(profile) && profile.Risk == router.RiskReadOnly {
+		return "callable_read_only", true
+	}
+	if profile.Invocation == router.InvocationSkillTool {
+		return "requires_matching_intent", false
+	}
+	if profile.Risk == router.RiskLocalWrite || profile.Risk == router.RiskExternalWrite {
+		return "requires_side_effect_intent", false
+	}
+	return "blocked_unknown", false
+}
+
+func toolSearchExecutionNote(routeStatus string, callableNow bool) string {
+	switch routeStatus {
+	case "discovery_only":
+		return "tool_search 只返回工具目录信息，不授权执行；该条目本身仅用于发现。"
+	case "callable_read_only":
+		return "只读安全工具；召回进入本轮候选后通常可直接调用，仍受 RouteDecision、plan mode 和运行时 allow-list 约束。"
+	case "callable_with_action_constraints":
+		return "混合工具；只读动作可直接调用，写入/发送动作必须匹配用户意图并可能需要审批。"
+	case "requires_side_effect_intent":
+		return "有副作用工具；只有用户明确要求写入/发送等动作时才会进入可调用路径，并由 ActionGuard 决定是否确认。"
+	case "requires_matching_intent":
+		return "能力入口工具；需要匹配对应意图后通过受限参数调用。"
+	case "blocked_dangerous":
+		return "危险或开放世界工具；不会因发现而直接可调用。"
+	default:
+		if callableNow {
+			return "该工具可进入可调用路径，仍受 RouteDecision、plan mode 和运行时 allow-list 约束。"
+		}
+		return "当前仅作为目录信息展示；是否可调用由 RouteDecision、plan mode 和权限审批决定。"
+	}
 }
 
 // RecallToolCatalog 基于工具 name/description/schema 召回当前 query 相关工具。

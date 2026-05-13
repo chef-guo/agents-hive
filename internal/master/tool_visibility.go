@@ -3,6 +3,7 @@ package master
 import (
 	"context"
 	"encoding/json"
+	"sort"
 	"strings"
 	"unicode/utf8"
 
@@ -85,6 +86,7 @@ func modelVisibleToolsForSessionWithRecallObservationAndSkillsAndIntent(session 
 	if len(catalog) == 0 {
 		return nil, toolRecallObservation{Mode: config.NormalizeToolRecallConfig(recallCfg).Mode}
 	}
+	catalog = stableToolDefinitions(catalog)
 	recallSet, obs := perTurnRecalledToolSetWithIntent(session, catalog, skillMetas, latestUserQuery, recallCfg, intent)
 	out := make([]mcphost.ToolDefinition, 0, len(catalog))
 	for _, tool := range catalog {
@@ -109,6 +111,22 @@ func modelVisibleToolsForSessionWithRecallObservationAndSkillsAndIntent(session 
 		session.SetAllowedToolInputs(mergeAllowedToolInputsWithMixedReadDefaults(obs.RouteDecision.AllowedToolInputs, out))
 	}
 	return out, obs
+}
+
+func stableToolDefinitions(tools []mcphost.ToolDefinition) []mcphost.ToolDefinition {
+	if len(tools) <= 1 {
+		return tools
+	}
+	out := append([]mcphost.ToolDefinition(nil), tools...)
+	sort.SliceStable(out, func(i, j int) bool {
+		left := strings.TrimSpace(out[i].Name)
+		right := strings.TrimSpace(out[j].Name)
+		if left == right {
+			return out[i].Description < out[j].Description
+		}
+		return left < right
+	})
+	return out
 }
 
 func isDefaultVisibleTool(tool mcphost.ToolDefinition) bool {
@@ -463,6 +481,7 @@ func allowedToolsForRuntime(decision router.RouteDecision, visible []mcphost.Too
 	for name := range allowed {
 		out = append(out, name)
 	}
+	sort.Strings(out)
 	return out
 }
 

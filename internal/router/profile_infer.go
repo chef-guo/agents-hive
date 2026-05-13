@@ -51,8 +51,17 @@ func InferToolProfile(def mcphost.ToolDefinition, hint ProfileHint) ToolProfile 
 	switch {
 	case hint.Kind != "":
 		applyProfileHint(&profile, hint)
+	case isBuiltinToolName(nameLower) || def.Core:
+		profile.Kind = CapabilityKindBuiltinTool
+		profile.Source = CapabilitySourceBuiltin
+		profile.Trust = TrustBuiltIn
+		applyBuiltinToolRule(&profile, nameLower)
 	case strings.Contains(nameLower, "__"):
-		profile = UnknownMCPToolProfile(name)
+		if def.Trusted || strings.TrimSpace(def.SourceServer) != "" {
+			profile = TrustedMCPToolProfile(def, name, desc)
+		} else {
+			profile = UnknownMCPToolProfile(name)
+		}
 		profile.Domain = inferMCPToolDomain(nameLower)
 	case isKnownSkillWorkflow(nameLower, descLower):
 		profile.Kind = CapabilityKindSkillWorkflow
@@ -63,11 +72,15 @@ func InferToolProfile(def mcphost.ToolDefinition, hint ProfileHint) ToolProfile 
 		profile.Domain = inferSkillWorkflowDomain(nameLower, descLower)
 		profile.Capabilities = inferSkillWorkflowCapabilities(profile.Domain)
 		profile.AllowedIntentKinds = inferSkillWorkflowAllowedIntents(profile.Domain)
-	case isBuiltinToolName(nameLower) || def.Core:
-		profile.Kind = CapabilityKindBuiltinTool
-		profile.Source = CapabilitySourceBuiltin
-		profile.Trust = TrustBuiltIn
-		applyBuiltinToolRule(&profile, nameLower)
+	case def.IsConcurrencySafe:
+		profile.Kind = CapabilityKindCustomTool
+		profile.Source = CapabilitySourceCustomDir
+		profile.Invocation = InvocationDirectTool
+		profile.Domain = "custom"
+		profile.Risk = RiskReadOnly
+		profile.Trust = TrustLocal
+		profile.ReadOnly = true
+		profile.Idempotent = true
 	case isLikelyCustomTool(def):
 		profile.Kind = CapabilityKindCustomTool
 		profile.Source = CapabilitySourceCustomDir

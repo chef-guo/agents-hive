@@ -370,210 +370,300 @@
     "retry": "重试"
   },
   "guide": {
-    "title": "使用指南",
-    "progress": "已完成 {{done}}/{{total}} 步",
-    "progressLabel": "学习进度",
-    "resetProgress": "重置进度",
-    "resetConfirm": "确定要重置所有学习进度吗？",
-    "tableOfContents": "目录导航",
-    "tip": "提示",
-    "back": "返回",
-    "markComplete": "标记完成",
-    "markIncomplete": "取消完成",
-    "prevStep": "上一步",
-    "nextStep": "下一步",
-    "quickStart": {
-      "title": "快速开始",
-      "desc": "5 分钟完成环境搭建、编译和首次运行",
-      "prerequisites": {
-        "title": "1. 克隆仓库并检查 Go 版本",
-        "desc": "运行 git clone https://github.com/chef-guo/agents-hive.git && cd agents-hive 克隆项目。然后运行 go version 确认版本 ≥ 1.24。",
-        "tip": "如果 Go 版本低于 1.24，请前往 https://golang.org/dl/ 下载最新版。",
-        "detail": "## 克隆项目\n\n```bash\ngit clone https://github.com/chef-guo/agents-hive.git\ncd agents-hive\n```\n\n## 检查 Go 版本\n\n```bash\ngo version\n# 预期输出：go version go1.24.x linux/amd64（或 darwin/arm64 等）\n```\n\n> Go 版本必须 ≥ 1.24。如果版本低于要求，请前往 [golang.org/dl](https://golang.org/dl/) 下载最新版本。\n\n## 检查 Node.js 版本（前端开发需要）\n\n```bash\nnode -v\n# 预期输出：v18.x.x 或更高\nnpm -v\n# 预期输出：9.x.x 或更高\n```\n\n> Node.js 仅在本地开发前端时需要。生产部署时前端已嵌入 Go 二进制中。"
+    "common": {
+      "progress": "已完成 {{done}}/{{total}} 步",
+      "progressLabel": "阅读进度",
+      "resetProgress": "重置进度",
+      "resetConfirm": "确定要重置当前指南的阅读进度吗？",
+      "tableOfContents": "目录导航",
+      "tip": "提示",
+      "back": "返回",
+      "markComplete": "标记完成",
+      "markIncomplete": "取消完成",
+      "prevStep": "上一步",
+      "nextStep": "下一步"
+    },
+    "user": {
+      "title": "使用指南",
+      "gettingStarted": {
+        "title": "开始使用",
+        "desc": "确认登录和连接状态，从首页进入对话，并了解输入区的核心控件。",
+        "loginAndConnection": {
+          "title": "1. 登录与连接状态",
+          "desc": "应用路由受登录保护；顶部和侧栏底部会显示 WebSocket/本地连接状态。",
+          "detail": "## 登录入口\n\n如果部署启用了认证，打开应用会先进入登录页。登录成功后才会进入聊天工作区。支持的登录方式由管理员在后台认证提供商中配置。\n\n## 连接状态\n\n普通工作区和管理后台都会建立 WebSocket 连接。顶部 Header 和侧栏底部会显示连接状态：\n\n- 已连接：可以接收聊天流式输出、审批通知、回放事件和任务状态。\n- 已断开：页面仍可尝试 REST 请求，但流式更新、审批即时通知和 live 回放可能不可用。\n\n## 断线时怎么办\n\n先确认后端服务可访问，再刷新页面。若登录 token 过期，客户端会尝试刷新；刷新失败会回到登录页。"
+        },
+        "startConversation": {
+          "title": "2. 从首页开始对话",
+          "desc": "打开应用后，首页会显示开始对话入口和最近会话。输入问题即可创建或进入一个会话。",
+          "detail": "## 从首页进入\n\n应用的默认入口是聊天工作区，不再是旧版控制台。首页会显示开始对话区域和最近会话列表。\n\n常用路径：\n\n1. 在首页输入问题，系统会自动创建会话并跳转到聊天页。\n2. 点击最近会话，继续之前的上下文。\n3. 通过左侧栏的会话列表切换不同任务。\n\n## 会话命名\n\n发送第一条消息后，前端会用消息前 20 个字符自动命名会话。你也可以在会话管理能力中继续调整名称、标签或收藏状态。",
+          "tip": "当前普通侧栏是会话优先，不再把 Agents 和 Skills 放在主导航里；这些入口在管理后台。"
+        },
+        "sendMessage": {
+          "title": "3. 发送消息",
+          "desc": "在底部输入框输入内容，按 Enter 发送；Shift+Enter 换行。输出中可以看到流式回复、工具调用和错误提示。",
+          "detail": "## 输入与发送\n\n- `Enter`：发送消息。\n- `Shift+Enter`：在输入框中换行。\n- 输入框会随内容自动增高，最高约 240px。\n- 代理正在输出时，发送按钮会变成停止按钮。\n\n## 停止正在运行的任务\n\n当回复仍在生成时，点击输入区右侧的停止按钮可以向当前会话发送取消命令。取消后，当前任务会停止继续输出。\n\n## 错误提示\n\n如果发送失败或后端返回错误，聊天页顶部会显示错误条，可以手动关闭。"
+        },
+        "modelAndThinking": {
+          "title": "4. 选择模型与深度思考",
+          "desc": "如果后端配置了多个模型，输入区会显示模型选择器；深度思考开关会随消息一起发送。",
+          "detail": "## 模型选择\n\n输入区左下角的模型选择器会显示后端返回的可用模型。点击模型名称可以切换当前活动模型。\n\n## 深度思考\n\n打开“深度思考”后，本次消息会附带 `deepThinking` 选项。适合复杂分析、代码规划、长链路排查等任务。\n\n## 什么时候不用打开\n\n简单问答、短文本修改、快速查询通常不需要深度思考；保持默认可以减少等待时间。"
+        },
+        "attachments": {
+          "title": "5. 上传附件",
+          "desc": "可以点击回形针、拖拽文件或粘贴图片。单文件最大 25MB，一次最多 10 个文件。",
+          "detail": "## 支持的附件\n\n输入区支持图片、音频、部分视频、PDF、Office 文档、文本、Markdown、JSON、CSV、XML、YAML 和常见代码文件。\n\n## 上传方式\n\n- 点击回形针选择文件。\n- 将文件拖到输入区。\n- 从剪贴板粘贴图片。\n\n## 限制\n\n- 单文件最大 25MB。\n- 单次最多 10 个文件。\n- 不支持的文件类型会在输入区上方显示错误。",
+          "tip": "图片会在消息中直接预览；其他文件会以附件条显示名称和大小。"
+        }
       },
-      "buildAndRun": {
-        "title": "2. 编译 CLI 和 Server",
-        "desc": "执行以下两条命令编译：\n• go build -o claw ./cmd/claw — 编译 CLI 客户端\n• go build -o server ./cmd/server — 编译 HTTP Server\n然后设置 API Key：export OPENAI_API_KEY=\"your-key\"",
-        "tip": "也可通过 CLAW_API_KEY 环境变量设置，优先级高于 OPENAI_API_KEY。支持 OpenAI / DeepSeek / Anthropic 等多种提供商。",
-        "detail": "## 编译项目\n\n项目包含两个可执行文件，分别编译：\n\n### 编译 CLI 客户端\n\n```bash\ngo build -o claw ./cmd/claw\n```\n\n### 编译 HTTP Server\n\n```bash\ngo build -o server ./cmd/server\n```\n\n编译完成后，确认生成了两个可执行文件：\n\n```bash\nls -la claw server\n# -rwxr-xr-x  1 user  staff  12345678  claw\n# -rwxr-xr-x  1 user  staff  23456789  server\n```\n\n## 设置 API Key\n\n选择一种方式设置 LLM 的 API Key：\n\n**方式一：环境变量（推荐）**\n\n```bash\nexport OPENAI_API_KEY=\"sk-your-api-key-here\"\n```\n\n**方式二：使用 CLAW 专用变量**（优先级更高）\n\n```bash\nexport CLAW_API_KEY=\"sk-your-api-key-here\"\n```\n\n> 支持 OpenAI、DeepSeek、Anthropic 等多种提供商。切换提供商时同时设置 `CLAW_PROVIDER` 和 `CLAW_BASE_URL`。"
+      "sessions": {
+        "title": "会话管理",
+        "desc": "用左侧栏创建、搜索、切换、收藏、标记和清理会话。",
+        "sidebar": {
+          "title": "1. 理解左侧栏",
+          "desc": "左侧栏主体是会话列表，上方有搜索和新建按钮，底部有回放、使用指南、偏好设置和管理后台入口。",
+          "detail": "## 普通侧栏结构\n\n左侧栏当前以会话为中心：\n\n- 顶部是 Hive 标识。\n- 中间是会话搜索、新建按钮和会话列表。\n- 会话行支持收藏、标签、回放和删除等快捷操作。\n- 底部是回放剧场、使用指南、偏好设置和管理后台入口。\n\n折叠侧栏后，会话会以图标方式显示，悬停可查看名称。"
+        },
+        "newSession": {
+          "title": "2. 新建会话",
+          "desc": "点击左侧栏的新建按钮会优先复用空会话；没有空会话时会创建一个新会话并跳转。",
+          "detail": "## 快速创建\n\n点击左侧栏搜索框旁边的 `+` 按钮。\n\n前端会先检查是否已有空会话：\n\n1. 如果已有空会话，直接进入该会话，避免创建多余空记录。\n2. 如果没有空会话，创建一个名为“新会话”的会话。\n3. 发送第一条消息后，会话名称会自动更新为消息开头。\n\n## 从首页创建\n\n也可以直接在首页输入问题。应用会带着待发送消息进入新会话，并自动发送。"
+        },
+        "searchOrganize": {
+          "title": "3. 搜索、标签与收藏",
+          "desc": "侧栏搜索会匹配会话名称和标签。会话行悬停后可收藏、编辑标签或进入回放。",
+          "detail": "## 搜索\n\n左侧栏搜索框会过滤当前会话列表，匹配范围包括：\n\n- 会话名称\n- 会话 ID\n- 会话标签\n\n## 标签\n\n会话行悬停后点击标签按钮，可以打开标签编辑器。保存后，标签会显示在会话名称下方，便于按任务、项目或状态管理。\n\n## 收藏\n\n点击星标可以收藏或取消收藏会话。收藏会话会在列表中显示星标，更容易识别关键上下文。"
+        },
+        "clearDelete": {
+          "title": "4. 清空与删除",
+          "desc": "聊天页右上角可以清空当前会话消息；侧栏会话行可以删除整个会话。",
+          "detail": "## 清空消息\n\n在聊天页顶部点击“清空”，确认后会删除当前会话里的消息历史，但会话本身仍保留。\n\n## 删除会话\n\n在左侧栏悬停目标会话，点击删除按钮并确认。删除会移除会话和消息。\n\n## 运行中的限制\n\n如果当前会话正在输出，删除按钮会被禁用，避免删除正在运行的上下文。",
+          "tip": "删除不可撤销；只想重新开始当前主题时，优先使用“清空”。"
+        }
       },
-      "verify": {
-        "title": "3. 启动服务并验证",
-        "desc": "CLI 模式：./claw -i 进入交互式会话，输入「你好」测试。\nServer 模式：./server --port 8080 启动后端，然后在 frontend/ 目录下运行 npm install && npm run dev 启动前端，访问 http://localhost:3000 看到控制台即成功。",
-        "tip": "前端开发模式会自动将 /api 请求代理到 localhost:8080。生产部署时前端已嵌入 Go 二进制中，直接访问 8080 端口即可。",
-        "detail": "## CLI 模式验证\n\n启动交互式会话：\n\n```bash\n./claw -i\n```\n\n输入「你好」测试代理是否正常响应：\n\n```\n> 你好\n🤔 思考中...\n✅ 你好！我是 Hive 代理，有什么可以帮你的吗？\n```\n\n按 `Ctrl+C` 退出 CLI。\n\n## Server 模式验证\n\n### 1. 启动后端服务\n\n```bash\n./server --port 8080\n# 预期输出：\n# INFO  服务启动成功  {\"port\": 8080}\n```\n\n### 2. 启动前端开发服务器\n\n```bash\ncd frontend\nnpm install\nnpm run dev\n# 预期输出：\n#   VITE v8.x.x  ready in xxx ms\n#   ➜  Local:   http://localhost:3000/\n```\n\n### 3. 验证\n\n打开浏览器访问 `http://localhost:3000`，看到控制台页面即表示安装成功。\n\n> 前端开发模式会自动将 `/api` 请求代理到 `localhost:8080`。生产部署时前端已嵌入 Go 二进制中，直接访问 8080 端口即可。"
+      "messagesAndTools": {
+        "title": "消息、工具与审批",
+        "desc": "读懂代理输出、工具卡片、审批提示、待办面板和消息操作按钮。",
+        "streamingStates": {
+          "title": "1. 回复状态与流式输出",
+          "desc": "代理处理请求时会显示思考、工具调用、流式文本、错误卡和 token/耗时信息。",
+          "detail": "## 常见状态\n\n一次回复可能包含：\n\n- 思考状态：系统正在规划或等待模型响应。\n- 工具调用：读取文件、搜索、执行命令、调用外部服务等动作会显示为工具卡片。\n- 流式文本：回复内容会逐步追加。\n- 错误卡：失败内容会折叠显示，便于复制和排查。\n\n## 底部元信息\n\n助手消息底部可能显示输入/输出 token 数、耗时和时间戳。"
+        },
+        "toolCards": {
+          "title": "2. 工具卡片",
+          "desc": "工具调用统一显示为可折叠卡片。多个工具并行时，会显示并行数量提示。",
+          "detail": "## 工具卡片怎么看\n\n工具卡片会展示工具名称、参数、运行状态和结果摘要。\n\n- 运行中和错误状态默认展开，方便查看正在发生什么或定位失败原因。\n- 成功状态默认折叠，减少对正文阅读的打断。\n- HTML 或可预览内容可以打开到 Canvas。\n- 写入 todo 的工具结果会渲染为专门的待办快照卡。\n\n## 并行工具\n\n当同一轮回复中有多个工具调用时，消息区会显示“并行 ×N”提示，表示这些动作属于同一次代理处理。"
+        },
+        "approvals": {
+          "title": "3. 审批与权限提示",
+          "desc": "危险或需要确认的操作会触发 HITL 审批卡。批准、拒绝或补充输入后，代理才会继续。",
+          "detail": "## 什么时候会出现审批\n\n当代理准备执行有副作用的动作，例如写文件、运行命令、调用外部发送接口或执行受限工具时，系统可能暂停并请求人工确认。\n\n## 处理方式\n\n审批卡通常提供批准、拒绝、查看详情、补充输入或记住选择等操作。你的响应会提交给当前任务，代理随后继续或停止该步骤。\n\n## 设计目的\n\n审批不是错误，而是安全边界：它让你在关键动作发生前看到意图、参数和风险。"
+        },
+        "messageActions": {
+          "title": "4. 消息操作",
+          "desc": "消息底部提供复制、预览、点赞、点踩和重新生成等操作。",
+          "detail": "## 用户消息\n\n用户消息支持复制；最后一条用户消息在可重新生成时会显示重新生成按钮。\n\n## 助手消息\n\n助手消息支持：\n\n- 预览：把整段回复打开到 Canvas。\n- 复制：复制完整文本。\n- 有用 / 没用：记录你对回复质量的反馈。\n\n## 重新生成\n\n重新生成会回滚到最后一条用户消息之后，并让后端重新产生回复。"
+        },
+        "todos": {
+          "title": "5. 待办面板",
+          "desc": "当代理产生结构化任务计划时，右侧或输入区上方会显示待办面板。",
+          "detail": "## 待办面板出现条件\n\n当会话包含可执行计划、暂停状态或需要恢复的任务快照时，待办面板会自动出现。\n\n## 桌面与移动布局\n\n- 桌面端：待办面板会出现在右侧工作区。\n- 移动端：待办面板会靠近输入区显示。\n\n## 用途\n\n它适合跟踪长任务的步骤、当前状态和恢复入口，避免只靠聊天文本追踪进度。"
+        }
+      },
+      "workspace": {
+        "title": "工作区与设置",
+        "desc": "使用 Canvas、回放剧场、偏好设置和用户级微信连接。",
+        "canvasArtifacts": {
+          "title": "1. Canvas 与 Artifact",
+          "desc": "助手输出 Markdown、HTML、代码或其他 artifact 时，可以在右侧 Canvas 打开查看。",
+          "detail": "## Canvas 是什么\n\nCanvas 是聊天页右侧的工作区，用来查看较长内容、代码、HTML 预览和 artifact。\n\n## 打开方式\n\n- 助手消息中的 artifact 卡片可直接打开。\n- 助手消息底部的预览按钮可以把完整回复打开为 Markdown 或 HTML。\n- 工具结果如果是 HTML，也可以从工具卡片打开预览。\n\n## 移动端行为\n\n窄屏下 Canvas 会覆盖聊天区；关闭后回到聊天。桌面端则与聊天区并排显示。"
+        },
+        "replayGallery": {
+          "title": "2. 回放剧场",
+          "desc": "回放剧场展示会话的执行轨迹，可按状态、质量问题、危险动作、委派等维度筛选。",
+          "detail": "## 进入回放\n\n可以从底部导航进入“回放剧场”，也可以在会话行悬停后点击回放按钮进入某个会话的回放。\n\n## 回放剧场\n\n列表支持搜索、筛选和排序。筛选项包括成功、失败、进行中、质量失败、危险、委派、ACP 和上下文相关记录。\n\n## 会话回放页\n\n回放页会展示时间轴、统计、事件详情、Agent 树和播放控制。管理员还可以从特定质量事件沉淀候选样本。"
+        },
+        "preferences": {
+          "title": "3. 偏好设置",
+          "desc": "偏好设置面向普通用户，包含主题、语言和用户级连接。",
+          "detail": "## 主题\n\n在“偏好设置”中可以切换浅色和深色主题。设置会保存在浏览器本地。\n\n## 语言\n\n支持中文和英文界面。切换后页面文案会立即更新。\n\n## 与管理设置的区别\n\n普通“偏好设置”只包含个人体验和用户级连接；系统级运行时、权限、MCP 和 IM 通道配置位于管理后台设置。"
+        },
+        "wechat": {
+          "title": "4. 微信 Bot 连接",
+          "desc": "在偏好设置中可以查看和管理用户级微信 Bot 连接状态。",
+          "detail": "## 连接入口\n\n进入“偏好设置”，找到微信 Bot 连接面板。面板会显示连接状态、二维码、最近事件和会话列表。\n\n## 连接方式\n\n按照面板提示扫码或刷新连接状态。连接后，联系人需要向微信里的 clawbot 发送消息，系统才会把消息接入。\n\n## 注意事项\n\n这是官方 wechatbot/iLink 支撑的用户级连接，不是读取个人微信普通私聊。Web Chat 中也不会把所有 IM 会话混入普通聊天列表。"
+        }
       }
     },
-    "webuiBasics": {
-      "title": "界面概览",
-      "desc": "熟悉 WebUI 的布局、主题切换和控制台功能",
-      "layout": {
-        "title": "1. 页面布局",
-        "desc": "• 左侧导航栏：控制台、会话管理、代理列表、技能列表、使用指南、系统设置 六个入口，下方显示最近 10 个会话可快速跳转\n• 顶部标题栏：显示当前页面名称，右侧有主题切换和语言切换按钮\n• 中间主内容区：根据路由显示对应页面内容\n• 导航栏可通过左上角按钮折叠/展开，折叠后只显示图标",
-        "detail": "## 页面布局结构\n\n界面采用经典的三栏布局：\n\n```\n┌──────────┬──────────────────────────────────┐\n│          │         顶部标题栏                │\n│  左侧    ├──────────────────────────────────┤\n│  导航栏  │                                  │\n│          │         主内容区                  │\n│  • 控制台 │                                  │\n│  • 会话   │                                  │\n│  • 代理   │                                  │\n│  • 技能   │                                  │\n│  • 指南   │                                  │\n│  • 设置   │                                  │\n│          │                                  │\n│ ──────── │                                  │\n│ 最近会话  │                                  │\n└──────────┴──────────────────────────────────┘\n```\n\n### 左侧导航栏\n\n六个主要入口：\n\n| 入口 | 功能 |\n|------|------|\n| 控制台 | 系统状态总览、代理和技能列表 |\n| 会话管理 | 创建/管理多个对话会话 |\n| 代理列表 | 查看已注册的 Agent 和工具 |\n| 技能列表 | 浏览/搜索可用 Skill |\n| 使用指南 | 当前页面 |\n| 系统设置 | 主题、语言、连接信息 |\n\n导航栏下方显示最近 10 个会话，点击可快速跳转。\n\n### 折叠/展开\n\n点击左上角的折叠按钮，导航栏会收缩为图标模式，为主内容区腾出更多空间。"
+    "admin": {
+      "title": "管理员指南",
+      "adminOverview": {
+        "title": "后台概览",
+        "desc": "了解管理后台的导航、仪表盘和权限边界。",
+        "navigation": {
+          "title": "1. 管理后台导航",
+          "desc": "从普通侧栏底部进入管理后台。后台侧栏包含 Agents、Skills、LLM、用户、质量、记忆和系统设置等入口。",
+          "detail": "## 入口\n\n在普通侧栏底部点击“管理后台”进入 `/admin`。后台使用独立侧栏，和普通聊天工作区分开。\n\n## 当前后台导航\n\n- 系统概览：查看节点状态和核心资源。\n- 代理管理 / 技能管理 / 多 Agent 生态：查看本地 Agent、Skill 和远程 ACP Agent。\n- 定时任务：配置 cron 或间隔触发的 Agent 工作。\n- 大模型管理：配置 provider、model 和默认模型。\n- 用户管理 / 用量统计 / 认证管理：管理账号、额度、登录方式和成本。\n- Prompt 管理：覆盖内置系统 prompt，并在保存前做 smoke eval。\n- 质量候选 / 质量工作台 / Memory 治理 / 自动优化：沉淀失败样本、批量评估、治理记忆和审批优化建议。\n- 系统设置：管理运行时、安全规则、MCP、外部资源、IM 通道和远程 Agent。"
+        },
+        "dashboard": {
+          "title": "2. 后台仪表盘",
+          "desc": "后台首页用于查看系统运行状态、会话/代理/技能等概览信息。",
+          "detail": "## 该看什么\n\n仪表盘适合做运营入口：确认后端是否在线、核心资源是否加载、最近状态是否异常。\n\n## 与普通首页的区别\n\n普通首页是开始对话；后台首页是系统管理。不要再把普通用户引导到旧版“控制台”概念里。"
+        },
+        "accessModel": {
+          "title": "3. 管理权限边界",
+          "desc": "部分后台页面由 AdminGuard 保护，普通用户只能进入开放的后台入口或被重定向。",
+          "detail": "## 角色边界\n\n后台中的用户、认证、LLM、Skills、系统设置、质量工作台等页面通常需要管理员权限。\n\n## 登录与授权\n\n前端请求会携带 `auth_token`。如果后端返回 401，客户端会尝试刷新 token；刷新失败则回到登录页。\n\n## 操作建议\n\n把日常聊天交给普通工作区，把系统配置、供应商密钥、权限规则和质量治理放在后台处理。"
+        }
       },
-      "themeAndLang": {
-        "title": "2. 切换主题与语言",
-        "desc": "• 主题切换：点击顶部栏 🌙/☀️ 图标，在浅色和深色模式间切换。深色模式使用深蓝底色 (#0f172a)，护眼舒适\n• 语言切换：点击顶部栏语言图标，在中文和英文间切换。界面所有文本会立即更新\n• 首次访问时系统自动检测浏览器偏好设置",
-        "tip": "主题和语言设置保存在浏览器 localStorage 中，刷新页面或重新打开浏览器后会自动恢复。",
-        "detail": "## 主题切换\n\n点击顶部标题栏右侧的 🌙/☀️ 图标，在浅色和深色模式间切换。\n\n| 模式 | 背景色 | 适用场景 |\n|------|--------|----------|\n| 浅色模式 | 白色/浅灰 | 日间使用 |\n| 深色模式 | 深蓝 (#0f172a) | 夜间使用，护眼 |\n\n## 语言切换\n\n点击顶部标题栏的语言图标，在中文和英文间切换：\n\n- 🇨🇳 中文 — 所有界面文本切换为中文\n- 🇬🇧 English — 所有界面文本切换为英文\n\n切换后所有文本**立即更新**，无需刷新页面。\n\n## 自动检测\n\n首次访问时，系统自动检测浏览器的语言和主题偏好设置，自动应用对应配置。\n\n> 主题和语言设置保存在浏览器 `localStorage` 中，刷新页面或重新打开浏览器后会自动恢复。"
+      "agentsSkills": {
+        "title": "Agents 与 Skills",
+        "desc": "查看本地代理、技能、远程 Agent 和外部能力来源。",
+        "agents": {
+          "title": "1. Agents 页面",
+          "desc": "Agents 页面用于查看已注册的 Agent、能力和工具关系。",
+          "detail": "## 用途\n\nAgents 页面适合排查系统当前加载了哪些代理，以及它们在任务分发中的角色。\n\n## 常见排查\n\n- 某类任务没有被正确分配时，先确认相关 Agent 是否加载。\n- 远程 Agent 不工作时，同时检查后台设置中的 Remote Agents 配置。"
+        },
+        "skills": {
+          "title": "2. Skills 页面",
+          "desc": "Skills 页面用于浏览技能包。管理员入口受权限保护。",
+          "detail": "## Skill 是什么\n\nSkill 是声明式指令和知识包，通常由 `SKILL.md` 描述。它不是普通聊天消息，也不是每次都自动执行的脚本。\n\n## 搜索路径\n\n后端会加载项目级、用户级和内置技能目录。具体加载逻辑由服务端配置和启动环境决定。\n\n## 使用建议\n\n当某个业务流程稳定重复出现时，优先沉淀为 Skill，而不是把长提示词复制到每个会话。"
+        },
+        "remoteAgents": {
+          "title": "3. 远程 Agent",
+          "desc": "在后台设置的集成页可以添加、连接或断开远程 ACP Agent。",
+          "detail": "## 配置位置\n\n进入“管理后台 → 系统设置 → 集成”，找到远程 Agent 配置。\n\n## 支持信息\n\n配置项通常包括名称、描述、传输类型、启动命令或远程 URL，以及能力标签。\n\n## 使用建议\n\n远程 Agent 应该有清晰的能力标签和稳定连接方式，避免把所有任务都暴露给不明确的外部执行器。"
+        },
+        "multiAgent": {
+          "title": "4. 多 Agent 生态页",
+          "desc": "多 Agent 生态页汇总本地 Agent、远程 ACP Agent、健康状态和委派权限边界。",
+          "detail": "## 页面用途\n\n进入“管理后台 → 多 Agent 生态”可以同时查看：\n\n- 本地已注册 Agent 数量和能力摘要。\n- 已配置远程 ACP Agent 数量、transport、命令或 URL。\n- 远程 Agent 健康状态。\n- `spawn_agent`、读取、终端/写入类工具的当前策略。\n\n## 和系统设置的区别\n\n系统设置的集成 Tab 用于编辑远程 Agent 配置；多 Agent 生态页用于看全局状态和排查委派边界。\n\n## 排查建议\n\n远程 Agent 不工作时，先确认配置已启用，再看健康状态和权限策略，最后检查启动命令或远程 URL。"
+        }
       },
-      "dashboard": {
-        "title": "3. 控制台说明",
-        "desc": "控制台（首页）展示四项关键指标：\n• 系统状态：绿色「运行中」或红色「离线」\n• 活跃会话数：当前已创建的会话数量\n• 注册代理数：已加载的 Agent 数量（含 CodeReview、Research 等子代理）\n• 可用技能数：已注册的 Skill 数量\n下方两个列表分别展示所有代理和所有技能的详细信息。",
-        "detail": "## 控制台指标\n\n控制台（首页）展示四项关键指标卡：\n\n| 指标 | 说明 | 状态示例 |\n|------|------|----------|\n| 系统状态 | 后端服务连接状态 | 🟢 运行中 / 🔴 离线 |\n| 活跃会话 | 当前已创建的会话数量 | 3 |\n| 注册代理 | 已加载的 Agent 数量 | 3（含子代理） |\n| 可用技能 | 已注册的 Skill 数量 | 5 |\n\n## Agent 列表\n\n指标卡下方展示所有已注册的代理：\n\n- **Master Agent** — 主代理，负责任务规划和执行\n- **CodeReview Agent** — 代码审查子代理\n- **Research Agent** — 信息调研子代理\n\n## Skill 列表\n\n展示所有可用技能的名称和描述，点击可查看详情。\n\n> 如果系统状态显示「离线」，请检查后端服务是否已启动，以及 API 地址是否正确配置。"
-      }
-    },
-    "sessionManagement": {
-      "title": "会话管理",
-      "desc": "创建、切换和管理多个独立会话，每个会话有独立的上下文",
-      "createSession": {
-        "title": "1. 创建新会话",
-        "desc": "两种方式创建会话：\n• 快捷方式：在左侧导航栏点击「创建」按钮，系统自动创建并跳转到对话页面\n• 完整方式：进入「会话管理」页面，点击「新建会话」，输入会话名称（如「Bug 修复」「代码审查」），可选指定 Profile（builder/reviewer/planner 等），点击创建\n\n每个会话拥有独立的对话历史和上下文，互不干扰。",
-        "tip": "会话以 Markdown 格式持久化存储在 ~/.claw/sessions/ 目录下，重启服务后自动恢复。",
-        "detail": "## 快捷方式创建\n\n在左侧导航栏底部，点击 **「+」** 按钮：\n\n1. 系统自动创建一个新会话（使用默认名称和 Profile）\n2. 自动跳转到对话页面\n3. 可以直接开始输入消息\n\n## 完整方式创建\n\n1. 进入「**会话管理**」页面\n2. 点击右上角 **「新建会话」** 按钮\n3. 在弹出表单中填写：\n   - **会话名称**（如「Bug 修复」「代码审查」「项目规划」）\n   - **Profile**（可选）：选择 builder/reviewer/planner 等模式\n4. 点击 **「创建」** 按钮\n\n## 会话隔离\n\n每个会话拥有**独立的对话历史和上下文**，互不干扰。你可以同时维护多个会话：\n\n- 一个用于日常开发（builder）\n- 一个用于代码审查（reviewer）\n- 一个用于技术调研（assistant）\n\n> 会话以 Markdown 格式持久化存储在 `~/.claw/sessions/` 目录下，重启服务后自动恢复。"
+      "llmProviders": {
+        "title": "LLM 管理",
+        "desc": "配置模型供应商、模型记录，并理解聊天页的模型切换来源。",
+        "providers": {
+          "title": "1. Provider 配置",
+          "desc": "LLM 页面支持新增、编辑和删除 provider，并按服务类型管理不同供应商。",
+          "detail": "## Provider 字段\n\n常见字段包括名称、类型、服务类型、Base URL、API Key 和启用状态。\n\n## 支持类型\n\n页面当前包含 OpenAI、Anthropic、DeepSeek、Gemini、Qianfan、Moonshot、Minimax 和 Custom 等 provider 类型。\n\n## 安全建议\n\nAPI Key 属于敏感配置。生产环境应通过后端安全存储或环境变量管理，不要把真实密钥写入前端仓库。"
+        },
+        "models": {
+          "title": "2. Model 配置",
+          "desc": "Model 记录可以绑定 provider，也可以独立存在。聊天页模型选择器来自后端返回的可用模型。",
+          "detail": "## 模型记录\n\n模型配置通常包含显示名称、真实模型 ID、所属 provider、温度、max tokens 等参数。\n\n## 分组展示\n\nLLM 页面会按 provider 分组展示模型，也会显示未绑定 provider 的独立模型。\n\n## 与聊天页关系\n\n普通聊天输入区的模型下拉列表来自当前节点的模型配置；管理员在这里配置后，用户才能在聊天中切换。"
+        },
+        "runtimeSwitch": {
+          "title": "3. 运行时切换",
+          "desc": "用户在聊天页切换模型时，前端会调用后端模型切换接口。",
+          "detail": "## 切换行为\n\n聊天页选择模型后，前端会请求后端切换当前活动模型，并更新输入区显示。\n\n## 排查路径\n\n如果模型下拉为空：\n\n1. 检查 LLM 页面是否已有启用模型。\n2. 检查后端模型列表接口是否返回数据。\n3. 检查用户是否连接到正确节点。"
+        }
       },
-      "sessionList": {
-        "title": "2. 会话列表与切换",
-        "desc": "「会话管理」页面展示所有会话，每个会话显示：\n• 会话名称\n• 消息数量\n• Token 使用量\n• 最后活跃时间\n\n点击任意会话卡片进入对话页面。也可通过左侧导航栏下方的「最近会话」列表快速切换。",
-        "detail": "## 会话列表\n\n「会话管理」页面展示所有会话，每个会话卡片显示：\n\n| 字段 | 说明 |\n|------|------|\n| 会话名称 | 创建时指定的名称 |\n| 消息数量 | 该会话中的消息总数 |\n| Token 使用量 | 已消耗的 Token 数量 |\n| 最后活跃时间 | 最近一次发送/接收消息的时间 |\n\n## 切换会话\n\n有两种方式快速切换会话：\n\n### 方式一：会话管理页面\n\n点击任意会话卡片，直接进入该会话的对话页面。\n\n### 方式二：左侧导航栏\n\n导航栏下方的 **「最近会话」** 列表显示最近 10 个活跃会话，点击即可快速跳转。\n\n> 会话按最后活跃时间降序排列，最近使用的会话排在最前面。"
+      "usersAuth": {
+        "title": "用户与认证",
+        "desc": "管理用户、登录提供商、角色、状态和额度。",
+        "users": {
+          "title": "1. 用户管理",
+          "desc": "用户页面支持搜索用户、查看登录方式、调整角色/状态和额度。",
+          "detail": "## 用户列表\n\n用户页面会显示邮箱、显示名、角色、状态、登录方式和额度等信息。\n\n## 常见操作\n\n- 搜索用户。\n- 调整角色。\n- 禁用或恢复账号。\n- 修改额度。\n\n这些操作应只授予可信管理员。"
+        },
+        "usage": {
+          "title": "2. 用量统计",
+          "desc": "用量统计页面展示总 token、总成本、按模型成本和质量任务相关成本。",
+          "detail": "## 能看到什么\n\n用量统计会从后端成本记录读取：\n\n- 总 Token 数。\n- 总成本 USD。\n- 使用过的模型数。\n- 按模型的 token 与成本明细。\n- 质量任务、Prompt 版本、失败类型、最终状态和质量用例成本。\n\n## 使用场景\n\n当成本异常上升时，先按模型定位，再结合质量任务和 Prompt 版本判断是否是评估、回放或某类任务造成。\n\n## 注意\n\n如果页面显示暂无数据，可能是成本追踪未启用、还没有 LLM 调用记录，或当前环境没有写入 `usage_records`。"
+        },
+        "authProviders": {
+          "title": "3. 认证提供商",
+          "desc": "Auth Providers 页面用于配置登录方式。",
+          "detail": "## 用途\n\n认证提供商决定用户如何登录系统。配置错误可能导致所有用户无法登录，因此建议先在测试环境验证。\n\n## 排查\n\n如果用户无法登录，优先检查：provider 是否启用、回调地址是否正确、密钥是否有效、前后端域名是否匹配。"
+        },
+        "rolesQuota": {
+          "title": "4. 角色、状态与额度",
+          "desc": "角色决定后台访问能力，状态决定账号可用性，额度用于控制资源消耗。",
+          "detail": "## 角色\n\n管理员角色可访问受保护后台页面。普通用户应只拥有日常聊天所需权限。\n\n## 状态\n\n禁用用户后，该用户不应继续访问受保护资源。\n\n## 额度\n\n额度适合控制模型调用和系统资源使用，尤其是在多人共享环境中。"
+        }
       },
-      "deleteSession": {
-        "title": "3. 删除与清空会话",
-        "desc": "• 删除会话：在会话列表中，将鼠标悬停在会话卡片上，点击出现的删除按钮。确认后会话和所有消息将被永久删除。\n• 清空会话：在对话页面中，点击顶部「清空」按钮可清除当前会话的所有消息历史，但保留会话和 Profile 设置。",
-        "tip": "删除操作不可撤销！清空操作只删除消息历史，会话本身仍然保留。",
-        "detail": "## 删除会话\n\n1. 进入「**会话管理**」页面\n2. 将鼠标悬停在目标会话卡片上\n3. 点击出现的 🗑️ **删除按钮**\n4. 在确认对话框中点击「确认」\n\n> ⚠️ 删除操作**不可撤销**！会话和所有消息将被永久删除。\n\n## 清空会话消息\n\n1. 进入目标会话的**对话页面**\n2. 点击顶部的 **「清空」** 按钮\n3. 在确认对话框中点击「确认」\n\n## 删除 vs 清空的区别\n\n| 操作 | 删除消息 | 删除会话 | 保留 Profile |\n|------|----------|----------|-------------|\n| 删除会话 | ✅ | ✅ | ❌ |\n| 清空消息 | ✅ | ❌ | ✅ |\n\n清空操作只删除消息历史，会话本身和 Profile 设置仍然保留，可以继续使用。"
+      "runtimeSecurity": {
+        "title": "运行时与安全",
+        "desc": "管理节点信息、权限规则、命令执行规则、MCP、外部资源和 IM 设置。",
+        "systemSettings": {
+          "title": "1. 系统设置页结构",
+          "desc": "后台设置分为系统、安全和集成三个 Tab。",
+          "detail": "## 系统 Tab\n\n显示节点 ID、运行模式、健康状态、版本和运行时长，并提供 Agent 超时设置。\n\n## 安全 Tab\n\n包含权限规则和命令执行规则。\n\n## 集成 Tab\n\n包含 IM 通道、MCP Servers、外部资源和远程 Agent。"
+        },
+        "permissionRules": {
+          "title": "2. 权限规则",
+          "desc": "权限规则用于控制工具动作是允许、询问还是拒绝。",
+          "detail": "## 规则含义\n\n每条规则通常由工具名、动作、匹配模式和策略组成。策略包括 allow、ask、deny。\n\n## 建议\n\n对读操作可以更宽松；对写文件、外部发送、删除、执行命令等有副作用动作应默认 ask 或 deny。\n\n## 生效方式\n\n修改后点击应用，前端会通过运行时配置接口提交到后端。"
+        },
+        "execRules": {
+          "title": "3. 命令执行规则",
+          "desc": "Exec Rules 用于约束 shell 命令。默认示例会对 npm install、git push、rm -rf 等命令要求审批。",
+          "detail": "## 为什么需要\n\nShell 是高风险能力。命令执行规则可以在危险命令执行前强制人工确认。\n\n## 常见策略\n\n- 安装依赖：ask。\n- 推送代码：ask。\n- 递归删除：ask 或 deny。\n\n## 维护建议\n\n规则要尽量具体，避免一个宽泛正则误伤正常开发流程或放过危险命令。"
+        },
+        "integrations": {
+          "title": "4. 集成配置",
+          "desc": "集成页集中管理 IM 通道、MCP、外部资源和远程 Agent。",
+          "detail": "## IM 通道\n\n配置飞书、钉钉、企业微信和官方微信 Bot 总开关。飞书支持 webhook / longconn 入口模式、ack 表情、流式卡片和节流设置。\n\n## MCP Servers\n\n配置外部 MCP 服务，支持 stdio、sse 和 http transport，并可设置 env、headers、超时时间和参数。\n\n## 外部资源\n\n配置系统可引用的外部资源。\n\n## 远程 Agent\n\n配置通过 ACP 协议连接的远程 Agent。用户级微信 Bot 的扫码连接仍在普通偏好设置中。"
+        },
+        "mcpTools": {
+          "title": "5. MCP 工具目录与热重载",
+          "desc": "MCP Servers 设置会加载工具目录，保存后会更新运行时配置并触发 MCP reload。",
+          "detail": "## 工具目录\n\nMCP Servers 面板会尝试读取当前 MCP 工具目录。加载成功后可以看到服务端暴露的工具、资源和提示能力；加载失败会显示错误但不影响继续编辑配置。\n\n## 保存行为\n\n点击应用后，前端会提交运行时配置，然后调用 MCP reload，再重新拉取工具目录。\n\n## 常见误配\n\nstdio 模式下 `command=node` 不能搭配 `-y`；`-y` 是 `npx` 的参数。面板会对这类常见问题给出内联警告。"
+        }
       },
-      "forkRevert": {
-        "title": "4. 会话 Fork 与 Revert",
-        "desc": "高级会话管理功能：\n\n• Fork（分支）：从当前会话创建一个分支副本，保留指定数量的消息历史。适用于「如果走另一条路会怎样」的探索场景\n• Revert（回滚）：将会话回滚到指定的消息索引，移除之后的所有消息。适用于撤销错误的对话方向\n• Export（导出）：将完整会话导出为 JSON 格式",
-        "tip": "通过 CLI 的 /session fork 和 /session revert 命令，或 REST API 的 POST /sessions/{id}/fork 和 POST /sessions/{id}/revert 端点使用。",
-        "detail": "## Fork（会话分支）\n\n从当前会话创建分支副本：\n\n### CLI 使用\n\n```bash\n/session fork [name] [fork_point]\n```\n\n- `name` — 分支名称（可选，默认为 `原名-fork`）\n- `fork_point` — 从第几条消息开始分支（可选，默认为全部消息）\n\n### REST API\n\n```bash\ncurl -X POST http://localhost:8080/api/v1/sessions/{id}/fork \\\n  -d '{\"name\": \"探索方案B\", \"fork_point\": 10}'\n```\n\n## Revert（会话回滚）\n\n将会话回滚到指定消息索引：\n\n### CLI 使用\n\n```bash\n/session revert <message_index>\n```\n\n### REST API\n\n```bash\ncurl -X POST http://localhost:8080/api/v1/sessions/{id}/revert \\\n  -d '{\"target_index\": 5}'\n```\n\n## Export（会话导出）\n\n将完整会话导出为 JSON：\n\n### CLI 使用\n\n```bash\n/session export\n```\n\n> Fork 创建的分支是独立会话，修改不会影响原始会话。"
-      }
-    },
-    "chatWithAgent": {
-      "title": "与代理对话",
-      "desc": "了解消息发送、代理状态、操作按钮和 Canvas 面板的使用",
-      "sendMessage": {
-        "title": "1. 发送消息与 Profile 切换",
-        "desc": "在对话页面底部输入框输入内容，按 Enter 发送消息。\n\n• 普通对话：直接输入问题，如「分析 main.go 的代码结构」\n• 指定 Profile：在消息前加 @profile 前缀切换代理模式，如：\n  - @direct 你是谁？ — 快速问答模式（无工具）\n  - @assistant 分析 auth.go — 助手模式（只读工具）\n  - @builder 重构认证模块 — 构建模式（全部工具）\n  - @reviewer 检查代码质量 — 审查模式\n  - @debugger 调试登录失败 — 调试模式",
-        "tip": "使用 Shift+Enter 在消息中换行。系统会根据你的消息内容自动选择最合适的 Profile，大多数情况下无需手动指定。",
-        "detail": "## 发送消息\n\n在对话页面底部输入框输入内容，按 **Enter** 发送消息。使用 **Shift+Enter** 换行。\n\n## 使用 Profile 切换代理模式\n\n在消息前加 `@profile` 前缀可切换代理模式：\n\n```\n@direct 你是谁？\n@assistant 分析 auth.go 的代码结构\n@builder 重构认证模块\n@reviewer 检查最近的代码变更\n@debugger 调试登录失败问题\n```\n\n### Profile 适用场景\n\n| Profile | 工具权限 | 适用场景 |\n|---------|----------|----------|\n| `@direct` | 无工具 | 快速问答、知识查询 |\n| `@assistant` | 只读工具 | 代码分析、解释 |\n| `@builder` | 全部工具 | 开发、修改代码（默认） |\n| `@reviewer` | 只读 + git | 代码审查 |\n| `@debugger` | read/grep/bash | 调试排查 |\n| `@planner` | 只读工具 | 任务规划 |\n| `@writer` | read/write/glob | 文档写作 |\n| `@explainer` | 只读工具 | 代码解释 |\n\n> 系统会根据消息内容自动选择最合适的 Profile，大多数情况下无需手动指定。"
+      "operationsQuality": {
+        "title": "运营与质量",
+        "desc": "使用计划任务、回放、质量候选池、质量工作台、记忆治理和自动优化。",
+        "scheduledTasks": {
+          "title": "1. 计划任务",
+          "desc": "计划任务页面用于创建、查看和管理定时或周期性任务。",
+          "detail": "## 用途\n\n计划任务适合周期性巡检、定时评估、定期同步或固定业务流程。\n\n## 管理内容\n\n页面通常包含任务表格、任务表单和运行记录抽屉。创建任务后应检查最近运行记录确认是否按预期执行。"
+        },
+        "replay": {
+          "title": "2. 回放与 Trace",
+          "desc": "回放页面帮助管理员复盘 Agent 决策、工具调用、质量事件和执行轨迹。",
+          "detail": "## 管理用途\n\n普通用户可用回放理解过程；管理员还可以用回放定位失败模式、危险动作、委派链路和上下文污染。\n\n## 深链接\n\n回放页支持 `?step=N` 深链接，便于把具体事件发给其他人一起排查。"
+        },
+        "prompts": {
+          "title": "3. Prompt 管理",
+          "desc": "Prompt 管理用于覆盖内置系统、工具和子 Agent prompt，保存前会执行 smoke eval。",
+          "detail": "## 管理范围\n\n页面按 system、tools、subagents 分组展示已知 prompt key。没有数据库覆盖时使用 go:embed 内置默认值。\n\n## 编辑流程\n\n1. 选择 prompt key。\n2. 编辑内容和可选语言字段。\n3. 保存前执行 smoke eval。\n4. 通过后写入数据库覆盖；删除覆盖则恢复默认值。\n\n## 生效时机\n\n修改会影响后续对话 turn。页面文案提示最多可能有约 30 秒延迟，不要期待已经在运行中的模型调用被中途替换。"
+        },
+        "qualityCandidates": {
+          "title": "4. 质量候选池",
+          "desc": "质量候选池用于沉淀失败样本、标注问题并转化为评估资产。",
+          "detail": "## 来源\n\n候选样本可以来自回放页中的质量失败事件，也可以由后台质量流程创建。\n\n## 用途\n\n把真实失败沉淀为候选，可以用于后续回放、评估、优化建议和版本对比。"
+        },
+        "qualityWorkbench": {
+          "title": "5. 质量工作台",
+          "desc": "质量工作台聚合分组规则、回放任务、批量评估和版本差异分析。",
+          "detail": "## 适用场景\n\n当系统行为出现回归或某类任务持续失败时，用质量工作台批量回放、比较版本，并生成可执行的优化线索。\n\n## 工作流\n\n1. 从候选池或历史记录选择样本。\n2. 创建回放或批量评估。\n3. 查看报告和版本差异。\n4. 生成并审批优化建议。"
+        },
+        "memoryAndOptimization": {
+          "title": "6. 记忆治理与自动优化",
+          "desc": "Memory Governance 和 Auto Optimization 用于控制长期记忆质量和优化建议上线流程。",
+          "detail": "## 记忆治理\n\n用于查看、筛选、解释和清理记忆，避免低质量或过期记忆污染后续任务。\n\n## 自动优化\n\n用于从质量样本或评估差异中生成优化建议，并支持审批、应用和回滚。\n\n## 原则\n\n优化建议进入生产前应经过审核，避免把偶然样本直接变成全局行为变更。"
+        }
       },
-      "responseStates": {
-        "title": "2. 理解代理响应状态",
-        "desc": "代理处理消息时会依次经历以下状态：\n\n• 🤔 思考中 — 代理正在分析你的请求，规划执行方案\n• 🔧 调用工具中 — 代理正在执行工具（如读取文件、执行命令、搜索代码等）\n• ✅ 完成 — 代理完成处理并返回回复\n\n代理拥有 6 个内置工具：read_file（读文件）、write_file（写文件）、edit（编辑文件）、glob（查找文件）、grep（搜索内容）、bash（执行命令）。",
-        "detail": "## 代理响应状态\n\n代理处理消息时会依次经历以下状态：\n\n| 状态 | 图标 | 说明 |\n|------|------|------|\n| 思考中 | 🤔 | 分析请求，规划执行方案 |\n| 调用工具中 | 🔧 | 执行工具（读文件、运行命令等） |\n| 完成 | ✅ | 处理完毕，显示回复 |\n\n## 内置工具列表\n\n| 工具名 | 功能 | 权限级别 |\n|--------|------|----------|\n| `read_file` | 读取文件内容 | 自动允许 |\n| `write_file` | 写入/创建文件 | 需确认 |\n| `edit` | 精确字符串替换编辑 | 需确认 |\n| `glob` | 按模式查找文件 | 自动允许 |\n| `grep` | 搜索文件内容 | 自动允许 |\n| `bash` | 执行 shell 命令 | 需确认 |\n\n> 「需确认」的工具会触发 HITL 审批流程，代理会暂停等待你的批准后才继续执行。"
-      },
-      "messageActions": {
-        "title": "3. 消息操作按钮",
-        "desc": "将鼠标悬停在任意消息上，右侧会出现操作按钮：\n\n• 📋 复制 — 复制消息全文到剪贴板\n• 👍 有用 / 👎 没用 — 反馈代理回复质量\n• 🔄 重新生成 — 对当前消息重新生成回复\n• 🗑️ 删除 — 删除单条消息\n\n代码块自带「复制代码」按钮，点击即可复制代码内容。长代码块可展开/收起。",
-        "detail": "## 消息操作按钮\n\n将鼠标悬停在任意消息上，右侧会出现操作按钮：\n\n| 按钮 | 功能 | 说明 |\n|------|------|------|\n| 📋 复制 | 复制消息全文 | 复制为纯文本到剪贴板 |\n| 👍 有用 | 正面反馈 | 标记代理回复质量好 |\n| 👎 没用 | 负面反馈 | 标记代理回复质量差 |\n| 🔄 重新生成 | 重新回复 | 对当前消息重新生成回复 |\n| 🗑️ 删除 | 删除消息 | 删除单条消息（需确认） |\n\n## 代码块特殊功能\n\n代理返回的代码块自带额外功能：\n\n- **复制代码** — 一键复制代码内容\n- **展开/收起** — 长代码块可折叠显示\n- **全屏** — 在全屏模式下查看代码\n- **自动换行** — 切换代码自动换行\n\n> 代码块支持语法高亮，自动识别编程语言。"
-      },
-      "canvas": {
-        "title": "4. 使用 Canvas 面板",
-        "desc": "当代理返回代码、JSON、HTML 等结构化内容时，可以点击消息中的「在面板中打开」按钮，在右侧 Canvas 面板中查看：\n\n• 预览模式：HTML 内容直接渲染预览\n• 源码模式：查看带语法高亮的源代码\n• 下载：将内容保存为文件\n• 复制全部：一键复制完整内容\n\nCanvas 面板支持同时打开多个内容，通过标签页切换。",
-        "tip": "Canvas 中的 HTML 预览默认禁用脚本执行。如需启用，点击面板中的「启用脚本」按钮。",
-        "detail": "## 打开 Canvas 面板\n\n当代理返回代码、JSON、HTML 等结构化内容时：\n\n1. 在消息中找到 **「在面板中打开」** 按钮\n2. 点击后，内容在右侧 Canvas 面板中展示\n\n## Canvas 功能\n\n| 模式 | 说明 |\n|------|------|\n| 预览模式 | HTML/Markdown 内容直接渲染预览 |\n| 源码模式 | 查看带语法高亮的原始源代码 |\n\n### 操作按钮\n\n- **下载** — 将内容保存为文件（自动识别文件类型）\n- **复制全部** — 一键复制完整内容\n- **关闭** — 关闭当前标签页\n- **关闭全部** — 关闭所有标签页\n\n## 多标签页\n\nCanvas 面板支持同时打开多个内容，通过顶部标签页切换。\n\n> HTML 预览默认禁用脚本执行以确保安全。如需启用，点击面板中的「启用脚本」按钮。"
-      }
-    },
-    "toolsAndSkills": {
-      "title": "工具与技能",
-      "desc": "了解内置工具列表、技能系统和 HITL 人工审批流程",
-      "viewAgents": {
-        "title": "1. 内置工具与 Agent 列表",
-        "desc": "进入「代理列表」页面查看所有已注册的 Agent。系统内置以下工具：\n\n• read_file — 读取文件内容（自动允许）\n• write_file — 写入文件（需用户确认）\n• edit — 精确字符串替换（需用户确认）\n• glob — 按模式查找文件（自动允许）\n• grep — 搜索文件内容（自动允许）\n• bash — 执行 shell 命令（需用户确认）\n\n系统还包含 CodeReview 和 Research 两个子代理，分别用于代码审查和信息调研。",
-        "tip": "工具权限分三级：Allow（自动允许）、Ask（需 HITL 确认）、Deny（自动拒绝）。可在配置文件的 hitl.permission_rules 中自定义。",
-        "detail": "## 查看 Agent 列表\n\n进入「**代理列表**」页面，查看所有已注册的 Agent。\n\n## 内置工具权限表\n\n| 工具 | 描述 | 默认权限 |\n|------|------|----------|\n| `read_file` | 读取指定路径的文件内容 | ✅ Allow（自动允许） |\n| `write_file` | 写入内容到指定文件 | ⚠️ Ask（需确认） |\n| `edit` | 对文件执行精确的字符串替换 | ⚠️ Ask（需确认） |\n| `glob` | 按 glob 模式查找匹配的文件 | ✅ Allow（自动允许） |\n| `grep` | 在文件内容中搜索正则表达式 | ✅ Allow（自动允许） |\n| `bash` | 执行 shell 命令并返回输出 | ⚠️ Ask（需确认） |\n\n## 子代理\n\n系统还包含两个专用子代理：\n\n- **CodeReview Agent** — 专注于代码审查，使用只读工具分析代码质量\n- **Research Agent** — 专注于信息调研，搜索和汇总相关资料\n\n> 工具权限可在配置文件的 `hitl.permission_rules` 中自定义。设置为 `allow` 跳过确认，`deny` 完全禁止。"
-      },
-      "allTools": {
-        "title": "完整工具列表",
-        "desc": "系统注册了 22+ 个工具，按类别分组：\n\n核心工具：read_file、write_file、edit、glob、grep、bash、ls、multiedit、apply_patch\n网络工具：websearch、webfetch\n批量与并行：batch、parallel_dispatch\n交互与任务：question、task、skill\n状态管理：todoread、todowrite\nIM 通信：send_im_message\nLSP 语言服务：hover、definition、references 等 9 个",
-        "detail": "## 完整工具列表\n\n系统注册了 22+ 个工具，按功能分类：\n\n### 核心文件操作\n\n| 工具 | 描述 | 默认权限 |\n|------|------|----------|\n| `read_file` | 读取文件内容 | ✅ Allow |\n| `write_file` | 写入/创建文件 | ⚠️ Ask |\n| `edit` | 精确字符串替换编辑 | ⚠️ Ask |\n| `multiedit` | 批量多文件编辑 | ⚠️ Ask |\n| `apply_patch` | 应用 unified diff 补丁 | ⚠️ Ask |\n| `glob` | 按模式查找文件 | ✅ Allow |\n| `grep` | 搜索文件内容 | ✅ Allow |\n| `ls` | 列出目录内容 | ✅ Allow |\n| `bash` | 执行 shell 命令 | ⚠️ Ask |\n\n### 网络工具\n\n| 工具 | 描述 |\n|------|------|\n| `websearch` | 网络搜索 |\n| `webfetch` | 获取网页内容 |\n\n### 批量与并行\n\n| 工具 | 描述 |\n|------|------|\n| `batch` | 批量执行多个工具调用 |\n| `parallel_dispatch` | 并行派发任务到多个 SubAgent |\n\n### 交互与任务\n\n| 工具 | 描述 |\n|------|------|\n| `question` | 向用户提问获取输入 |\n| `task` | 创建和管理子任务 |\n| `skill` | 调用已注册的技能 |\n\n### 状态管理\n\n| 工具 | 描述 |\n|------|------|\n| `todoread` | 读取待办事项列表 |\n| `todowrite` | 更新待办事项列表 |\n\n### IM 通信\n\n| 工具 | 描述 |\n|------|------|\n| `send_im_message` | 向 IM 平台发送消息 |\n\n### LSP 语言服务\n\n| 工具 | 描述 |\n|------|------|\n| `hover` | 悬停信息（类型/文档） |\n| `definition` | 跳转到定义 |\n| `references` | 查找所有引用 |\n| `implementation` | 跳转到实现 |\n| `document_symbol` | 文档符号列表 |\n| `workspace_symbol` | 工作区符号搜索 |\n| `call_hierarchy` | 调用层次 |\n| `incoming_calls` | 谁调用了此函数 |\n| `outgoing_calls` | 此函数调用了谁 |"
-      },
-      "viewSkills": {
-        "title": "2. 技能系统使用",
-        "desc": "进入「技能列表」页面浏览所有可用技能。Skill 是声明式指令/知识包（Markdown 文件），不同于可执行的 Tools。\n\n创建自定义 Skill：在 .claude/skills/ 目录下创建子目录，编写 SKILL.md 文件：\n\n---\nname: python-linter\ndescription: Python 代码检查指南\nallowed-tools: [\"read_file\", \"bash\"]\n---\n检查时遵循 PEP 8 规范，使用 pylint 工具...\n\nSkill 搜索路径：.claude/skills/（项目级）→ ~/.claude/skills/（用户级）→ skills/（内置）",
-        "detail": "## 浏览技能列表\n\n进入「**技能列表**」页面浏览所有可用技能。Skill 是声明式指令/知识包（Markdown 文件），不同于可执行的 Tools。\n\n## 创建自定义 Skill\n\n在 `.claude/skills/` 目录下创建子目录，编写 `SKILL.md` 文件：\n\n```markdown\n---\nname: python-linter\ndescription: Python 代码检查指南\nallowed-tools: [\"read_file\", \"bash\"]\n---\n\n## 检查规范\n\n检查时遵循 PEP 8 规范，使用以下工具：\n\n1. 使用 `read_file` 读取目标文件\n2. 使用 `bash` 执行 `pylint` 检查\n3. 汇总检查结果并给出修改建议\n```\n\n## Skill 搜索路径\n\n系统按以下顺序搜索 Skill：\n\n| 优先级 | 路径 | 说明 |\n|--------|------|------|\n| 1（最高） | `.claude/skills/` | 项目级 Skill |\n| 2 | `~/.claude/skills/` | 用户级 Skill |\n| 3（最低） | `skills/` | 内置 Skill |\n\n> 同名 Skill 按优先级覆盖：项目级 > 用户级 > 内置。"
-      },
-      "hitl": {
-        "title": "3. 人工审批（HITL）流程",
-        "desc": "当代理执行写文件、编辑文件或运行 shell 命令等危险操作时，系统会暂停执行并弹出审批请求面板：\n\n• 权限请求：显示代理想执行的操作详情（如「执行命令 rm -rf /tmp/test」）\n• 批准：确认执行该操作\n• 拒绝：阻止执行，代理会尝试其他方案\n• 提供输入：某些场景需要你提供补充信息\n\n审批请求会显示在页面顶部的通知区域，也可在侧栏看到待审批数量。",
-        "tip": "可在配置文件中自定义审批规则。例如设置 bash 工具的 action 为 allow 可跳过命令执行的审批（不推荐用于生产环境）。审批超时时间默认 5 分钟，可通过 hitl.input_timeout 配置。",
-        "detail": "## HITL 审批流程\n\n当代理执行需要确认的操作时，系统会暂停并显示审批面板：\n\n```\n┌─────────────────────────────────────┐\n│  ⚠️ 权限请求                        │\n│                                     │\n│  代理请求执行以下操作：              │\n│  执行命令: rm -rf /tmp/test         │\n│                                     │\n│  [批准]  [拒绝]  [提供输入]          │\n└─────────────────────────────────────┘\n```\n\n## 审批选项\n\n| 按钮 | 操作 | 说明 |\n|------|------|------|\n| 批准 | 确认执行 | 代理继续执行该操作 |\n| 拒绝 | 阻止执行 | 代理会尝试其他方案 |\n| 提供输入 | 补充信息 | 向代理提供额外指导 |\n\n## 审批通知\n\n- 页面顶部的**通知区域**会显示待审批请求\n- 左侧导航栏显示**待审批数量**徽标\n- 支持 WebSocket 实时推送\n\n## 超时配置\n\n默认审批超时时间为 **5 分钟**，可通过配置文件修改：\n\n```json\n{\n  \"hitl\": {\n    \"input_timeout\": \"10m\"\n  }\n}\n```\n\n> 可在配置文件中自定义审批规则。例如设置 `bash` 工具的 action 为 `allow` 可跳过命令执行的审批（不推荐用于生产环境）。"
-      },
-      "parallelTasks": {
-        "title": "4. 并行任务与进度追踪",
-        "desc": "系统支持将复杂任务拆解为多个子任务并行执行，实时显示每个子任务的进度：\n\n• parallel_dispatch 工具：将任务分发到多个 SubAgent 同时处理\n• 实时进度面板：在对话界面显示任务组进度、每个子任务状态和 Agent 工具调用",
-        "detail": "## 并行任务系统\n\n### 并行派发\n\nAgent 通过 `parallel_dispatch` 工具同时执行多个子任务，收集所有子任务结果后生成最终回复。\n\n### 进度追踪面板\n\n对话界面的进度面板实时显示：\n\n| 信息 | 说明 |\n|------|------|\n| 任务组状态 | started → completed/failed |\n| 子任务列表 | 每个任务的 ID、描述和当前状态 |\n| Agent 工具调用 | 每个 SubAgent 正在使用的工具和轮次 |\n\n### 事件类型\n\n系统通过 WebSocket 广播以下事件：\n\n- `task_group` — 并行任务组生命周期\n- `task_progress` — 单个任务进度\n- `agent_progress` — SubAgent 工具调用级进度"
-      }
-    },
-    "configuration": {
-      "title": "配置管理",
-      "desc": "通过 config.json 文件和环境变量配置系统行为",
-      "configFile": {
-        "title": "1. 创建配置文件",
-        "desc": "在项目根目录创建 config.json，核心配置项：\n\n{\n  \"server\": {\n    \"port\": 8080,\n    \"host\": \"0.0.0.0\",\n    \"cors_origins\": [\"http://localhost:3000\"]\n  },\n  \"logging\": { \"level\": \"info\", \"format\": \"json\" },\n  \"hitl\": {\n    \"enabled\": true,\n    \"input_timeout\": \"5m\",\n    \"websocket_enabled\": true\n  },\n  \"agent\": {\n    \"timeout\": \"30m\"\n  }\n}\n\n启动时通过 --config config.json 指定配置文件。",
-        "tip": "所有配置都有合理的默认值，初次使用只需配置 LLM 的 API Key 即可运行。",
-        "detail": "## 创建配置文件\n\n在项目根目录创建 `config.json`：\n\n```json\n{\n  \"server\": {\n    \"port\": 8080,\n    \"host\": \"0.0.0.0\",\n    \"cors_origins\": [\"http://localhost:3000\"]\n  },\n  \"logging\": {\n    \"level\": \"info\",\n    \"format\": \"json\"\n  },\n  \"hitl\": {\n    \"enabled\": true,\n    \"input_timeout\": \"5m\",\n    \"websocket_enabled\": true\n  },\n  \"agent\": {\n    \"timeout\": \"30m\"\n  }\n}\n```\n\n## 配置项说明\n\n| 配置项 | 默认值 | 说明 |\n|--------|--------|------|\n| `server.port` | `8080` | HTTP 服务端口 |\n| `server.host` | `0.0.0.0` | 监听地址 |\n| `server.cors_origins` | `[\"*\"]` | CORS 允许的源 |\n| `logging.level` | `info` | 日志级别（debug/info/warn/error） |\n| `logging.format` | `json` | 日志格式（json/text） |\n| `hitl.enabled` | `true` | 是否启用 HITL 审批 |\n| `hitl.input_timeout` | `5m` | 审批超时时间 |\n| `agent.timeout` | `30m` | 单次任务超时 |\n\n## 启动时指定配置\n\n```bash\n./server --config config.json\n```\n\n> 所有配置都有合理的默认值，初次使用只需配置 LLM 的 API Key 即可运行。"
-      },
-      "llmProvider": {
-        "title": "2. 配置 LLM 提供商",
-        "desc": "在 config.json 的 llm 部分配置 LLM：\n\n{\n  \"llm\": {\n    \"provider\": \"openai\",\n    \"api_key\": \"sk-...\",\n    \"model\": \"gpt-4\",\n    \"base_url\": \"https://www.gmini.xyz/v1\"\n  }\n}\n\n支持的提供商：\n• openai — 默认模型 gpt-4o\n• deepseek — 默认模型 deepseek-chat\n• anthropic — 默认模型 claude-3-5-sonnet\n• custom — 任何兼容 OpenAI API 的服务\n\n也可用环境变量：CLAW_API_KEY、CLAW_MODEL、CLAW_BASE_URL、CLAW_PROVIDER（优先级高于配置文件）。",
-        "tip": "支持配置多个模型，运行时通过 /model 命令切换。在 llm.models 数组中添加额外模型配置即可。",
-        "detail": "## LLM 配置\n\n在 `config.json` 的 `llm` 部分配置：\n\n```json\n{\n  \"llm\": {\n    \"provider\": \"openai\",\n    \"api_key\": \"sk-...\",\n    \"model\": \"gpt-4o\",\n    \"base_url\": \"https://www.gmini.xyz/v1\"\n  }\n}\n```\n\n## 支持的提供商\n\n| 提供商 | provider 值 | 默认模型 | base_url |\n|--------|-------------|----------|----------|\n| OpenAI | `openai` | `gpt-4o` | `https://www.gmini.xyz/v1` |\n| DeepSeek | `deepseek` | `deepseek-chat` | `https://api.deepseek.com/v1` |\n| Anthropic | `anthropic` | `claude-3-5-sonnet` | `https://api.anthropic.com/v1` |\n| 自定义 | `custom` | 需指定 | 需指定 |\n\n## 环境变量配置\n\n环境变量优先级高于配置文件：\n\n| 环境变量 | 说明 |\n|----------|------|\n| `CLAW_API_KEY` | API Key（最高优先级） |\n| `OPENAI_API_KEY` | OpenAI API Key |\n| `CLAW_MODEL` | 模型名称 |\n| `CLAW_BASE_URL` | API 基础 URL |\n| `CLAW_PROVIDER` | 提供商名称 |\n\n## 多模型配置\n\n```json\n{\n  \"llm\": {\n    \"provider\": \"openai\",\n    \"api_key\": \"sk-...\",\n    \"model\": \"gpt-4o\",\n    \"models\": [\n      { \"name\": \"gpt-4o\", \"provider\": \"openai\" },\n      { \"name\": \"deepseek-chat\", \"provider\": \"deepseek\", \"base_url\": \"https://api.deepseek.com/v1\" }\n    ]\n  }\n}\n```\n\n> 运行时通过 `/model` 命令切换模型。"
-      },
-      "profiles": {
-        "title": "3. Profile 系统配置",
-        "desc": "系统内置 10 种 Profile，每种有不同的工具权限：\n\n• direct — 无工具，快速问答\n• assistant — read/glob/grep 只读工具\n• builder — 全部工具（默认）\n• planner — 只读工具，任务规划\n• reviewer — 只读 + git，代码审查\n• debugger — read/grep/bash/git，调试\n• writer — read/write/glob，文档写作\n• explainer — 只读工具，代码解释\n• im-operator — IM 工具 + 只读，IM 消息管理\n• researcher — websearch/webfetch + 只读，信息调研\n\n自定义 Profile：创建 ~/.claw/profiles.json，添加自定义 Profile，指定名称、描述、工具权限和系统提示词。",
-        "detail": "## 内置 Profile\n\n系统预置 10 种 Profile，覆盖常见使用场景：\n\n| Profile | 工具权限 | 适用场景 |\n|---------|----------|----------|\n| `direct` | 无工具 | 快速问答 |\n| `assistant` | read/glob/grep | 代码分析 |\n| `builder` | 全部工具 | 开发构建（默认） |\n| `planner` | 只读工具 | 任务规划 |\n| `reviewer` | 只读 + git | 代码审查 |\n| `debugger` | read/grep/bash/git | 调试排查 |\n| `writer` | read/write/glob | 文档写作 |\n| `explainer` | 只读工具 | 代码解释 |\n| `im-operator` | IM 工具 + 只读 | IM 消息管理 |\n| `researcher` | websearch/webfetch + 只读 | 信息调研 |\n\n## 自定义 Profile\n\n创建 `~/.claw/profiles.json`：\n\n```json\n[\n  {\n    \"name\": \"security-auditor\",\n    \"description\": \"安全审计专用 Profile\",\n    \"tools\": [\"read_file\", \"glob\", \"grep\", \"bash\"],\n    \"system_prompt\": \"你是一个安全审计专家，专注于发现代码中的安全漏洞...\"\n  }\n]\n```\n\n使用方式：\n\n```\n@security-auditor 检查 auth.go 的安全性\n```\n\n> 自定义 Profile 会与内置 Profile 合并。同名时自定义 Profile 优先。"
-      },
-      "extensionsPlugins": {
-        "title": "4. 扩展与插件",
-        "desc": "系统支持多种扩展方式：\n\n• 插件系统：在 plugin.dir 目录放置 JSON-RPC 插件，系统自动加载\n• MCP 服务器：配置外部 MCP 服务器接入更多工具（支持 stdio/SSE/HTTP 传输）\n• 自定义工具：在 custom_tools_dir 目录放置工具定义文件\n• 自定义命令：在 config.json 的 commands 节配置快捷命令模板",
-        "detail": "## 插件系统\n\n在配置文件中启用插件：\n\n```json\n{\n  \"plugin\": {\n    \"enabled\": true,\n    \"dir\": \".claw/plugins\"\n  }\n}\n```\n\n插件使用 JSON-RPC 协议通信，系统自动发现并加载目录下的可执行文件。\n\n## MCP 服务器\n\n配置外部 MCP（Model Context Protocol）服务器：\n\n```json\n{\n  \"mcp\": {\n    \"timeout\": \"30s\",\n    \"servers\": {\n      \"my-server\": {\n        \"transport\": \"stdio\",\n        \"command\": \"npx\",\n        \"args\": [\"-y\", \"@modelcontextprotocol/server-filesystem\"]\n      },\n      \"remote-server\": {\n        \"transport\": \"sse\",\n        \"url\": \"https://mcp.example.com/sse\",\n        \"headers\": { \"Authorization\": \"Bearer token\" }\n      }\n    }\n  }\n}\n```\n\n支持三种传输方式：\n\n| 传输 | 说明 |\n|------|------|\n| `stdio` | 本地进程，通过标准输入/输出通信 |\n| `sse` | Server-Sent Events，适合远程服务 |\n| `http` | HTTP Streamable，新版 MCP 推荐 |\n\n## 自定义命令\n\n在 config.json 中定义快捷命令：\n\n```json\n{\n  \"commands\": {\n    \"review\": {\n      \"description\": \"代码审查\",\n      \"template\": \"请审查以下文件的代码质量: {{args}}\",\n      \"agent\": \"codereview\"\n    },\n    \"explain\": {\n      \"description\": \"代码解释\",\n      \"template\": \"请解释这段代码: {{args}}\",\n      \"model\": \"gpt-3.5-turbo\"\n    }\n  }\n}\n```\n\n使用方式：在 CLI 中输入 `/review main.go` 或 `/explain auth.go`。"
-      }
-    },
-    "imChannels": {
-      "title": "IM 集成",
-      "desc": "接入钉钉、飞书、企业微信或官方微信 Bot，在 IM 中与代理对话",
-      "overview": {
-        "title": "1. 支持的 IM 平台与架构",
-        "desc": "Channel 系统将 IM 消息桥接到 Agent 会话：\n\nIM 平台 → Webhook/Long Poll → Channel Router → ACP 控制平面 → Master Agent\n\n支持的平台：\n• 钉钉 (dingtalk) — 企业级，需要创建钉钉应用\n• 飞书 (feishu) — 企业级，需要创建飞书应用\n• 企业微信 (wecom) — 企业级，需要企业微信管理员权限\n• 微信 Bot — 官方 wechatbot/iLink 支撑的 clawbot；只接收发给 clawbot 的消息，不读取个人微信普通私聊\n\n消息类型支持：私聊 (direct)、群聊 (group)、频道 (channel)。",
-        "detail": "## 架构流程\n\n```\nIM 用户消息\n    ↓\nWebhook / Long Poll 入口\n    ↓\nChannel Router（查找 Binding 映射）\n    ↓\nACP 控制平面（限流、鉴权）\n    ↓\nMaster Agent（处理并回复）\n    ↓\nIM 回复消息\n```\n\n## 支持的平台\n\n| 平台 | 标识 | 类型 | 要求 |\n|------|------|------|------|\n| 钉钉 | `dingtalk` | 企业级 | 创建钉钉应用 |\n| 飞书 | `feishu` | 企业级 | 创建飞书应用 |\n| 企业微信 | `wecom` | 企业级 | 企业微信管理员权限 |\n| 微信 Bot | `wechatbot` | 官方 wechatbot/iLink clawbot | 普通用户在 `/settings` 扫码连接 clawbot；联系人必须给 clawbot 发消息；普通 Web Chat 不展示 IM 会话 |\n\n## 消息类型\n\n| 类型 | 标识 | 说明 |\n|------|------|------|\n| 私聊 | `direct` | 一对一私聊消息 |\n| 群聊 | `group` | 群组中的消息 |\n| 频道 | `channel` | 频道/话题中的消息 |"
-      },
-      "channelConfig": {
-        "title": "2. 各平台配置方法",
-        "desc": "在 config.json 的 channel 部分启用并配置各平台：\n\n钉钉：需要 app_key、app_secret、回调 token 和 aes_key，以及 agent_id\n飞书：需要 app_id、app_secret、verification_token 和 encrypt_key\n企业微信：需要 corp_id、agent_id、secret、回调 token 和 encoding_aes_key\n\n微信 Bot 将通过官方 wechatbot 用户级连接进入设置页，旧协议配置入口已移除。",
-        "tip": "旧个人微信协议入口已移除；普通用户可在 /settings 使用官方 wechatbot 扫码连接微信里的 clawbot。它只处理发给 clawbot 的消息。",
-        "detail": "## 钉钉配置\n\n```json\n{\n  \"channel\": {\n    \"dingtalk\": {\n      \"enabled\": true,\n      \"app_key\": \"your-app-key\",\n      \"app_secret\": \"your-app-secret\",\n      \"token\": \"callback-token\",\n      \"aes_key\": \"callback-aes-key\",\n      \"agent_id\": \"your-agent-id\"\n    }\n  }\n}\n```\n\n## 飞书配置\n\n```json\n{\n  \"channel\": {\n    \"feishu\": {\n      \"enabled\": true,\n      \"app_id\": \"your-app-id\",\n      \"app_secret\": \"your-app-secret\",\n      \"verification_token\": \"your-verification-token\",\n      \"encrypt_key\": \"your-encrypt-key\"\n    }\n  }\n}\n```\n\n## 企业微信配置\n\n```json\n{\n  \"channel\": {\n    \"wecom\": {\n      \"enabled\": true,\n      \"corp_id\": \"your-corp-id\",\n      \"agent_id\": \"your-agent-id\",\n      \"secret\": \"your-secret\",\n      \"token\": \"callback-token\",\n      \"encoding_aes_key\": \"your-encoding-aes-key\"\n    }\n  }\n}\n```\n\n## 微信 Bot\n\n微信 Bot 将通过官方 wechatbot 用户级连接进入设置页，旧协议配置入口已移除。它不是个人微信普通私聊托管；联系人必须给微信里的 clawbot 发消息。"
-      },
-      "webhook": {
-        "title": "3. Webhook 与消息路由",
-        "desc": "配置 IM 平台的 Webhook 回调地址：\n\n• 钉钉/飞书/企业微信：在对应平台的开发者后台，将事件回调 URL 设置为 http://your-host:8080/api/v1/webhook/{platform}\n\n消息路由流程：\n1. IM 消息到达 Webhook 端点\n2. Router 查找 Binding（平台:chatID → sessionID 映射）\n3. ACP 控制平面执行限流检查\n4. Master Agent 处理消息并回复\n\n可通过 Gateway RPC 的 channel.bind 方法手动绑定 IM 频道到指定会话。",
-        "tip": "确保服务器的 Webhook 端口可被 IM 平台公网访问。推荐使用 HTTPS 和 nginx 反向代理。",
-        "detail": "## Webhook URL 格式\n\n各平台的回调地址格式：\n\n| 平台 | Webhook URL |\n|------|-------------|\n| 钉钉 | `http://your-host:8080/api/v1/webhook/dingtalk` |\n| 飞书 | `http://your-host:8080/api/v1/webhook/feishu` |\n| 企业微信 | `http://your-host:8080/api/v1/webhook/wecom` |\n\n## 配置步骤\n\n1. 在对应 IM 平台的**开发者后台**中找到事件回调配置\n2. 将回调 URL 设置为上述格式\n3. 填写验证 Token 和加密密钥（与 config.json 中一致）\n4. 保存并验证连接\n\n## 消息路由流程\n\n1. IM 消息到达 Webhook 端点\n2. Router 查找 **Binding**（`平台:chatID` → `sessionID` 映射）\n3. ACP 控制平面执行**限流检查**\n4. Master Agent **处理消息并回复**\n\n## 手动绑定频道\n\n通过 Gateway RPC 手动绑定 IM 频道到指定会话：\n\n```bash\ncurl -X POST http://localhost:8080/api/v1/rpc \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\n    \"method\": \"channel.bind\",\n    \"params\": {\n      \"platform\": \"dingtalk\",\n      \"chat_id\": \"group-123\",\n      \"session_id\": \"sess-456\"\n    }\n  }'\n```\n\n> 确保服务器的 Webhook 端口可被 IM 平台公网访问。推荐使用 HTTPS 和 nginx 反向代理。"
-      }
-    },
-    "apiReference": {
-      "title": "API 参考",
-      "desc": "HTTP REST API 和 WebSocket 接口的使用方法",
-      "healthAndSession": {
-        "title": "1. 会话管理 API",
-        "desc": "基础 URL：http://localhost:8080/api/v1\n\n• GET /health — 检查服务状态，返回 {\"status\":\"ok\"}\n• POST /sessions — 创建会话，Body: {\"name\":\"my-session\", \"profile\":\"builder\"}，返回 session_id\n• GET /sessions — 列出所有会话\n• GET /sessions/{id} — 获取会话详情\n• PATCH /sessions/{id} — 更新会话（如重命名）\n• DELETE /sessions/{id} — 删除会话\n• POST /sessions/{id}/clear — 清空消息历史",
-        "detail": "## 基础信息\n\n- **Base URL**: `http://localhost:8080/api/v1`\n- **Content-Type**: `application/json`\n\n## 健康检查\n\n```bash\ncurl http://localhost:8080/api/v1/health\n```\n\n响应：\n\n```json\n{\n  \"status\": \"ok\"\n}\n```\n\n## 会话 API\n\n### 创建会话\n\n```bash\ncurl -X POST http://localhost:8080/api/v1/sessions \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"name\": \"my-session\", \"profile\": \"builder\"}'\n```\n\n响应：\n\n```json\n{\n  \"id\": \"sess-abc123\",\n  \"name\": \"my-session\",\n  \"profile\": \"builder\",\n  \"created_at\": \"2026-03-16T10:00:00Z\"\n}\n```\n\n### 列出所有会话\n\n```bash\ncurl http://localhost:8080/api/v1/sessions\n```\n\n### 获取会话详情\n\n```bash\ncurl http://localhost:8080/api/v1/sessions/{id}\n```\n\n### 更新会话\n\n```bash\ncurl -X PATCH http://localhost:8080/api/v1/sessions/{id} \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"name\": \"new-name\"}'\n```\n\n### 删除会话\n\n```bash\ncurl -X DELETE http://localhost:8080/api/v1/sessions/{id}\n```\n\n### 清空消息历史\n\n```bash\ncurl -X POST http://localhost:8080/api/v1/sessions/{id}/clear\n```"
-      },
-      "chatApi": {
-        "title": "2. 对话与 HITL API",
-        "desc": "• POST /sessions/{id}/messages — 发送消息，Body: {\"content\":\"分析 main.go\"}，返回代理回复\n\nHITL 相关：\n• GET /tasks/{id}/pending-input — 查询待处理的审批请求\n• POST /tasks/{id}/input — 提交审批响应，Body: {\"input_id\":\"xxx\", \"response\":\"yes\"}\n• POST /tasks/{id}/command — 发送控制命令（如 cancel 取消任务）\n\n其他 API：\n• GET /agents — 列出所有 Agent\n• GET /skills — 列出所有 Skill",
-        "tip": "还有 Gateway RPC 接口（POST /api/v1/rpc），使用 JSON-RPC 2.0 协议，支持 Token 认证和更多操作如 channel.send、plugin.list 等。",
-        "detail": "## 发送消息\n\n```bash\ncurl -X POST http://localhost:8080/api/v1/sessions/{id}/messages \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"content\": \"分析 main.go 的代码结构\"}'\n```\n\n响应：\n\n```json\n{\n  \"id\": \"msg-xyz789\",\n  \"role\": \"assistant\",\n  \"content\": \"main.go 的结构如下...\",\n  \"created_at\": \"2026-03-16T10:01:00Z\"\n}\n```\n\n## HITL API\n\n### 查询待审批请求\n\n```bash\ncurl http://localhost:8080/api/v1/tasks/{id}/pending-input\n```\n\n### 提交审批响应\n\n```bash\ncurl -X POST http://localhost:8080/api/v1/tasks/{id}/input \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"input_id\": \"inp-001\", \"response\": \"yes\"}'\n```\n\n### 取消任务\n\n```bash\ncurl -X POST http://localhost:8080/api/v1/tasks/{id}/command \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"command\": \"cancel\"}'\n```\n\n## 其他 API\n\n| 端点 | 方法 | 说明 |\n|------|------|------|\n| `/agents` | GET | 列出所有 Agent |\n| `/skills` | GET | 列出所有 Skill |\n\n> 还有 Gateway RPC 接口（`POST /api/v1/rpc`），使用 JSON-RPC 2.0 协议，支持 Token 认证和更多操作。"
-      },
-      "websocket": {
-        "title": "3. WebSocket 实时通信",
-        "desc": "连接 ws://localhost:8080/api/v1/ws 建立实时通道。\n\nWebSocket 用于：\n• 接收代理的流式响应（逐字输出）\n• 接收代理状态变化（thinking → tool_calling → completed）\n• 接收 HITL 审批请求推送\n• 实时消息通知\n\n需要在配置中开启：hitl.websocket_enabled: true\n\n前端 WebSocket 客户端内置自动重连机制，断线后自动尝试恢复连接。",
-        "tip": "Gateway 也提供 WebSocket RPC 端点 /api/v1/rpc/ws，使用 Bearer Token 认证，支持所有 RPC 方法的实时调用。",
-        "detail": "## 建立连接\n\n```javascript\nconst ws = new WebSocket('ws://localhost:8080/api/v1/ws');\n\nws.onopen = () => {\n  console.log('WebSocket 已连接');\n};\n\nws.onmessage = (event) => {\n  const data = JSON.parse(event.data);\n  console.log('收到消息:', data);\n};\n```\n\n## 消息类型\n\n| 类型 | 说明 | 示例场景 |\n|------|------|----------|\n| `stream` | 流式响应 | 代理逐字输出回复 |\n| `state_change` | 状态变化 | thinking → tool_calling → completed |\n| `hitl_request` | 审批请求 | 代理需要执行危险操作 |\n| `notification` | 通知 | 实时消息通知 |\n\n## 消息格式\n\n```json\n{\n  \"type\": \"stream\",\n  \"session_id\": \"sess-abc123\",\n  \"data\": {\n    \"content\": \"正在分析\",\n    \"done\": false\n  }\n}\n```\n\n```json\n{\n  \"type\": \"state_change\",\n  \"session_id\": \"sess-abc123\",\n  \"data\": {\n    \"state\": \"tool_calling\",\n    \"tool\": \"read_file\",\n    \"args\": {\"path\": \"main.go\"}\n  }\n}\n```\n\n## 配置要求\n\n需要在配置文件中开启 WebSocket：\n\n```json\n{\n  \"hitl\": {\n    \"websocket_enabled\": true\n  }\n}\n```\n\n> 前端 WebSocket 客户端内置**自动重连**机制，断线后自动尝试恢复连接。Gateway 也提供 WebSocket RPC 端点 `/api/v1/rpc/ws`，使用 Bearer Token 认证。"
+      "channelsApi": {
+        "title": "通道与 API",
+        "desc": "配置组织级 IM 通道，并了解 HTTP、RPC 和 WebSocket 接口边界。",
+        "imChannels": {
+          "title": "1. IM 通道",
+          "desc": "组织级 IM 通道在后台设置的集成页配置，用户级微信 Bot 在普通偏好设置中连接。",
+          "detail": "## 组织级通道\n\n后台集成页用于配置飞书、钉钉、企业微信等组织级通道。它们通常需要平台应用、回调地址、token、secret 或加密 key。\n\n## 用户级微信 Bot\n\n微信 Bot 连接属于普通用户偏好设置，不应和组织级 IM 通道混在一起说明。"
+        },
+        "webhooks": {
+          "title": "2. Webhook 与消息路由",
+          "desc": "外部 IM 平台通过 Webhook 或长连接进入 Channel Router，再映射到 Agent 会话。",
+          "detail": "## 典型链路\n\nIM 平台事件进入后端后，会经过去重、路由、权限/限流和 Agent 处理，再由对应 renderer 回复到 IM。\n\n## 配置建议\n\n- 生产环境优先使用 HTTPS。\n- 回调地址必须能被平台访问。\n- token 和加密 key 必须和平台后台一致。\n- 切换 webhook/longconn 模式时要避免双入口重复投递。"
+        },
+        "apiWebSocket": {
+          "title": "3. API 与 WebSocket",
+          "desc": "前端通过 `/api/v1` REST/RPC 接口和 WebSocket 与后端通信，开发模式由 Vite 代理到 8080。",
+          "detail": "## 前端代理\n\n本地前端开发服务运行在 `localhost:3000`，`/api` 请求会代理到 `localhost:8080`。\n\n## 常用接口类别\n\n- 会话与消息：创建会话、发送消息、加载历史。\n- 管理接口：用户、认证、LLM、质量、运行时配置。\n- RPC：部分配置和管理能力通过 JSON-RPC 方法暴露。\n- WebSocket：聊天流式输出、任务状态、回放 live 事件和审批通知。\n\n## 生产模式\n\n前端构建产物输出到 `internal/webui/dist`，由 Go 二进制嵌入并直接提供。"
+        }
       }
     }
   },
@@ -652,7 +742,7 @@
     "ask": "询问",
     "deny": "拒绝",
     "mcpServers": "MCP 服务端",
-    "mcpServersHint": "配置外部 MCP 服务端以接入更多工具。修改后需保存到文件并重启服务才能生效。",
+    "mcpServersHint": "配置外部 MCP 服务端以接入更多工具。保存后会热重载并立即生效。",
     "mcpTimeout": "MCP 超时",
     "mcpServerName": "名称",
     "mcpTransport": "传输类型",
@@ -660,8 +750,16 @@
     "mcpArgs": "参数",
     "mcpEnv": "环境变量",
     "mcpEnvHint": "每行一个",
+    "mcpHeaders": "请求头",
+    "mcpHeadersHint": "每行一个，例如 Authorization=Bearer ...",
     "mcpUrl": "URL",
     "mcpServerTimeout": "超时",
+    "mcpRuntimeTools": "运行时工具目录",
+    "mcpToolCount": "MCP {{count}} 个",
+    "mcpTotalToolCount": "总计 {{count}} 个",
+    "mcpNoRuntimeTools": "当前还没有远程 MCP 工具注册到运行时。",
+    "mcpToolsLoadFailed": "加载 MCP 工具目录失败",
+    "mcpServerRuntimeCounts": "{{tools}} 个工具 / {{resources}} 个资源 / {{prompts}} 个提示",
     "addMcpServer": "添加服务端",
     "deleteMcpServer": "删除",
     "mcpNeedRestart": "MCP 配置变更需保存到文件并重启服务",

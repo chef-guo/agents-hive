@@ -19,6 +19,7 @@ import type {
   ModelInfo,
   RuntimeConfig,
   ConfigUpdateRequest,
+  MCPToolsListResponse,
   AdminUsersResponse,
   UsageSummary,
   AdminProvidersResponse,
@@ -130,6 +131,7 @@ export interface NodeClient {
   // 热重载
   reloadChannels(platform?: string): Promise<{ status: string; channels: string[] }>;
   reloadMCP(name?: string): Promise<{ status: string; servers: string[] }>;
+  listMCPTools(): Promise<MCPToolsListResponse>;
   // 外部资源管理
   listExternalResources(): Promise<ExternalResource[]>;
   saveExternalResource(resource: Partial<ExternalResource> & { name: string }): Promise<{ status: string; name: string }>;
@@ -395,6 +397,10 @@ export class LocalNodeClient implements NodeClient {
 
   reloadMCP(name?: string): Promise<{ status: string; servers: string[] }> {
     return this.rpc<{ status: string; servers: string[] }>('mcp.reload', name ? { name } : {});
+  }
+
+  listMCPTools(): Promise<MCPToolsListResponse> {
+    return this.rpc<MCPToolsListResponse>('mcp.tools.list');
   }
 
   // 外部资源管理

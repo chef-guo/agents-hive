@@ -195,6 +195,8 @@ func NewApp(cfg *config.Config, logger *zap.Logger) *App {
 			Provider:        provDef,
 			ReasoningEffort: cfg.LLM.ReasoningEffort,
 			StorePrivacy:    cfg.LLM.StorePrivacy,
+			PromptCacheKey:  cfg.LLM.PromptCacheKeyEnabled,
+			ServiceTier:     cfg.LLM.InteractiveServiceTier,
 		}, logger)
 	}
 
@@ -284,6 +286,8 @@ func NewApp(cfg *config.Config, logger *zap.Logger) *App {
 		PluginMgr:           pluginMgr,
 		InstructionURLs:     cfg.InstructionURLs,
 		StorePrivacy:        cfg.LLM.StorePrivacy,
+		PromptCacheKey:      cfg.LLM.PromptCacheKeyEnabled,
+		ServiceTier:         cfg.LLM.InteractiveServiceTier,
 		ToolPolicy:          cfg.Agent.ToolPolicy,
 		ToolRecall:          cfg.Agent.ToolRecall,
 		QualityGuards:       cfg.Agent.QualityGuards,

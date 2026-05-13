@@ -264,6 +264,12 @@ type LLMConfig struct {
 	// 隐私选项：为 OpenAI/Copilot 请求设置 store=false，防止数据用于训练
 	StorePrivacy bool `json:"store_privacy,omitempty" yaml:"store_privacy,omitempty"`
 
+	// prompt_cache_key 开关：OpenAI/Responses 路径使用稳定、去标识化 cache key 提升命中率
+	PromptCacheKeyEnabled bool `json:"prompt_cache_key_enabled,omitempty" yaml:"prompt_cache_key_enabled,omitempty"`
+
+	// 交互式请求 service tier：空表示不设置；支持 auto/default/flex/scale/priority
+	InteractiveServiceTier string `json:"interactive_service_tier,omitempty" yaml:"interactive_service_tier,omitempty"`
+
 	// API 格式："chat"（Chat Completions）或 "responses"（Responses API），默认 "chat"
 	APIFormat string `json:"api_format,omitempty" yaml:"api_format,omitempty"`
 
@@ -317,6 +323,8 @@ type AgentConfig struct {
 	Skills              SkillsConfig              `json:"skills,omitempty"`                // 远程/本地 skill 配置
 	ToolPolicy          ToolPolicyConfig          `json:"tool_policy,omitempty"`           // 工具过滤策略配置
 	ToolRecall          ToolRecallConfig          `json:"tool_recall,omitempty"`           // 每轮隐藏工具召回配置
+	FirstToken          FirstTokenConfig          `json:"first_token,omitempty"`           // 首 token 快路径配置
+	ActionGuardEnabled  bool                      `json:"action_guard_enabled,omitempty"`  // ActionGuard 防护开关，默认启用
 	IMAPI               IMAPIConfig               `json:"im_api,omitempty"`                // 统一 IM 工具配置
 	MaxSessionCost      float64                   `json:"max_session_cost,omitempty"`      // per-session 成本预算上限（USD），<=0 不限制（需要 PostgreSQL 成本追踪启用）
 	QualityGuards       QualityGuardsConfig       `json:"quality_guards,omitempty"`        // 质量护栏灰度开关（见 docs/计划与路线/Agent-质量护栏治理计划.md）
@@ -324,6 +332,12 @@ type AgentConfig struct {
 	Reflection          ReflectionConfig          `json:"reflection,omitempty"`            // 运行时反思 note，默认开启；shadow 能力默认关闭
 	ReasoningEffortAuto ReasoningEffortAutoConfig `json:"reasoning_effort_auto,omitempty"` // 推理努力级别自动分类，默认开启
 	Observability       ObservabilityConfig       `json:"observability,omitempty"`         // agent 运行时可观测配置
+}
+
+// FirstTokenConfig 控制首 token 关键路径上的低延迟策略。
+type FirstTokenConfig struct {
+	FastPathEnabled            bool          `json:"fast_path_enabled,omitempty"`
+	PreflightClassifierTimeout time.Duration `json:"preflight_classifier_timeout,omitempty"`
 }
 
 type IMAPIConfig struct {
@@ -421,9 +435,9 @@ type LoggingConfig struct {
 	Format       string `json:"format"`        // 格式: "json" 或 "console"
 	File         string `json:"file"`          // 日志文件路径（空表示不写文件）
 	ConsoleLevel string `json:"console_level"` // 控制台日志级别（CLI模式，默认 "error"）
-	MaxSize      int    `json:"max_size"`      // 日志文件最大大小（MB，默认 100）
-	MaxBackups   int    `json:"max_backups"`   // 保留的旧日志文件数量（默认 3）
-	MaxAge       int    `json:"max_age"`       // 日志文件保留天数（默认 7）
+	MaxSize      int    `json:"max_size"`      // 日志文件最大大小（MB，默认 200）
+	MaxBackups   int    `json:"max_backups"`   // 保留的旧日志文件数量（默认 20）
+	MaxAge       int    `json:"max_age"`       // 日志文件保留天数（默认 30）
 }
 
 // Default 返回包含引导默认值的 Config。
@@ -448,10 +462,15 @@ func Default() *Config {
 		Store: StoreConfig{
 			Type: "postgres",
 		},
+		LLM: LLMConfig{
+			PromptCacheKeyEnabled: DefaultPromptCacheKey,
+		},
 		SpecDriven: DefaultSpecDrivenConfig,
 		Agent: AgentConfig{
-			ToolRecall: DefaultToolRecallConfigValue,
-			IMAPI:      DefaultIMAPIConfig,
+			ToolRecall:         DefaultToolRecallConfigValue,
+			FirstToken:         DefaultFirstTokenConfig,
+			ActionGuardEnabled: DefaultActionGuardEnabled,
+			IMAPI:              DefaultIMAPIConfig,
 			PlanRuntime: PlanRuntimeConfig{
 				Enabled: true,
 			},
@@ -481,9 +500,10 @@ func Default() *Config {
 // 服务器模式下这些值由 DB 种子提供，不需要调用此函数。
 func (c *Config) CLIDefaults() {
 	c.LLM = LLMConfig{
-		Provider: DefaultProvider,
-		Model:    DefaultModel,
-		BaseURL:  DefaultBaseURL,
+		Provider:              DefaultProvider,
+		Model:                 DefaultModel,
+		BaseURL:               DefaultBaseURL,
+		PromptCacheKeyEnabled: DefaultPromptCacheKey,
 	}
 	c.Agent = AgentConfig{
 		Timeout:             DefaultAgentTimeout,
@@ -505,7 +525,9 @@ func (c *Config) CLIDefaults() {
 			PipelineStages:      DefaultCompactionPipelineStages,
 			ToolOutputMaxTokens: DefaultCompactionToolOutputMaxTokens,
 		},
-		IMAPI: DefaultIMAPIConfig,
+		IMAPI:              DefaultIMAPIConfig,
+		FirstToken:         DefaultFirstTokenConfig,
+		ActionGuardEnabled: DefaultActionGuardEnabled,
 		PlanRuntime: PlanRuntimeConfig{
 			Enabled: true,
 		},
@@ -549,13 +571,25 @@ func (c *Config) CLIDefaults() {
 	c.CustomToolsDir = DefaultCustomToolsDir
 	c.Agent.ToolPolicy = DefaultToolPolicyConfig
 	c.Agent.ToolRecall = DefaultToolRecallConfigValue
+	c.Agent.ActionGuardEnabled = DefaultActionGuardEnabled
 	c.SessionsDir = DefaultSessionsDir
 	c.SpecDriven = DefaultSpecDrivenConfig
 }
 
 // Load 读取配置文件并返回 Config，缺失的值使用默认值
 func Load(path string) (*Config, error) {
+	return loadWithBase(path, Default())
+}
+
+// LoadCLI 读取 CLI 配置。CLI 没有数据库运行时默认值，因此先填充 CLI 默认值，
+// 再解析用户配置；这样配置文件里的显式 false 不会被后续默认值覆盖。
+func LoadCLI(path string) (*Config, error) {
 	cfg := Default()
+	cfg.CLIDefaults()
+	return loadWithBase(path, cfg)
+}
+
+func loadWithBase(path string, cfg *Config) (*Config, error) {
 	if path == "" {
 		cfg.applyEnvOverrides()
 		cfg.Resolve()
@@ -649,6 +683,12 @@ func (c *Config) applyEnvOverrides() {
 	// 推理努力级别: CLAW_REASONING_EFFORT > 配置文件 > 默认值（空）
 	if envEffort := os.Getenv("CLAW_REASONING_EFFORT"); envEffort != "" {
 		c.LLM.ReasoningEffort = envEffort
+	}
+	if v := os.Getenv("CLAW_INTERACTIVE_SERVICE_TIER"); v != "" {
+		c.LLM.InteractiveServiceTier = v
+	}
+	if v := os.Getenv("CLAW_PROMPT_CACHE_KEY_ENABLED"); v != "" {
+		c.LLM.PromptCacheKeyEnabled = parseBoolEnv(v, c.LLM.PromptCacheKeyEnabled)
 	}
 
 	// Google 特有环境变量: GOOGLE_API_KEY > CLAW_GOOGLE_API_KEY
@@ -864,11 +904,19 @@ func (c *Config) Resolve() {
 		c.Agent.MaxSessionCost = 0
 	}
 	c.Agent.ToolRecall = NormalizeToolRecallConfig(c.Agent.ToolRecall)
+	c.Agent.FirstToken = NormalizeFirstTokenConfig(c.Agent.FirstToken)
 	c.Agent.IMAPI = NormalizeIMAPIConfig(c.Agent.IMAPI)
 	c.Memory = NormalizeMemoryConfig(c.Memory)
 }
 
 func NormalizeIMAPIConfig(cfg IMAPIConfig) IMAPIConfig {
+	return cfg
+}
+
+func NormalizeFirstTokenConfig(cfg FirstTokenConfig) FirstTokenConfig {
+	if cfg.PreflightClassifierTimeout <= 0 {
+		cfg.PreflightClassifierTimeout = DefaultFirstTokenPreflightClassifierTimeout
+	}
 	return cfg
 }
 

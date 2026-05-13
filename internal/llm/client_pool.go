@@ -13,7 +13,7 @@ type ClientPool struct {
 	mu      sync.RWMutex
 	clients map[string]*Client // key: buildCacheKey(cfg)
 	logger  *zap.Logger
-	maxSize int                // 最大缓存数量，避免内存泄漏
+	maxSize int // 最大缓存数量，避免内存泄漏
 }
 
 // NewClientPool 创建一个新的 LLM Client 池
@@ -99,7 +99,7 @@ func (p *ClientPool) Size() int {
 }
 
 // buildCacheKey 为配置生成唯一的缓存键
-// key 格式: provider:model:baseURL:apiFormat
+// key 格式: provider:model:baseURL:apiFormat:cache:tier:privacy
 func buildCacheKey(cfg ClientConfig) string {
 	provider := cfg.Provider.Name
 	if provider == "" {
@@ -121,5 +121,5 @@ func buildCacheKey(cfg ClientConfig) string {
 		apiFormat = "chat"
 	}
 
-	return fmt.Sprintf("%s:%s:%s:%s", provider, model, baseURL, apiFormat)
+	return fmt.Sprintf("%s:%s:%s:%s:cache=%t:tier=%s:privacy=%t", provider, model, baseURL, apiFormat, cfg.PromptCacheKey, cfg.ServiceTier, cfg.StorePrivacy)
 }

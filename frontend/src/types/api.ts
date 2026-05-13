@@ -1047,6 +1047,34 @@ export interface MCPServerConfig {
   timeout?: string;
 }
 
+export interface MCPToolSummary {
+  name: string;
+  description?: string;
+  server?: string;
+  core?: boolean;
+  is_concurrency_safe?: boolean;
+  trusted?: boolean;
+  risk?: string;
+  read_only?: boolean;
+  requires_approval?: boolean;
+}
+
+export interface MCPToolsByServer {
+  name: string;
+  count: number;
+  tools: MCPToolSummary[];
+  resources?: number;
+  prompts?: number;
+}
+
+export interface MCPToolsListResponse {
+  total: number;
+  mcp_count: number;
+  local_count: number;
+  servers: MCPToolsByServer[];
+  tools: MCPToolSummary[];
+}
+
 // IM 通道配置
 export interface DingTalkConfig {
   enabled: boolean;

@@ -222,19 +222,13 @@ func (a *BaseAgent) Run(ctx context.Context) {
 				a.logger.Warn("发送响应时 context 已取消，丢弃响应",
 					zap.String("task_id", env.Req.ID))
 				// 向 replyCh 发送 error 响应，避免 SendTask 调用方永远等待
-				select {
-				case env.ReplyCh <- TaskResponse{Status: "failed", Error: "context canceled", AgentID: a.card.ID, RequestID: env.Req.ID}:
-				default:
-				}
+				env.ReplyCh <- TaskResponse{Status: "failed", Error: "context canceled", AgentID: a.card.ID, RequestID: env.Req.ID}
 				a.setStatus(StatusStopped)
 				return
 			case <-a.mailbox.Quit:
 				a.logger.Info("发送响应时收到退出信号")
 				// 向 replyCh 发送 error 响应，避免 SendTask 调用方永远等待
-				select {
-				case env.ReplyCh <- TaskResponse{Status: "failed", Error: "agent quit", AgentID: a.card.ID, RequestID: env.Req.ID}:
-				default:
-				}
+				env.ReplyCh <- TaskResponse{Status: "failed", Error: "agent quit", AgentID: a.card.ID, RequestID: env.Req.ID}
 				a.setStatus(StatusStopped)
 				return
 			}

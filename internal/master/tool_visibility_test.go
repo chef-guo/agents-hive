@@ -1,6 +1,7 @@
 package master
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
@@ -46,6 +47,52 @@ func TestModelVisibleTools_DefaultsHideExtensionsAfterDiscoveryUntilRouted(t *te
 	}
 	if !session.IsToolDiscovered("custom_ext") || !session.IsToolDiscovered("acme__publish") {
 		t.Fatal("tool_search discovery state should still be recorded for audit")
+	}
+}
+
+func TestModelVisibleTools_ReturnsStableToolOrder(t *testing.T) {
+	session := &SessionState{ID: "s-stable-tools"}
+	catalog := []mcphost.ToolDefinition{
+		{Name: "tool_search", Core: true},
+		{Name: "memory"},
+		{Name: "read_file", Core: true},
+		{Name: "skill"},
+	}
+
+	visible := modelVisibleToolsForSession(session, catalog)
+	got := toolNamesForTest(visible)
+	want := []string{"memory", "read_file", "skill", "tool_search"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("visible tool order = %v, want %v", got, want)
+	}
+}
+
+func TestModelVisibleTools_ReturnsStableOrderWithRecalledTool(t *testing.T) {
+	session := &SessionState{ID: "s-stable-recall"}
+	catalog := []mcphost.ToolDefinition{
+		{Name: "tool_search", Core: true},
+		{
+			Name:        "send_im_message",
+			Description: "发送消息到 IM 平台（钉钉/飞书/企业微信/个人微信）",
+			InputSchema: []byte(`{"type":"object","properties":{"platform":{"type":"string"},"content":{"type":"string"}}}`),
+		},
+		{Name: "memory"},
+		{Name: "read_file", Core: true},
+	}
+
+	visible, _ := modelVisibleToolsForSessionWithRecallObservationAndSkillsAndIntent(
+		session,
+		catalog,
+		nil,
+		"发送给飞书用户郭松",
+		config.DefaultToolRecallConfig(),
+		externalSendIntentForVisibilityTest(),
+	)
+
+	got := toolNamesForTest(visible)
+	want := []string{"memory", "read_file", "send_im_message", "tool_search"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("visible tool order = %v, want %v", got, want)
 	}
 }
 
@@ -104,6 +151,12 @@ func TestToolVisibility_RuntimeAllowedToolsAreRouteDecisionBounded(t *testing.T)
 			t.Fatalf("%q must not be runtime-allowed for read turn, allowed=%v", name, session.AllowedToolsSnapshot())
 		}
 	}
+
+	gotAllowed := session.AllowedToolsSnapshot()
+	wantAllowed := []string{"memory", "read_file", "tool_search"}
+	if !reflect.DeepEqual(gotAllowed, wantAllowed) {
+		t.Fatalf("runtime allowed tools order = %v, want %v", gotAllowed, wantAllowed)
+	}
 }
 
 func TestModelVisibleTools_DiscoveredReadOnlyToolEntersNextTurnCandidates(t *testing.T) {
@@ -128,6 +181,71 @@ func TestModelVisibleTools_DiscoveredReadOnlyToolEntersNextTurnCandidates(t *tes
 	}
 	if !obs.RecalledToolNames["websearch"] {
 		t.Fatalf("discovered tool should be marked as recalled for audit: %#v", obs.RecalledToolNames)
+	}
+}
+
+func TestModelVisibleTools_TrustedMCPReadToolCanEnterCandidates(t *testing.T) {
+	session := &SessionState{ID: "s-trusted-mcp-read"}
+	session.RecordDiscoveredTools([]string{"metamcp__query_prometheus"})
+	catalog := []mcphost.ToolDefinition{
+		{Name: "tool_search", Core: true},
+		{
+			Name:         "metamcp__query_prometheus",
+			Description:  "Query Prometheus metrics",
+			SourceServer: "metamcp",
+			Trusted:      true,
+		},
+	}
+
+	visible, obs := modelVisibleToolsForSessionWithRecallObservationAndSkillsAndIntent(
+		session,
+		catalog,
+		nil,
+		"查一下 prometheus 指标",
+		config.DefaultToolRecallConfig(),
+		router.IntentFrame{Kind: router.IntentExternalRead, RequiresExternal: true},
+	)
+
+	if !hasTool(visible, "metamcp__query_prometheus") {
+		t.Fatalf("trusted MCP read tool should be model-visible after discovery/recall: %v", toolNamesForTest(visible))
+	}
+	if !session.IsAllowedTool("metamcp__query_prometheus") {
+		t.Fatalf("trusted MCP read tool should be runtime-allowed, allowed=%v", session.AllowedToolsSnapshot())
+	}
+	entry := obs.Entries["metamcp__query_prometheus"]
+	if !entry.TaskCallable || entry.MayRequireApproval || entry.DiscoveryOnly {
+		t.Fatalf("trusted MCP read admission should be callable without approval: %+v", entry)
+	}
+}
+
+func TestModelVisibleTools_TrustedMCPDangerousToolNeedsRouteBlock(t *testing.T) {
+	session := &SessionState{ID: "s-trusted-mcp-danger"}
+	session.RecordDiscoveredTools([]string{"metamcp__delete_dashboard"})
+	catalog := []mcphost.ToolDefinition{
+		{Name: "tool_search", Core: true},
+		{
+			Name:         "metamcp__delete_dashboard",
+			Description:  "Delete Grafana dashboard",
+			SourceServer: "metamcp",
+			Trusted:      true,
+		},
+	}
+
+	visible, obs := modelVisibleToolsForSessionWithRecallObservationAndSkillsAndIntent(
+		session,
+		catalog,
+		nil,
+		"查一下 dashboard",
+		config.DefaultToolRecallConfig(),
+		router.IntentFrame{Kind: router.IntentExternalRead, RequiresExternal: true},
+	)
+
+	if hasTool(visible, "metamcp__delete_dashboard") {
+		t.Fatalf("trusted but destructive MCP tool should not be visible for read intent: %v", toolNamesForTest(visible))
+	}
+	entry := obs.Entries["metamcp__delete_dashboard"]
+	if !entry.MayRequireApproval || entry.TaskCallable {
+		t.Fatalf("trusted destructive MCP admission should require approval and not be task-callable: %+v", entry)
 	}
 }
 

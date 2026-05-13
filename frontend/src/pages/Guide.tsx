@@ -7,10 +7,12 @@ import {
   Layout,
   MessageSquare,
   Wrench,
-  Zap,
-  Settings2,
-  Share2,
-  Code2,
+  BrainCircuit,
+  Users,
+  ShieldCheck,
+  FlaskConical,
+  Network,
+  Bot,
   CheckCircle2,
   Circle,
   ChevronDown,
@@ -35,51 +37,69 @@ interface GuideSectionDef {
   steps: GuideStepDef[];
 }
 
-const GUIDE_SECTIONS: GuideSectionDef[] = [
-  {
-    key: 'quickStart',
-    icon: Rocket,
-    steps: [{ key: 'prerequisites' }, { key: 'buildAndRun' }, { key: 'verify' }],
-  },
-  {
-    key: 'webuiBasics',
-    icon: Layout,
-    steps: [{ key: 'layout' }, { key: 'themeAndLang' }, { key: 'dashboard' }],
-  },
-  {
-    key: 'sessionManagement',
-    icon: MessageSquare,
-    steps: [{ key: 'createSession' }, { key: 'sessionList' }, { key: 'deleteSession' }, { key: 'forkRevert' }],
-  },
-  {
-    key: 'chatWithAgent',
-    icon: Wrench,
-    steps: [{ key: 'sendMessage' }, { key: 'responseStates' }, { key: 'messageActions' }, { key: 'canvas' }],
-  },
-  {
-    key: 'toolsAndSkills',
-    icon: Zap,
-    steps: [{ key: 'allTools' }, { key: 'viewAgents' }, { key: 'viewSkills' }, { key: 'hitl' }, { key: 'parallelTasks' }],
-  },
-  {
-    key: 'configuration',
-    icon: Settings2,
-    steps: [{ key: 'configFile' }, { key: 'llmProvider' }, { key: 'profiles' }, { key: 'extensionsPlugins' }],
-  },
-  {
-    key: 'imChannels',
-    icon: Share2,
-    steps: [{ key: 'overview' }, { key: 'channelConfig' }, { key: 'webhook' }],
-  },
-  {
-    key: 'apiReference',
-    icon: Code2,
-    steps: [{ key: 'healthAndSession' }, { key: 'chatApi' }, { key: 'websocket' }],
-  },
-];
+export type GuideVariant = 'user' | 'admin';
 
-// 计算总步骤数
-const TOTAL_STEPS = GUIDE_SECTIONS.reduce((sum, s) => sum + s.steps.length, 0);
+const GUIDE_SECTION_CONFIGS: Record<GuideVariant, GuideSectionDef[]> = {
+  user: [
+    {
+      key: 'gettingStarted',
+      icon: Rocket,
+      steps: [{ key: 'loginAndConnection' }, { key: 'startConversation' }, { key: 'sendMessage' }, { key: 'modelAndThinking' }, { key: 'attachments' }],
+    },
+    {
+      key: 'sessions',
+      icon: MessageSquare,
+      steps: [{ key: 'sidebar' }, { key: 'newSession' }, { key: 'searchOrganize' }, { key: 'clearDelete' }],
+    },
+    {
+      key: 'messagesAndTools',
+      icon: Wrench,
+      steps: [{ key: 'streamingStates' }, { key: 'toolCards' }, { key: 'approvals' }, { key: 'messageActions' }, { key: 'todos' }],
+    },
+    {
+      key: 'workspace',
+      icon: Layout,
+      steps: [{ key: 'canvasArtifacts' }, { key: 'replayGallery' }, { key: 'preferences' }, { key: 'wechat' }],
+    },
+  ],
+  admin: [
+    {
+      key: 'adminOverview',
+      icon: Layout,
+      steps: [{ key: 'navigation' }, { key: 'dashboard' }, { key: 'accessModel' }],
+    },
+    {
+      key: 'agentsSkills',
+      icon: Bot,
+      steps: [{ key: 'agents' }, { key: 'skills' }, { key: 'remoteAgents' }, { key: 'multiAgent' }],
+    },
+    {
+      key: 'llmProviders',
+      icon: BrainCircuit,
+      steps: [{ key: 'providers' }, { key: 'models' }, { key: 'runtimeSwitch' }],
+    },
+    {
+      key: 'usersAuth',
+      icon: Users,
+      steps: [{ key: 'users' }, { key: 'usage' }, { key: 'authProviders' }, { key: 'rolesQuota' }],
+    },
+    {
+      key: 'runtimeSecurity',
+      icon: ShieldCheck,
+      steps: [{ key: 'systemSettings' }, { key: 'permissionRules' }, { key: 'execRules' }, { key: 'integrations' }, { key: 'mcpTools' }],
+    },
+    {
+      key: 'operationsQuality',
+      icon: FlaskConical,
+      steps: [{ key: 'scheduledTasks' }, { key: 'replay' }, { key: 'prompts' }, { key: 'qualityCandidates' }, { key: 'qualityWorkbench' }, { key: 'memoryAndOptimization' }],
+    },
+    {
+      key: 'channelsApi',
+      icon: Network,
+      steps: [{ key: 'imChannels' }, { key: 'webhooks' }, { key: 'apiWebSocket' }],
+    },
+  ],
+};
 
 // 扁平化步骤列表，用于上一步/下一步导航
 interface FlatStep {
@@ -88,17 +108,28 @@ interface FlatStep {
   index: number; // 全局序号（0-based）
 }
 
-const FLAT_STEPS: FlatStep[] = GUIDE_SECTIONS.flatMap((section) =>
-  section.steps.map((step) => ({
-    sectionKey: section.key,
-    stepKey: step.key,
-    index: 0, // 下面赋值
-  }))
-).map((s, i) => ({ ...s, index: i }));
-
 // 生成步骤 ID
 function stepId(sectionKey: string, stepKey: string) {
   return `${sectionKey}.${stepKey}`;
+}
+
+function buildFlatSteps(sections: GuideSectionDef[]): FlatStep[] {
+  return sections.flatMap((section) =>
+    section.steps.map((step) => ({
+      sectionKey: section.key,
+      stepKey: step.key,
+      index: 0,
+    }))
+  ).map((s, i) => ({ ...s, index: i }));
+}
+
+function loadGuideProgress(variant: GuideVariant) {
+  try {
+    const saved = localStorage.getItem(`guide-progress-${variant}`);
+    return saved ? new Set(JSON.parse(saved) as string[]) : new Set<string>();
+  } catch {
+    return new Set<string>();
+  }
 }
 
 // ---- 进度条组件 ----
@@ -120,10 +151,10 @@ function GuideProgressBar({
       <div className="flex-1">
         <div className="flex items-center justify-between mb-2">
           <span className="text-sm font-medium text-[var(--text-primary)]">
-            {t('guide.progressLabel')}
+            {t('guide.common.progressLabel')}
           </span>
           <span className="text-sm text-[var(--text-secondary)]">
-            {t('guide.progress', { done, total })}
+            {t('guide.common.progress', { done, total })}
           </span>
         </div>
         <div className="h-2 bg-[var(--bg-secondary)] rounded-full overflow-hidden">
@@ -136,10 +167,10 @@ function GuideProgressBar({
       <button
         onClick={onReset}
         className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-secondary)] transition-colors"
-        title={t('guide.resetProgress')}
+        title={t('guide.common.resetProgress')}
       >
         <RotateCcw className="w-3.5 h-3.5" />
-        <span className="hidden sm:inline">{t('guide.resetProgress')}</span>
+        <span className="hidden sm:inline">{t('guide.common.resetProgress')}</span>
       </button>
     </div>
   );
@@ -149,11 +180,13 @@ function GuideProgressBar({
 
 function GuideTOC({
   sections,
+  contentBase,
   completed,
   activeSectionKey,
   onNavigate,
 }: {
   sections: GuideSectionDef[];
+  contentBase: string;
   completed: Set<string>;
   activeSectionKey: string;
   onNavigate: (sectionKey: string) => void;
@@ -189,7 +222,7 @@ function GuideTOC({
         }`}
       >
         <Icon className="w-4 h-4 shrink-0" />
-        <span className="flex-1 truncate">{t(`guide.${section.key}.title`)}</span>
+        <span className="flex-1 truncate">{t(`${contentBase}.${section.key}.title`)}</span>
         <span className="text-xs tabular-nums">
           {done}/{total}
         </span>
@@ -205,7 +238,7 @@ function GuideTOC({
           onClick={() => setOpen(!open)}
           className="w-full flex items-center justify-between px-5 py-4 bg-[var(--bg-card)] border border-[var(--border-color)] rounded-2xl shadow-sm text-sm font-medium text-[var(--text-primary)]"
         >
-          <span>{t('guide.tableOfContents')}</span>
+          <span>{t('guide.common.tableOfContents')}</span>
           {open ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
         </button>
         {open && (
@@ -221,7 +254,7 @@ function GuideTOC({
       <div className="hidden lg:block w-64 shrink-0">
         <div className="sticky top-0 p-3 bg-[var(--bg-card)] border border-[var(--border-color)] rounded-2xl shadow-sm">
           <h3 className="px-3 py-2 text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider">
-            {t('guide.tableOfContents')}
+            {t('guide.common.tableOfContents')}
           </h3>
           <nav className="space-y-1">
             {sections.map(renderItem)}
@@ -237,6 +270,7 @@ function GuideTOC({
 function StepDetailView({
   sectionKey,
   stepKey,
+  contentBase,
   isCompleted,
   onToggle,
   onBack,
@@ -245,6 +279,7 @@ function StepDetailView({
 }: {
   sectionKey: string;
   stepKey: string;
+  contentBase: string;
   isCompleted: boolean;
   onToggle: () => void;
   onBack: () => void;
@@ -252,10 +287,10 @@ function StepDetailView({
   onNext: (() => void) | null;
 }) {
   const { t } = useTranslation();
-  const i18nBase = `guide.${sectionKey}.${stepKey}`;
+  const i18nBase = `${contentBase}.${sectionKey}.${stepKey}`;
   const title = t(`${i18nBase}.title`);
   const desc = t(`${i18nBase}.desc`);
-  const sectionTitle = t(`guide.${sectionKey}.title`);
+  const sectionTitle = t(`${contentBase}.${sectionKey}.title`);
 
   // detail 字段（Markdown 格式）
   const detailKey = `${i18nBase}.detail`;
@@ -273,14 +308,14 @@ function StepDetailView({
       // 有 detail 时，用 detail 作为主内容，tip 追加到末尾
       let content = detailRaw;
       if (hasTip) {
-        content += `\n\n> **💡 ${t('guide.tip')}：** ${tip}`;
+        content += `\n\n> **${t('guide.common.tip')}:** ${tip}`;
       }
       return content;
     }
     // 没有 detail 时，fallback 显示 desc + tip
     let content = desc;
     if (hasTip) {
-      content += `\n\n> **💡 ${t('guide.tip')}：** ${tip}`;
+      content += `\n\n> **${t('guide.common.tip')}:** ${tip}`;
     }
     return content;
   }, [hasDetail, detailRaw, hasTip, tip, desc, t]);
@@ -294,12 +329,12 @@ function StepDetailView({
           className="flex items-center gap-1 text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
         >
           <ArrowLeft className="w-4 h-4" />
-          <span>{t('guide.back')}</span>
+          <span>{t('guide.common.back')}</span>
         </button>
         <span className="text-[var(--text-secondary)]">/</span>
         <span className="text-[var(--text-secondary)]">{sectionTitle}</span>
         <span className="text-[var(--text-secondary)]">/</span>
-        <span className="text-[var(--text-primary)] font-medium truncate">{stepKey}</span>
+        <span className="text-[var(--text-primary)] font-medium truncate">{title}</span>
       </div>
 
       {/* 标题 + 完成按钮 */}
@@ -318,7 +353,7 @@ function StepDetailView({
           ) : (
             <Circle className="w-3.5 h-3.5" />
           )}
-          <span>{isCompleted ? t('guide.markIncomplete') : t('guide.markComplete')}</span>
+          <span>{isCompleted ? t('guide.common.markIncomplete') : t('guide.common.markComplete')}</span>
         </button>
       </div>
 
@@ -339,7 +374,7 @@ function StepDetailView({
             className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-lg text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-secondary)] transition-colors"
           >
             <ChevronLeft className="w-4 h-4" />
-            <span>{t('guide.prevStep')}</span>
+            <span>{t('guide.common.prevStep')}</span>
           </button>
         ) : (
           <div />
@@ -349,7 +384,7 @@ function StepDetailView({
             onClick={onNext}
             className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-lg bg-[var(--accent-600)] hover:bg-[var(--accent-700)] text-white transition-colors"
           >
-            <span>{t('guide.nextStep')}</span>
+            <span>{t('guide.common.nextStep')}</span>
             <ChevronRight className="w-4 h-4" />
           </button>
         ) : (
@@ -365,18 +400,20 @@ function StepDetailView({
 function GuideStep({
   sectionKey,
   stepKey,
+  contentBase,
   isCompleted,
   onToggle,
   onSelect,
 }: {
   sectionKey: string;
   stepKey: string;
+  contentBase: string;
   isCompleted: boolean;
   onToggle: () => void;
   onSelect: () => void;
 }) {
   const { t } = useTranslation();
-  const i18nBase = `guide.${sectionKey}.${stepKey}`;
+  const i18nBase = `${contentBase}.${sectionKey}.${stepKey}`;
   const title = t(`${i18nBase}.title`);
   const desc = t(`${i18nBase}.desc`);
   const tipKey = `${i18nBase}.tip`;
@@ -449,12 +486,14 @@ function GuideStep({
 
 function GuideSection({
   section,
+  contentBase,
   completed,
   onToggleStep,
   onSelectStep,
   sectionRef,
 }: {
   section: GuideSectionDef;
+  contentBase: string;
   completed: Set<string>;
   onToggleStep: (id: string) => void;
   onSelectStep: (sectionKey: string, stepKey: string) => void;
@@ -473,11 +512,11 @@ function GuideSection({
         <div className="flex items-center gap-2.5">
           <Icon className="w-5 h-5 text-[var(--accent-600)] dark:text-[var(--accent-300)]" />
           <h2 className="text-lg font-semibold text-[var(--text-primary)] font-display">
-            {t(`guide.${section.key}.title`)}
+            {t(`${contentBase}.${section.key}.title`)}
           </h2>
         </div>
         <p className="text-sm text-[var(--text-secondary)] mt-1 ml-7.5">
-          {t(`guide.${section.key}.desc`)}
+          {t(`${contentBase}.${section.key}.desc`)}
         </p>
       </div>
       <div className="p-3 space-y-1">
@@ -488,6 +527,7 @@ function GuideSection({
               key={id}
               sectionKey={section.key}
               stepKey={step.key}
+              contentBase={contentBase}
               isCompleted={completed.has(id)}
               onToggle={() => onToggleStep(id)}
               onSelect={() => onSelectStep(section.key, step.key)}
@@ -501,24 +541,21 @@ function GuideSection({
 
 // ---- 页面主组件 ----
 
-export function Guide() {
+export function Guide({ variant = 'user' }: { variant?: GuideVariant }) {
   const { t } = useTranslation();
+  const sections = GUIDE_SECTION_CONFIGS[variant];
+  const contentBase = `guide.${variant}`;
+  const flatSteps = useMemo(() => buildFlatSteps(sections), [sections]);
+  const totalSteps = flatSteps.length;
 
   // 进度状态，从 localStorage 恢复
-  const [completed, setCompleted] = useState<Set<string>>(() => {
-    try {
-      const saved = localStorage.getItem('guide-progress');
-      return saved ? new Set(JSON.parse(saved) as string[]) : new Set();
-    } catch {
-      return new Set();
-    }
-  });
+  const [completed, setCompleted] = useState<Set<string>>(() => loadGuideProgress(variant));
 
   // 当前选中的步骤（null = 列表视图）
   const [selectedStep, setSelectedStep] = useState<{ sectionKey: string; stepKey: string } | null>(null);
 
   // 当前可见的 section（scroll-spy）
-  const [activeSectionKey, setActiveSectionKey] = useState(GUIDE_SECTIONS[0].key);
+  const [activeSectionKey, setActiveSectionKey] = useState(sections[0].key);
 
   // section 元素引用
   const sectionRefs = useRef<Record<string, HTMLElement | null>>({});
@@ -550,8 +587,8 @@ export function Guide() {
       // 检测点：滚动容器顶部往下 100px 的位置
       const checkPoint = containerTop + 100;
 
-      let activeKey = GUIDE_SECTIONS[0].key;
-      for (const section of GUIDE_SECTIONS) {
+      let activeKey = sections[0].key;
+      for (const section of sections) {
         const el = sectionRefs.current[section.key];
         if (!el) continue;
         const rect = el.getBoundingClientRect();
@@ -568,7 +605,7 @@ export function Guide() {
     handleScroll();
 
     return () => scrollContainer.removeEventListener('scroll', handleScroll);
-  }, [selectedStep]);
+  }, [selectedStep, sections]);
 
   // 切换步骤完成状态
   const toggleStep = useCallback((id: string) => {
@@ -579,18 +616,18 @@ export function Guide() {
       } else {
         next.add(id);
       }
-      localStorage.setItem('guide-progress', JSON.stringify([...next]));
+      localStorage.setItem(`guide-progress-${variant}`, JSON.stringify([...next]));
       return next;
     });
-  }, []);
+  }, [variant]);
 
   // 重置进度
   const handleReset = useCallback(() => {
-    if (window.confirm(t('guide.resetConfirm'))) {
+    if (window.confirm(t('guide.common.resetConfirm'))) {
       setCompleted(new Set());
-      localStorage.removeItem('guide-progress');
+      localStorage.removeItem(`guide-progress-${variant}`);
     }
-  }, [t]);
+  }, [t, variant]);
 
   // 导航到 section（列表视图时滚动，详情视图时返回列表并滚动）
   const navigateToSection = useCallback((sectionKey: string) => {
@@ -621,47 +658,48 @@ export function Guide() {
   // 获取当前步骤在扁平列表中的索引
   const currentFlatIndex = useMemo(() => {
     if (!selectedStep) return -1;
-    return FLAT_STEPS.findIndex(
+    return flatSteps.findIndex(
       (s) => s.sectionKey === selectedStep.sectionKey && s.stepKey === selectedStep.stepKey
     );
-  }, [selectedStep]);
+  }, [flatSteps, selectedStep]);
 
   // 上一步
   const prevStep = useMemo(() => {
     if (currentFlatIndex <= 0) return null;
-    const prev = FLAT_STEPS[currentFlatIndex - 1];
+    const prev = flatSteps[currentFlatIndex - 1];
     return () => {
       setSelectedStep({ sectionKey: prev.sectionKey, stepKey: prev.stepKey });
       setActiveSectionKey(prev.sectionKey);
     };
-  }, [currentFlatIndex]);
+  }, [currentFlatIndex, flatSteps]);
 
   // 下一步
   const nextStep = useMemo(() => {
-    if (currentFlatIndex < 0 || currentFlatIndex >= FLAT_STEPS.length - 1) return null;
-    const next = FLAT_STEPS[currentFlatIndex + 1];
+    if (currentFlatIndex < 0 || currentFlatIndex >= flatSteps.length - 1) return null;
+    const next = flatSteps[currentFlatIndex + 1];
     return () => {
       setSelectedStep({ sectionKey: next.sectionKey, stepKey: next.stepKey });
       setActiveSectionKey(next.sectionKey);
     };
-  }, [currentFlatIndex]);
+  }, [currentFlatIndex, flatSteps]);
 
   return (
     <div className="p-6 max-w-6xl mx-auto">
       {/* 页面标题 */}
       <div className="flex items-center gap-3 mb-6">
         <BookOpen className="w-6 h-6 text-[var(--accent-600)] dark:text-[var(--accent-300)]" />
-        <h1 className="text-xl font-bold text-[var(--text-primary)]">{t('guide.title')}</h1>
+        <h1 className="text-xl font-bold text-[var(--text-primary)]">{t(`${contentBase}.title`)}</h1>
       </div>
 
       {/* 进度条 */}
-      <GuideProgressBar done={completed.size} total={TOTAL_STEPS} onReset={handleReset} />
+      <GuideProgressBar done={completed.size} total={totalSteps} onReset={handleReset} />
 
       {/* 主体：目录 + 内容 */}
       <div className="flex gap-6">
         {/* 目录导航 */}
         <GuideTOC
-          sections={GUIDE_SECTIONS}
+          sections={sections}
+          contentBase={contentBase}
           completed={completed}
           activeSectionKey={activeSectionKey}
           onNavigate={navigateToSection}
@@ -673,6 +711,7 @@ export function Guide() {
             <StepDetailView
               sectionKey={selectedStep.sectionKey}
               stepKey={selectedStep.stepKey}
+              contentBase={contentBase}
               isCompleted={completed.has(stepId(selectedStep.sectionKey, selectedStep.stepKey))}
               onToggle={() => toggleStep(stepId(selectedStep.sectionKey, selectedStep.stepKey))}
               onBack={() => setSelectedStep(null)}
@@ -680,10 +719,11 @@ export function Guide() {
               onNext={nextStep}
             />
           ) : (
-            GUIDE_SECTIONS.map((section) => (
+            sections.map((section) => (
               <GuideSection
                 key={section.key}
                 section={section}
+                contentBase={contentBase}
                 completed={completed}
                 onToggleStep={toggleStep}
                 onSelectStep={selectStep}

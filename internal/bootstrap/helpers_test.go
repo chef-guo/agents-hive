@@ -87,6 +87,62 @@ func TestLoadAllConfigFromDB_PlanRuntimeEnabledDefaultsTrueAndCanBeDisabled(t *t
 	}
 }
 
+func TestLoadAllConfigFromDB_FirstTokenDefaultsAndCanBeDisabled(t *testing.T) {
+	cfg := config.Default()
+	if !cfg.Agent.FirstToken.FastPathEnabled {
+		t.Fatal("test precondition: first-token fast path should default enabled")
+	}
+	if cfg.Agent.FirstToken.PreflightClassifierTimeout != 300*time.Millisecond {
+		t.Fatalf("test precondition: timeout = %v, want 300ms", cfg.Agent.FirstToken.PreflightClassifierTimeout)
+	}
+
+	LoadAllConfigFromDB(fakeConfigStore{cfg: map[string]string{
+		"agent.timeout": "10m",
+	}}, cfg, zap.NewNop())
+
+	if !cfg.Agent.FirstToken.FastPathEnabled {
+		t.Fatal("Agent.FirstToken.FastPathEnabled = false, want missing DB key to preserve default true")
+	}
+	if cfg.Agent.FirstToken.PreflightClassifierTimeout != 300*time.Millisecond {
+		t.Fatalf("Agent.FirstToken.PreflightClassifierTimeout = %v, want missing DB key to preserve 300ms", cfg.Agent.FirstToken.PreflightClassifierTimeout)
+	}
+
+	LoadAllConfigFromDB(fakeConfigStore{cfg: map[string]string{
+		"agent.first_token.fast_path_enabled":            "false",
+		"agent.first_token.preflight_classifier_timeout": "75ms",
+	}}, cfg, zap.NewNop())
+
+	if cfg.Agent.FirstToken.FastPathEnabled {
+		t.Fatal("Agent.FirstToken.FastPathEnabled = true, want DB config false to disable it")
+	}
+	if cfg.Agent.FirstToken.PreflightClassifierTimeout != 75*time.Millisecond {
+		t.Fatalf("Agent.FirstToken.PreflightClassifierTimeout = %v, want DB config 75ms", cfg.Agent.FirstToken.PreflightClassifierTimeout)
+	}
+}
+
+func TestLoadAllConfigFromDB_ActionGuardDefaultsTrueAndCanBeDisabled(t *testing.T) {
+	cfg := config.Default()
+	if !cfg.Agent.ActionGuardEnabled {
+		t.Fatal("test precondition: ActionGuard should default enabled")
+	}
+
+	LoadAllConfigFromDB(fakeConfigStore{cfg: map[string]string{
+		"agent.timeout": "10m",
+	}}, cfg, zap.NewNop())
+
+	if !cfg.Agent.ActionGuardEnabled {
+		t.Fatal("Agent.ActionGuardEnabled = false, want missing DB key to preserve default true")
+	}
+
+	LoadAllConfigFromDB(fakeConfigStore{cfg: map[string]string{
+		"agent.action_guard_enabled": "false",
+	}}, cfg, zap.NewNop())
+
+	if cfg.Agent.ActionGuardEnabled {
+		t.Fatal("Agent.ActionGuardEnabled = true, want DB config false to disable it")
+	}
+}
+
 type channelConfigMemoryStore struct {
 	store.Store
 	records []*store.ChannelConfigRecord
@@ -160,28 +216,32 @@ func TestLoadChannelConfigsFromDB_LoadsWechatbotOfficialFlag(t *testing.T) {
 func TestBuildLLMExtraConfig_AllFields(t *testing.T) {
 	cfg := &config.Config{
 		LLM: config.LLMConfig{
-			GoogleAPIKey:     "gkey",
-			AzureAPIKey:      "akey",
-			AzureDeployment:  "deploy1",
-			AzureEndpoint:    "https://azure.example.com",
-			ReasoningEffort:  "high",
-			DisableJSONMode:  true,
-			StorePrivacy:     true,
-			ModelRegistryURL: "https://registry.example.com",
+			GoogleAPIKey:           "gkey",
+			AzureAPIKey:            "akey",
+			AzureDeployment:        "deploy1",
+			AzureEndpoint:          "https://azure.example.com",
+			ReasoningEffort:        "high",
+			DisableJSONMode:        true,
+			StorePrivacy:           true,
+			PromptCacheKeyEnabled:  true,
+			InteractiveServiceTier: "priority",
+			ModelRegistryURL:       "https://registry.example.com",
 		},
 	}
 
 	extra := BuildLLMExtraConfig(cfg)
 
 	expected := map[string]any{
-		"google_api_key":     "gkey",
-		"azure_api_key":      "akey",
-		"azure_deployment":   "deploy1",
-		"azure_endpoint":     "https://azure.example.com",
-		"reasoning_effort":   "high",
-		"disable_json_mode":  true,
-		"store_privacy":      true,
-		"model_registry_url": "https://registry.example.com",
+		"google_api_key":           "gkey",
+		"azure_api_key":            "akey",
+		"azure_deployment":         "deploy1",
+		"azure_endpoint":           "https://azure.example.com",
+		"reasoning_effort":         "high",
+		"disable_json_mode":        true,
+		"store_privacy":            true,
+		"prompt_cache_key_enabled": true,
+		"interactive_service_tier": "priority",
+		"model_registry_url":       "https://registry.example.com",
 	}
 
 	if len(extra) != len(expected) {

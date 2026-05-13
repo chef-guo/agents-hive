@@ -47,6 +47,8 @@ type RouterConfig struct {
 	DisableJSONMode  bool
 	ReasoningEffort  string
 	StorePrivacy     bool
+	PromptCacheKey   bool
+	ServiceTier      string
 }
 
 // Router AI 服务路由器 — 所有 AI 能力的单一入口
@@ -97,6 +99,8 @@ func NewRouter(cfg RouterConfig) *Router {
 			ReasoningEffort: cfg.ReasoningEffort,
 			DisableJSONMode: cfg.DisableJSONMode,
 			StorePrivacy:    cfg.StorePrivacy,
+			PromptCacheKey:  cfg.PromptCacheKey,
+			ServiceTier:     cfg.ServiceTier,
 		}}
 		r.userModel = "default"
 	}
@@ -144,6 +148,8 @@ func (r *Router) GetLLMClient(task LLMTaskType) *llm.Client {
 		DisableJSONMode: model.DisableJSONMode,
 		ReasoningEffort: model.ReasoningEffort,
 		StorePrivacy:    model.StorePrivacy,
+		PromptCacheKey:  model.PromptCacheKey,
+		ServiceTier:     model.ServiceTier,
 	}
 
 	client := r.llmPool.Get(cfg)
@@ -328,6 +334,10 @@ func (r *Router) Reload(ctx context.Context) error {
 		var reasoningEffort string
 		var disableJSONMode bool
 		var storePrivacy bool
+		promptCacheKey := r.defaultCfg.PromptCacheKey
+		promptCacheKeySet := false
+		serviceTier := r.defaultCfg.ServiceTier
+		serviceTierSet := false
 		var costTierOverride CostTier
 
 		if m.ConfigJSON != "" {
@@ -342,6 +352,14 @@ func (r *Router) Reload(ctx context.Context) error {
 				if v, ok := cfg["store_privacy"].(bool); ok {
 					storePrivacy = v
 				}
+				if v, ok := cfg["prompt_cache_key_enabled"].(bool); ok {
+					promptCacheKey = v
+					promptCacheKeySet = true
+				}
+				if v, ok := cfg["interactive_service_tier"].(string); ok {
+					serviceTier = v
+					serviceTierSet = true
+				}
 				if v, ok := cfg["cost_tier"].(float64); ok {
 					costTierOverride = CostTier(int(v))
 				}
@@ -349,10 +367,10 @@ func (r *Router) Reload(ctx context.Context) error {
 		}
 
 		// provider 级 config_json 作为 fallback
-		if p.ConfigJSON != "" && reasoningEffort == "" {
+		if p.ConfigJSON != "" {
 			var pcfg map[string]any
 			if err := json.Unmarshal([]byte(p.ConfigJSON), &pcfg); err == nil {
-				if v, ok := pcfg["reasoning_effort"].(string); ok {
+				if v, ok := pcfg["reasoning_effort"].(string); ok && reasoningEffort == "" {
 					reasoningEffort = v
 				}
 				if v, ok := pcfg["disable_json_mode"].(bool); ok && !disableJSONMode {
@@ -360,6 +378,12 @@ func (r *Router) Reload(ctx context.Context) error {
 				}
 				if v, ok := pcfg["store_privacy"].(bool); ok && !storePrivacy {
 					storePrivacy = v
+				}
+				if v, ok := pcfg["prompt_cache_key_enabled"].(bool); ok && !promptCacheKeySet {
+					promptCacheKey = v
+				}
+				if v, ok := pcfg["interactive_service_tier"].(string); ok && !serviceTierSet {
+					serviceTier = v
 				}
 			}
 		}
@@ -381,6 +405,8 @@ func (r *Router) Reload(ctx context.Context) error {
 			ReasoningEffort: reasoningEffort,
 			DisableJSONMode: disableJSONMode,
 			StorePrivacy:    storePrivacy,
+			PromptCacheKey:  promptCacheKey,
+			ServiceTier:     serviceTier,
 		}
 
 		scoredModels = append(scoredModels, score)

@@ -342,6 +342,8 @@ func InitServer(cfg *config.Config, configPath string, logger *zap.Logger) *Serv
 		DisableJSONMode:  cfg.LLM.DisableJSONMode,
 		ReasoningEffort:  cfg.LLM.ReasoningEffort,
 		StorePrivacy:     cfg.LLM.StorePrivacy,
+		PromptCacheKey:   cfg.LLM.PromptCacheKeyEnabled,
+		ServiceTier:      cfg.LLM.InteractiveServiceTier,
 	})
 	sc.LLMClient = sc.AIRouter.GetUserLLMClient()
 
@@ -367,9 +369,13 @@ func InitServer(cfg *config.Config, configPath string, logger *zap.Logger) *Serv
 		PluginMgr:                   sc.PluginMgr,
 		InstructionURLs:             cfg.InstructionURLs,
 		StorePrivacy:                cfg.LLM.StorePrivacy,
+		PromptCacheKey:              cfg.LLM.PromptCacheKeyEnabled,
+		ServiceTier:                 cfg.LLM.InteractiveServiceTier,
 		Router:                      sc.AIRouter,
 		ToolPolicy:                  cfg.Agent.ToolPolicy,
 		ToolRecall:                  cfg.Agent.ToolRecall,
+		FirstToken:                  cfg.Agent.FirstToken,
+		ActionGuardEnabled:          cfg.Agent.ActionGuardEnabled,
 		MaxSessionCost:              cfg.Agent.MaxSessionCost,
 		SpecDriven:                  cfg.SpecDriven,
 		PlanRuntime:                 cfg.Agent.PlanRuntime,
@@ -1049,6 +1055,8 @@ func newMemoryExtractor(memStore memory.MemoryStore, cfg *config.Config, logger 
 		Provider:        provDef,
 		ReasoningEffort: cfg.LLM.ReasoningEffort,
 		StorePrivacy:    cfg.LLM.StorePrivacy,
+		PromptCacheKey:  cfg.LLM.PromptCacheKeyEnabled,
+		ServiceTier:     cfg.LLM.InteractiveServiceTier,
 	}, logger)
 	return memory.NewExtractorWithStructured(memStore, memory.JSONStructuredExtractor{
 		Generate: func(ctx context.Context, prompt string) (string, error) {

@@ -3,8 +3,10 @@ package gateway
 import (
 	"context"
 	"encoding/json"
+	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -328,6 +330,14 @@ func registerConfigMethods(gw *Gateway, deps Deps) {
 							Headers:   srv.Headers,
 							Timeout:   srv.Timeout,
 						}
+						zap.L().Info("收到 MCP 服务端配置更新",
+							zap.String("name", name),
+							zap.String("transport", srv.Transport),
+							zap.String("url", safeURLForLog(srv.URL)),
+							zap.Strings("header_keys", sortedStringMapKeys(srv.Headers)),
+							zap.Bool("has_x_api_key", srv.Headers["X-API-Key"] != ""),
+							zap.Bool("has_authorization", srv.Headers["Authorization"] != ""),
+						)
 						saveMCPServerToDB(ctx, deps.Store, name, srv)
 					}
 				}
@@ -511,7 +521,35 @@ func saveMCPServerToDB(ctx context.Context, db store.Store, name string, srv *MC
 		Enabled:   true,
 	}); err != nil {
 		zap.L().Error("持久化 MCP 服务端配置失败", zap.String("name", name), zap.Error(err))
+		return
 	}
+	zap.L().Info("MCP 服务端配置已持久化",
+		zap.String("name", name),
+		zap.String("transport", transport),
+		zap.String("url", safeURLForLog(srv.URL)),
+		zap.Strings("header_keys", sortedStringMapKeys(srv.Headers)),
+		zap.Bool("has_x_api_key", srv.Headers["X-API-Key"] != ""),
+		zap.Bool("has_authorization", srv.Headers["Authorization"] != ""),
+	)
+}
+
+func sortedStringMapKeys(m map[string]string) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func safeURLForLog(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return "<invalid-url>"
+	}
+	u.RawQuery = ""
+	u.Fragment = ""
+	return u.String()
 }
 
 // parseDurationStr 解析时间字符串（如 "30m"、"60s"），支持 time.ParseDuration 格式

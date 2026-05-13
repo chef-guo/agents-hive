@@ -77,6 +77,8 @@ type Client struct {
 	requestTransformer *ChainRequestTransformer // 请求级转换器（缓存、推理等）
 	reasoningEffort    string                   // 统一的推理努力级别
 	storePrivacy       bool                     // 隐私保护选项
+	promptCacheKey     bool                     // 是否设置 prompt_cache_key
+	serviceTier        string                   // 交互式请求 service_tier
 }
 
 // isResponseFormatError 检测错误是否由不支持的 response_format 参数引起。
@@ -222,6 +224,8 @@ type ClientConfig struct {
 	Provider        ProviderDef
 	ReasoningEffort string // 统一的推理努力级别: "low"/"medium"/"high"/"max"，空字符串表示不启用
 	StorePrivacy    bool   // 隐私保护：为 OpenAI/Copilot 请求设置 store=false
+	PromptCacheKey  bool   // 是否设置 prompt_cache_key
+	ServiceTier     string // 交互式请求 service_tier，空表示不设置
 }
 
 // NewClient 创建一个新的 LLM client。
@@ -263,9 +267,11 @@ func NewClient(cfg ClientConfig, logger *zap.Logger) *Client {
 		disableJSONMode:    cfg.DisableJSONMode,
 		provider:           cfg.Provider,
 		transformer:        DefaultTransformerWithModel(cfg.Model, logger),
-		requestTransformer: DefaultRequestTransformer(cfg.ReasoningEffort, logger, WithStorePrivacy(cfg.StorePrivacy)),
+		requestTransformer: DefaultRequestTransformer(cfg.ReasoningEffort, logger, WithStorePrivacy(cfg.StorePrivacy), WithPromptCacheKey(cfg.PromptCacheKey)),
 		reasoningEffort:    cfg.ReasoningEffort,
 		storePrivacy:       cfg.StorePrivacy,
+		promptCacheKey:     cfg.PromptCacheKey,
+		serviceTier:        strings.TrimSpace(cfg.ServiceTier),
 	}
 }
 
@@ -313,7 +319,7 @@ func (c *Client) Reconfigure(model, baseURL string, provider ProviderDef) {
 
 	// 重建消息转换器和请求转换器（provider/model 可能已切换）
 	c.transformer = DefaultTransformerWithModel(model, c.logger)
-	c.requestTransformer = DefaultRequestTransformer(c.reasoningEffort, c.logger, WithStorePrivacy(c.storePrivacy))
+	c.requestTransformer = DefaultRequestTransformer(c.reasoningEffort, c.logger, WithStorePrivacy(c.storePrivacy), WithPromptCacheKey(c.promptCacheKey))
 
 	if baseURL != "" && baseURL != c.baseURL {
 		c.baseURL = baseURL
@@ -387,11 +393,13 @@ type Message struct {
 
 // ChatRequest 保存聊天补全的参数。
 type ChatRequest struct {
-	SystemPrompt string
-	Messages     []Message
-	Temperature  float64
-	MaxTokens    int64
-	JSONMode     bool
+	SystemPrompt   string
+	Messages       []Message
+	Temperature    float64
+	MaxTokens      int64
+	JSONMode       bool
+	UserID         string
+	PromptVersions []string
 }
 
 // ChatResponse 保存聊天补全的结果。
@@ -512,6 +520,7 @@ func (c *Client) Chat(ctx context.Context, req ChatRequest) (*ChatResponse, erro
 			Model:    snapModel,
 			Messages: messages,
 			Params:   &params,
+			CacheKey: stablePromptCacheKey(snapModel, req.UserID, req.PromptVersions, nil),
 		})
 		// 回写可能被修改的 messages
 		params.Messages = messages
@@ -647,6 +656,8 @@ type ChatWithToolsRequest struct {
 	MaxTokens       int64
 	Tools           []mcphost.ToolDefinition // 可用工具
 	ReasoningEffort string                   // 单次请求覆盖的推理努力级别（可选，覆盖客户端默认值）
+	UserID          string                   // 去标识化后参与 prompt_cache_key 分桶
+	PromptVersions  []string                 // prompt/cache 版本标识，影响 prompt_cache_key
 	// ToolChoice 控制工具调用策略，空字符串表示 auto（与旧行为一致）。
 	// 合法值："" / "auto" / "required" / "none" / 具体工具名（强制指定单个工具）。
 	// 见 docs/计划与路线/Agent-质量护栏治理计划.md P0-A。
@@ -713,22 +724,9 @@ func (c *Client) ChatWithTools(ctx context.Context, req ChatWithToolsRequest) (*
 	}
 
 	// 1. 转换 mcphost.ToolDefinition → openai.ChatCompletionTool
-	var tools []openai.ChatCompletionToolParam
-	for _, t := range req.Tools {
-		// 解析输入 schema 为 JSON 用于 FunctionParameters
-		var inputSchema map[string]interface{}
-		if err := json.Unmarshal(t.InputSchema, &inputSchema); err != nil {
-			return nil, errs.Wrap(errs.CodePlanGenFailed, fmt.Sprintf("解析工具输入 schema 失败 %s", t.Name), err)
-		}
-
-		tools = append(tools, openai.ChatCompletionToolParam{
-			Function: openai.FunctionDefinitionParam{
-				Name:        t.Name,
-				Description: openai.String(t.Description),
-				Parameters:  openai.FunctionParameters(inputSchema),
-			},
-			// Type 字段可以省略 - 默认为 "function"
-		})
+	tools, err := convertToolsForChatCompletions(req.Tools)
+	if err != nil {
+		return nil, err
 	}
 
 	// 2. 转换 Messages → openai messages

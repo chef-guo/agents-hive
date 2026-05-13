@@ -746,6 +746,127 @@ func TestInferToolProfileExternalMCPFailClosed(t *testing.T) {
 	}
 }
 
+func TestInferToolProfileConcurrencySafeCustomToolIsReadOnly(t *testing.T) {
+	profile := InferToolProfile(mcphost.ToolDefinition{
+		Name:              "project_status",
+		Description:       "查询项目状态",
+		IsConcurrencySafe: true,
+	}, ProfileHint{})
+
+	if profile.Kind != CapabilityKindCustomTool || profile.Source != CapabilitySourceCustomDir {
+		t.Fatalf("profile kind/source = %+v, want safe custom tool", profile)
+	}
+	if profile.Risk != RiskReadOnly || !profile.ReadOnly || profile.SideEffect || profile.OpenWorld {
+		t.Fatalf("concurrency-safe custom tool should be read-only callable profile: %+v", profile)
+	}
+}
+
+func TestInferToolProfileTrustedMCPDefaultsToReadOnly(t *testing.T) {
+	profile := InferToolProfile(mcphost.ToolDefinition{
+		Name:         "metamcp__query_prometheus",
+		Description:  "Query Prometheus metrics",
+		SourceServer: "metamcp",
+		Trusted:      true,
+	}, ProfileHint{})
+
+	if profile.Kind != CapabilityKindMCPTool || profile.Source != CapabilitySourceMCPServer {
+		t.Fatalf("unexpected trusted MCP profile kind/source: %+v", profile)
+	}
+	if profile.Trust != TrustTrusted {
+		t.Fatalf("Trust = %q, want trusted", profile.Trust)
+	}
+	if profile.Risk != RiskReadOnly || !profile.ReadOnly || profile.SideEffect || profile.OpenWorld || profile.Destructive {
+		t.Fatalf("trusted read MCP should be read-only, got %+v", profile)
+	}
+}
+
+func TestInferToolProfileTrustedMCPDangerousByHeuristic(t *testing.T) {
+	profile := InferToolProfile(mcphost.ToolDefinition{
+		Name:         "metamcp__delete_dashboard",
+		Description:  "Delete a Grafana dashboard",
+		SourceServer: "metamcp",
+		Trusted:      true,
+	}, ProfileHint{})
+
+	if profile.Trust != TrustTrusted {
+		t.Fatalf("Trust = %q, want trusted", profile.Trust)
+	}
+	if profile.Risk != RiskDestructive || !profile.Destructive || !profile.SideEffect {
+		t.Fatalf("trusted dangerous MCP should require guard, got %+v", profile)
+	}
+}
+
+func TestInferToolProfileTrustedMCPHeuristicDoesNotMatchSubstrings(t *testing.T) {
+	profile := InferToolProfile(mcphost.ToolDefinition{
+		Name:         "metamcp__query_postgres_rows",
+		Description:  "Query Postgres rows with columns like updated_at",
+		InputSchema:  json.RawMessage(`{"properties":{"statement":{"type":"string"},"updated_at":{"type":"string"}}}`),
+		SourceServer: "metamcp",
+		Trusted:      true,
+	}, ProfileHint{})
+
+	if profile.Risk != RiskReadOnly || !profile.ReadOnly || profile.SideEffect {
+		t.Fatalf("trusted query MCP should not be marked write/send by substring matches: %+v", profile)
+	}
+}
+
+func TestInferToolProfileTrustedMCPReadOnlyAnnotationDoesNotOverrideDangerousName(t *testing.T) {
+	readOnlyHint := json.RawMessage(`{"readOnlyHint":true}`)
+	profile := InferToolProfile(mcphost.ToolDefinition{
+		Name:         "metamcp__shell_exec",
+		Description:  "Execute shell command",
+		Annotations:  readOnlyHint,
+		SourceServer: "metamcp",
+		Trusted:      true,
+	}, ProfileHint{})
+
+	if profile.Risk != RiskRuntimeExec || !profile.OpenWorld || !profile.SideEffect {
+		t.Fatalf("readOnlyHint must not override host-side runtime danger signals: %+v", profile)
+	}
+}
+
+func TestBuildRouteDecisionBlocksTrustedMCPSideEffectForReadIntent(t *testing.T) {
+	profile := InferToolProfile(mcphost.ToolDefinition{
+		Name:         "metamcp__create_annotation",
+		Description:  "Create Grafana annotation",
+		SourceServer: "metamcp",
+		Trusted:      true,
+	}, ProfileHint{})
+
+	decision := BuildRouteDecision(IntentFrame{Kind: IntentExternalRead, RequiresExternal: true}, []ToolProfile{profile})
+	if containsString(decision.AllowedTools, "metamcp__create_annotation") {
+		t.Fatalf("trusted side-effect MCP should not be callable for read intent: %+v", decision)
+	}
+}
+
+func TestBuildRouteDecisionAllowsTrustedMCPReadTools(t *testing.T) {
+	profile := InferToolProfile(mcphost.ToolDefinition{
+		Name:         "metamcp__query_prometheus",
+		Description:  "Query Prometheus metrics",
+		SourceServer: "metamcp",
+		Trusted:      true,
+	}, ProfileHint{})
+
+	decision := BuildRouteDecision(IntentFrame{Kind: IntentExternalRead, RequiresExternal: true}, []ToolProfile{profile})
+	if !containsString(decision.AllowedTools, "metamcp__query_prometheus") {
+		t.Fatalf("trusted read MCP should be allowed: %+v", decision)
+	}
+}
+
+func TestBuildRouteDecisionAllowsTrustedMCPSideEffectForApproval(t *testing.T) {
+	profile := InferToolProfile(mcphost.ToolDefinition{
+		Name:         "metamcp__create_annotation",
+		Description:  "Create Grafana annotation",
+		SourceServer: "metamcp",
+		Trusted:      true,
+	}, ProfileHint{})
+
+	decision := BuildRouteDecision(IntentFrame{Kind: IntentExternalWrite, RequiresExternal: true, AllowsSideEffects: true}, []ToolProfile{profile})
+	if !containsString(decision.AllowedTools, "metamcp__create_annotation") {
+		t.Fatalf("trusted side-effect MCP should reach ActionGuard approval path: %+v profile=%+v", decision, profile)
+	}
+}
+
 func TestBuildRouteDecisionManageToolAllowsOnlyMCPBuilderWorkflow(t *testing.T) {
 	decision := BuildRouteDecision(IntentFrame{Kind: IntentManageTool}, []ToolProfile{
 		InferSkillWorkflowProfile("mcp-builder", "Build MCP servers"),

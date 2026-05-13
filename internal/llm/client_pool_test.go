@@ -119,11 +119,14 @@ func TestBuildCacheKey(t *testing.T) {
 		{
 			name: "完整配置",
 			cfg: ClientConfig{
-				Provider: LookupProvider("openai"),
-				Model:    "gpt-4",
-				BaseURL:  "https://www.gmini.xyz/v1",
+				Provider:       LookupProvider("openai"),
+				Model:          "gpt-4",
+				BaseURL:        "https://www.gmini.xyz/v1",
+				PromptCacheKey: true,
+				ServiceTier:    "priority",
+				StorePrivacy:   true,
 			},
-			expected: "openai:gpt-4:https://www.gmini.xyz/v1:chat",
+			expected: "openai:gpt-4:https://www.gmini.xyz/v1:chat:cache=true:tier=priority:privacy=true",
 		},
 		{
 			name: "空 BaseURL",
@@ -132,7 +135,7 @@ func TestBuildCacheKey(t *testing.T) {
 				Model:    "gpt-4",
 				BaseURL:  "",
 			},
-			expected: "openai:gpt-4:https://www.gmini.xyz:chat",
+			expected: "openai:gpt-4:https://www.gmini.xyz:chat:cache=false:tier=:privacy=false",
 		},
 		{
 			name: "DeepSeek Provider",
@@ -141,7 +144,7 @@ func TestBuildCacheKey(t *testing.T) {
 				Model:    "deepseek-chat",
 				BaseURL:  "",
 			},
-			expected: "deepseek:deepseek-chat:https://api.deepseek.com:chat",
+			expected: "deepseek:deepseek-chat:https://api.deepseek.com:chat:cache=false:tier=:privacy=false",
 		},
 	}
 

@@ -1,9 +1,11 @@
 package llm
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/openai/openai-go"
+	"github.com/openai/openai-go/packages/param"
 	"github.com/openai/openai-go/responses"
 )
 
@@ -125,5 +127,49 @@ func TestSummarizeResponsesRawEvent_ToolArgumentsDelta(t *testing.T) {
 	}
 	if got.HasText {
 		t.Fatal("HasText = true, want false")
+	}
+}
+
+func TestResponsesRequestPayloadBytes_IncludesStreamingFlag(t *testing.T) {
+	params := responses.ResponseNewParams{
+		Model: "gpt-5.2",
+		Input: responses.ResponseNewParamsInputUnion{
+			OfString: param.NewOpt("你好"),
+		},
+	}
+
+	got, ok := responsesRequestPayloadBytes(params)
+	if !ok {
+		t.Fatal("responsesRequestPayloadBytes ok = false, want true")
+	}
+
+	diagParams := params
+	diagParams.SetExtraFields(map[string]any{"stream": true})
+	payload, err := json.Marshal(diagParams)
+	if err != nil {
+		t.Fatalf("marshal diagnostic params: %v", err)
+	}
+	if got != len(payload) {
+		t.Fatalf("payload bytes = %d, want %d", got, len(payload))
+	}
+	if !json.Valid(payload) {
+		t.Fatal("diagnostic payload is not valid JSON")
+	}
+}
+
+func TestResponsesDiagPlaceholders(t *testing.T) {
+	if got := responsesAPIFormatForDiag(ProviderDef{}); got != "unset" {
+		t.Fatalf("api_format placeholder = %q, want unset", got)
+	}
+	if got := responsesAPIFormatForDiag(ProviderDef{APIFormat: "responses"}); got != "responses" {
+		t.Fatalf("api_format = %q, want responses", got)
+	}
+	if got := responsesServiceTierForDiag(responses.ResponseNewParams{}); got != "unset" {
+		t.Fatalf("service_tier placeholder = %q, want unset", got)
+	}
+	if got := responsesServiceTierForDiag(responses.ResponseNewParams{
+		ServiceTier: responses.ResponseNewParamsServiceTierFlex,
+	}); got != "flex" {
+		t.Fatalf("service_tier = %q, want flex", got)
 	}
 }

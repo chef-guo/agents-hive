@@ -10,7 +10,6 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/chef-guo/agents-hive/internal/errs"
-	"github.com/chef-guo/agents-hive/internal/mcphost"
 	"github.com/chef-guo/agents-hive/internal/resilience"
 )
 
@@ -132,20 +131,25 @@ func (c *Client) responsesStreamCollect(ctx context.Context, params responses.Re
 
 // chatWithToolsViaResponses 通过 Responses API 实现带工具调用的 Chat。
 func (c *Client) chatWithToolsViaResponses(ctx context.Context, req ChatWithToolsRequest) (*ChatWithToolsResponse, error) {
-	snapModel, _, _ := c.snapshot()
+	snapModel, _, snapProvider := c.snapshot()
 
 	// 构建 input items
 	input := buildResponsesInputFromToolMessages(req.Messages)
 
 	// 构建工具定义
-	tools := convertToolsForResponses(req.Tools)
+	tools, err := convertToolsForResponses(req.Tools)
+	if err != nil {
+		return nil, err
+	}
 
 	params := responses.ResponseNewParams{
 		Model: snapModel,
 		Input: responses.ResponseNewParamsInputUnion{
 			OfInputItemList: input,
 		},
-		Tools: tools,
+	}
+	if len(tools) > 0 {
+		params.Tools = tools
 	}
 
 	// 系统提示 → Instructions
@@ -159,6 +163,15 @@ func (c *Client) chatWithToolsViaResponses(ctx context.Context, req ChatWithTool
 	if req.MaxTokens > 0 {
 		params.MaxOutputTokens = param.NewOpt(req.MaxTokens)
 	}
+	applyResponsesRequestOptimizations(&params, responsesRequestOptions{
+		Provider:        snapProvider.Name,
+		Model:           snapModel,
+		UserID:          req.UserID,
+		PromptVersions:  req.PromptVersions,
+		Tools:           req.Tools,
+		CacheKeyEnabled: c.promptCacheKey,
+		ServiceTier:     c.serviceTier,
+	})
 
 	// P0-A：ToolChoice 透传（空字符串时跳过，保持旧 auto 行为）
 	if tc, ok := buildResponsesToolChoice(req.ToolChoice); ok {
@@ -337,34 +350,6 @@ func buildResponsesInputFromToolMessages(msgs []MessageWithTools) responses.Resp
 		}
 	}
 	return items
-}
-
-// convertToolsForResponses 将 mcphost.ToolDefinition 列表转换为 Responses API 工具格式。
-func convertToolsForResponses(tools []mcphost.ToolDefinition) []responses.ToolUnionParam {
-	result := make([]responses.ToolUnionParam, 0, len(tools))
-	for _, tool := range tools {
-		// 将 InputSchema 转换为 map[string]any
-		var params map[string]any
-		if tool.InputSchema != nil {
-			schemaBytes, err := json.Marshal(tool.InputSchema)
-			if err == nil {
-				_ = json.Unmarshal(schemaBytes, &params)
-			}
-		}
-
-		ft := &responses.FunctionToolParam{
-			Name:       tool.Name,
-			Parameters: params,
-		}
-		if tool.Description != "" {
-			ft.Description = param.NewOpt(tool.Description)
-		}
-
-		result = append(result, responses.ToolUnionParam{
-			OfFunction: ft,
-		})
-	}
-	return result
 }
 
 // convertResponsesUsage 将 Responses API 的 usage 转换为内部 Usage 类型。

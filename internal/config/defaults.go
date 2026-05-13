@@ -13,9 +13,9 @@ const (
 	DefaultLogLevel            = "info"
 	DefaultLogFile             = "~/.claw/logs/claw.log" // 默认日志文件路径
 	DefaultConsoleLevel        = "error"                 // CLI 模式默认控制台只显示错误
-	DefaultLogMaxSize          = 100                     // 日志文件最大 100MB
-	DefaultLogMaxBackups       = 3                       // 保留 3 个旧日志文件
-	DefaultLogMaxAge           = 7                       // 日志文件保留 7 天
+	DefaultLogMaxSize          = 200                     // 日志文件最大 200MB
+	DefaultLogMaxBackups       = 20                      // 保留 20 个旧日志文件
+	DefaultLogMaxAge           = 30                      // 日志文件保留 30 天
 	DefaultAgentTimeout        = 10 * time.Minute
 	DefaultMCPTimeout          = 30 * time.Second
 	DefaultHealthInterval      = 10 * time.Second
@@ -65,7 +65,8 @@ const (
 	DefaultSessionsDir = "~/.claw/sessions"
 
 	// 隐私与远程指令默认值
-	DefaultStorePrivacy = false // 默认不设置 store=false（不影响 OpenAI 默认行为）
+	DefaultStorePrivacy   = false // 默认不设置 store=false（不影响 OpenAI 默认行为）
+	DefaultPromptCacheKey = true  // 默认启用 prompt_cache_key，提升 OpenAI prompt cache 命中率
 
 	// 每轮工具召回默认值。默认保持既有行为：召回 5 个候选并注入本轮 model-visible tools。
 	DefaultToolRecallMode               = "inject"
@@ -74,6 +75,11 @@ const (
 	DefaultToolRecallMinScore           = 0.35
 	DefaultToolRecallSideEffectMinScore = 0.65
 	DefaultToolRecallLogCandidates      = true
+
+	// 首 token 快路径默认值。server 模式即使 DB 尚未种子新 key，也应默认启用快路径。
+	DefaultFirstTokenFastPathEnabled            = true
+	DefaultFirstTokenPreflightClassifierTimeout = 300 * time.Millisecond
+	DefaultActionGuardEnabled                   = true
 
 	// Spec-driven Phase 2 默认值（openspec/changes/harden-spec-driven-phase2）
 	// FM-1 反例：continuation.default 必须 off——不允许静默 MRU 续写。
@@ -102,6 +108,12 @@ var DefaultToolRecallConfigValue = ToolRecallConfig{
 	MinScore:           DefaultToolRecallMinScore,
 	SideEffectMinScore: DefaultToolRecallSideEffectMinScore,
 	LogCandidates:      DefaultToolRecallLogCandidates,
+}
+
+// DefaultFirstTokenConfig 返回首 token 快路径默认配置。
+var DefaultFirstTokenConfig = FirstTokenConfig{
+	FastPathEnabled:            DefaultFirstTokenFastPathEnabled,
+	PreflightClassifierTimeout: DefaultFirstTokenPreflightClassifierTimeout,
 }
 
 var DefaultIMAPIConfig = IMAPIConfig{

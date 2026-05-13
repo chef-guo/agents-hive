@@ -21,6 +21,9 @@ type ToolDefinition struct {
 	OutputSchema      json.RawMessage `json:"outputSchema,omitempty"`
 	Core              bool            `json:"core,omitempty"`                // Core tools are shown in system prompt; all tools remain callable
 	IsConcurrencySafe bool            `json:"is_concurrency_safe,omitempty"` // true = 可并发执行（只读无副作用工具）
+	SourceServer      string          `json:"source_server,omitempty"`       // 远程 MCP 服务端名称；空表示本地/内置工具
+	Trusted           bool            `json:"trusted,omitempty"`             // true = 该工具来自已配置并信任的 MCP 服务端
+	Annotations       json.RawMessage `json:"annotations,omitempty"`         // MCP tool annotations 原文，仅作为宿主风险推断 hint
 }
 
 // ToolResult is the result of a tool execution.

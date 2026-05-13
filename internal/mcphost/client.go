@@ -49,6 +49,7 @@ type remoteTool struct {
 	Description  string          `json:"description"`
 	InputSchema  json.RawMessage `json:"inputSchema"`
 	OutputSchema json.RawMessage `json:"outputSchema,omitempty"`
+	Annotations  json.RawMessage `json:"annotations,omitempty"`
 }
 
 // RemoteMCPClient 远程 MCP 服务端客户端
@@ -192,6 +193,9 @@ func (c *RemoteMCPClient) discoverTools(ctx context.Context) error {
 			Description:  fmt.Sprintf("[%s] %s", c.serverName, tool.Description),
 			InputSchema:  tool.InputSchema,
 			OutputSchema: tool.OutputSchema,
+			SourceServer: c.serverName,
+			Trusted:      true,
+			Annotations:  tool.Annotations,
 		}
 
 		// 创建远程执行器闭包

@@ -3,7 +3,6 @@ package llm
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"strings"
 	"time"
 
@@ -52,20 +51,9 @@ func (c *Client) chatWithToolsStreamViaCompletions(ctx context.Context, req Chat
 	}
 
 	// 1. 转换 mcphost.ToolDefinition → openai.ChatCompletionTool
-	var tools []openai.ChatCompletionToolParam
-	for _, t := range req.Tools {
-		var inputSchema map[string]interface{}
-		if err := json.Unmarshal(t.InputSchema, &inputSchema); err != nil {
-			return nil, errs.Wrap(errs.CodePlanGenFailed, fmt.Sprintf("解析工具输入 schema 失败 %s", t.Name), err)
-		}
-
-		tools = append(tools, openai.ChatCompletionToolParam{
-			Function: openai.FunctionDefinitionParam{
-				Name:        t.Name,
-				Description: openai.String(t.Description),
-				Parameters:  openai.FunctionParameters(inputSchema),
-			},
-		})
+	tools, err := convertToolsForChatCompletions(req.Tools)
+	if err != nil {
+		return nil, err
 	}
 
 	// 2. 转换 Messages → openai messages
@@ -192,6 +180,7 @@ func (c *Client) chatWithToolsStreamViaCompletions(ctx context.Context, req Chat
 			Model:    snapModel,
 			Messages: messages,
 			Params:   &params,
+			CacheKey: stablePromptCacheKey(snapModel, req.UserID, req.PromptVersions, req.Tools),
 		})
 		params.Messages = messages
 	}

@@ -370,210 +370,300 @@
     "retry": "Retry"
   },
   "guide": {
-    "title": "User Guide",
-    "progress": "Completed {{done}}/{{total}} steps",
-    "progressLabel": "Learning Progress",
-    "resetProgress": "Reset Progress",
-    "resetConfirm": "Are you sure you want to reset all learning progress?",
-    "tableOfContents": "Table of Contents",
-    "tip": "Tip",
-    "back": "Back",
-    "markComplete": "Mark Complete",
-    "markIncomplete": "Mark Incomplete",
-    "prevStep": "Previous",
-    "nextStep": "Next",
-    "quickStart": {
-      "title": "Quick Start",
-      "desc": "Get up and running in 5 minutes — clone, build, and launch",
-      "prerequisites": {
-        "title": "1. Clone repo & check Go version",
-        "desc": "Run git clone https://github.com/chef-guo/agents-hive.git && cd agents-hive to clone the project. Then run go version to confirm version ≥ 1.24.",
-        "tip": "If Go version is below 1.24, download the latest from https://golang.org/dl/.",
-        "detail": "## Clone the Project\n\n```bash\ngit clone https://github.com/chef-guo/agents-hive.git\ncd agents-hive\n```\n\n## Check Go Version\n\n```bash\ngo version\n# Expected output: go version go1.24.x linux/amd64 (or darwin/arm64, etc.)\n```\n\n> Go version must be ≥ 1.24. If below, download the latest from [golang.org/dl](https://golang.org/dl/).\n\n## Check Node.js Version (for frontend development)\n\n```bash\nnode -v\n# Expected: v18.x.x or higher\nnpm -v\n# Expected: 9.x.x or higher\n```\n\n> Node.js is only needed for local frontend development. In production, the frontend is embedded in the Go binary."
+    "common": {
+      "progress": "Completed {{done}}/{{total}} steps",
+      "progressLabel": "Reading Progress",
+      "resetProgress": "Reset Progress",
+      "resetConfirm": "Reset progress for this guide?",
+      "tableOfContents": "Table of Contents",
+      "tip": "Tip",
+      "back": "Back",
+      "markComplete": "Mark Complete",
+      "markIncomplete": "Mark Incomplete",
+      "prevStep": "Previous",
+      "nextStep": "Next"
+    },
+    "user": {
+      "title": "User Guide",
+      "gettingStarted": {
+        "title": "Getting Started",
+        "desc": "Confirm login and connection status, start from the chat home, and learn the input controls.",
+        "loginAndConnection": {
+          "title": "1. Login and connection status",
+          "desc": "Application routes are auth-protected. Header and sidebar footer show WebSocket/local connection status.",
+          "detail": "## Login entry\n\nIf authentication is enabled, the app opens on the login page before entering the chat workspace. Available login methods are configured by admins in Auth Providers.\n\n## Connection status\n\nBoth the normal workspace and admin console open a WebSocket connection. The Header and sidebar footer show connection status:\n\n- Connected: the app can receive streaming chat output, approval notifications, replay events, and task state.\n- Disconnected: REST requests may still work, but streaming updates, instant approvals, and live replay may be unavailable.\n\n## When disconnected\n\nFirst confirm the backend is reachable, then refresh the page. If the login token has expired, the client attempts refresh; if refresh fails, it returns to Login."
+        },
+        "startConversation": {
+          "title": "2. Start from the home page",
+          "desc": "The app opens into the chat workspace. Use the home prompt or recent sessions to enter a conversation.",
+          "detail": "## Open a conversation\n\nThe default entry is the chat workspace, not the old dashboard. The home page shows a start area and recent sessions.\n\nCommon paths:\n\n1. Type a question on the home page to create a session and jump into chat.\n2. Click a recent session to continue existing context.\n3. Use the left sidebar to switch between tasks.\n\n## Session naming\n\nAfter the first message, the frontend uses the first 20 characters as the session name. You can still organize sessions with tags and stars.",
+          "tip": "The normal sidebar is session-first. Agents and Skills live in the admin console."
+        },
+        "sendMessage": {
+          "title": "3. Send messages",
+          "desc": "Type in the bottom composer, press Enter to send, and use Shift+Enter for new lines.",
+          "detail": "## Input and send\n\n- `Enter`: send.\n- `Shift+Enter`: add a line break.\n- The textarea auto-grows up to about 240px.\n- While the agent is responding, the send button becomes a stop button.\n\n## Stop a running task\n\nClick the stop button to send a cancel command for the current session.\n\n## Errors\n\nIf sending fails, the chat page shows an error banner that you can dismiss."
+        },
+        "modelAndThinking": {
+          "title": "4. Choose model and deep thinking",
+          "desc": "When multiple models are available, the composer shows a model selector. Deep Thinking is sent with the next message.",
+          "detail": "## Model selector\n\nThe lower-left selector shows models returned by the backend. Pick a model to switch the active runtime model.\n\n## Deep Thinking\n\nWhen enabled, the next message includes the `deepThinking` option. Use it for complex analysis, planning, and debugging.\n\n## When to leave it off\n\nSimple Q&A, short edits, and quick lookups usually do not need it."
+        },
+        "attachments": {
+          "title": "5. Attach files",
+          "desc": "Use the paperclip, drag files into the composer, or paste images. Each file can be up to 25MB; each message can include up to 10 files.",
+          "detail": "## Supported attachments\n\nThe composer supports images, audio, selected video files, PDF, Office documents, text, Markdown, JSON, CSV, XML, YAML, and common code files.\n\n## Upload methods\n\n- Click the paperclip.\n- Drag files into the composer.\n- Paste images from the clipboard.\n\n## Limits\n\n- 25MB per file.\n- 10 files per message.\n- Unsupported files show an error above the composer.",
+          "tip": "Images render inline. Other files appear as attachment chips with name and size."
+        }
       },
-      "buildAndRun": {
-        "title": "2. Build CLI and Server",
-        "desc": "Run the following commands to build:\n• go build -o claw ./cmd/claw — build the CLI client\n• go build -o server ./cmd/server — build the HTTP server\nThen set your API key: export OPENAI_API_KEY=\"your-key\"",
-        "tip": "You can also use CLAW_API_KEY env var (higher priority than OPENAI_API_KEY). Supports OpenAI / DeepSeek / Anthropic and more.",
-        "detail": "## Build the Project\n\nThe project has two executables. Build them separately:\n\n### Build CLI Client\n\n```bash\ngo build -o claw ./cmd/claw\n```\n\n### Build HTTP Server\n\n```bash\ngo build -o server ./cmd/server\n```\n\nVerify both executables were created:\n\n```bash\nls -la claw server\n# -rwxr-xr-x  1 user  staff  12345678  claw\n# -rwxr-xr-x  1 user  staff  23456789  server\n```\n\n## Set API Key\n\nChoose one method to set the LLM API key:\n\n**Option 1: Environment Variable (Recommended)**\n\n```bash\nexport OPENAI_API_KEY=\"sk-your-api-key-here\"\n```\n\n**Option 2: CLAW-specific Variable** (higher priority)\n\n```bash\nexport CLAW_API_KEY=\"sk-your-api-key-here\"\n```\n\n> Supports OpenAI, DeepSeek, Anthropic, and more. When switching providers, also set `CLAW_PROVIDER` and `CLAW_BASE_URL`."
+      "sessions": {
+        "title": "Session Management",
+        "desc": "Create, search, switch, star, tag, clear, and delete sessions from the sidebar.",
+        "sidebar": {
+          "title": "1. Understand the sidebar",
+          "desc": "The left sidebar is a session list with search, create, replay, guide, preferences, and admin links.",
+          "detail": "## Normal sidebar layout\n\nThe sidebar is centered on sessions:\n\n- Hive brand at the top.\n- Search, new session, and session list in the middle.\n- Session rows expose star, tag, replay, and delete actions on hover.\n- Replay, Guide, Preferences, and Admin live at the bottom.\n\nCollapsed mode shows icons and hover labels."
+        },
+        "newSession": {
+          "title": "2. Create sessions",
+          "desc": "The new button reuses an empty session if one exists; otherwise it creates a new one.",
+          "detail": "## Quick create\n\nClick the `+` button next to sidebar search.\n\nThe frontend first checks for an empty session:\n\n1. If an empty session exists, it opens that session.\n2. Otherwise it creates a session named “New Session”.\n3. The first message automatically renames it.\n\n## From home\n\nTyping on the home page also creates a session and sends the pending message."
+        },
+        "searchOrganize": {
+          "title": "3. Search, tag, and star",
+          "desc": "Sidebar search matches names and tags. Hover a row to star, edit tags, replay, or delete.",
+          "detail": "## Search\n\nSidebar search filters by:\n\n- Session name\n- Session ID\n- Tags\n\n## Tags\n\nHover a session row and click the tag button to edit tags. Tags appear under the session name.\n\n## Stars\n\nClick the star to mark important sessions for easier scanning."
+        },
+        "clearDelete": {
+          "title": "4. Clear and delete",
+          "desc": "Use Clear in the chat header to remove messages, or delete the entire session from the sidebar.",
+          "detail": "## Clear messages\n\nClick “Clear” in the chat header. This removes message history but keeps the session.\n\n## Delete a session\n\nHover a session row, click delete, and confirm. Deletion removes the session and its messages.\n\n## Running sessions\n\nDelete is disabled while the current session is actively streaming.",
+          "tip": "Deletion cannot be undone. Prefer Clear when you only want to restart the topic."
+        }
       },
-      "verify": {
-        "title": "3. Start the service and verify",
-        "desc": "CLI mode: ./claw -i to start interactive session, type \"hello\" to test.\nServer mode: ./server --port 8080 to start backend, then cd frontend && npm install && npm run dev to start the frontend. Visit http://localhost:3000 — seeing the dashboard means success.",
-        "tip": "In dev mode, the frontend auto-proxies /api requests to localhost:8080. In production, the frontend is embedded in the Go binary — just access port 8080 directly.",
-        "detail": "## CLI Mode Verification\n\nStart an interactive session:\n\n```bash\n./claw -i\n```\n\nType \"hello\" to test the agent:\n\n```\n> hello\n🤔 Thinking...\n✅ Hello! I'm the CLAW agent. How can I help you?\n```\n\nPress `Ctrl+C` to exit.\n\n## Server Mode Verification\n\n### 1. Start the Backend\n\n```bash\n./server --port 8080\n# Expected output:\n# INFO  Server started successfully  {\"port\": 8080}\n```\n\n### 2. Start the Frontend Dev Server\n\n```bash\ncd frontend\nnpm install\nnpm run dev\n# Expected output:\n#   VITE v8.x.x  ready in xxx ms\n#   ➜  Local:   http://localhost:3000/\n```\n\n### 3. Verify\n\nOpen `http://localhost:3000` in your browser. Seeing the dashboard means setup is complete!\n\n> In dev mode, the frontend auto-proxies `/api` requests to `localhost:8080`. In production, the frontend is embedded in the Go binary — just access port 8080 directly."
+      "messagesAndTools": {
+        "title": "Messages, Tools, and Approvals",
+        "desc": "Understand streaming replies, tool cards, approvals, todo panels, and message actions.",
+        "streamingStates": {
+          "title": "1. Reply states",
+          "desc": "Agent replies can include thinking, tool calls, streaming text, error cards, token usage, and timing.",
+          "detail": "## Common states\n\nA reply can include:\n\n- Thinking: the system is planning or waiting for the model.\n- Tool calls: file, search, command, external service, or other tool activity.\n- Streaming text: content appears incrementally.\n- Error cards: failures are shown in a collapsible card.\n\n## Metadata\n\nAssistant messages may show input/output tokens, duration, and timestamp."
+        },
+        "toolCards": {
+          "title": "2. Tool cards",
+          "desc": "Tool calls render as collapsible cards. Multiple calls show a parallel count.",
+          "detail": "## Reading tool cards\n\nTool cards show name, arguments, status, and result summary.\n\n- Running and error states open by default so you can see what is happening or why it failed.\n- Successful tools collapse by default to reduce reading noise.\n- Previewable HTML can open in Canvas.\n- Todo write tool results render as dedicated todo snapshot cards.\n\n## Parallel tools\n\nWhen a reply has multiple tool calls, the message shows a “Parallel ×N” badge."
+        },
+        "approvals": {
+          "title": "3. Approvals and permissions",
+          "desc": "Risky or confirmation-required operations pause for HITL approval before continuing.",
+          "detail": "## When approvals appear\n\nThe system may ask for confirmation before side-effecting actions like writing files, running commands, sending externally, or using restricted tools.\n\n## How to respond\n\nApproval cards can support approve, reject, inspect, provide input, or remember a choice. Your response is submitted to the current task.\n\n## Why it exists\n\nApprovals are a safety boundary, not an error."
+        },
+        "messageActions": {
+          "title": "4. Message actions",
+          "desc": "Messages expose copy, preview, feedback, and regeneration actions.",
+          "detail": "## User messages\n\nUser messages support copy. The last user message can show regenerate when available.\n\n## Assistant messages\n\nAssistant messages support:\n\n- Preview: open the full reply in Canvas.\n- Copy: copy the full text.\n- Helpful / Not helpful: record quality feedback.\n\n## Regenerate\n\nRegenerate rolls back after the last user message and asks the backend to produce a new reply."
+        },
+        "todos": {
+          "title": "5. Todo panel",
+          "desc": "When the agent creates a structured plan, a todo panel can appear beside or above the chat.",
+          "detail": "## When it appears\n\nThe todo panel appears when the session has an executable plan, paused state, or resumable snapshot.\n\n## Layout\n\n- Desktop: right workspace.\n- Mobile: near the input area.\n\n## Why use it\n\nIt tracks long-running task state without forcing you to read the whole transcript."
+        }
+      },
+      "workspace": {
+        "title": "Workspace and Settings",
+        "desc": "Use Canvas, Replay, Preferences, and user-level WeChat connection.",
+        "canvasArtifacts": {
+          "title": "1. Canvas and artifacts",
+          "desc": "Markdown, HTML, code, and artifacts can open in the right-side Canvas.",
+          "detail": "## What Canvas does\n\nCanvas is the chat-side workspace for long content, code, HTML previews, and artifacts.\n\n## How to open it\n\n- Open artifact cards from assistant messages.\n- Use Preview on an assistant message.\n- Open previewable tool results from tool cards.\n\n## Mobile behavior\n\nOn narrow screens, Canvas overlays chat; on desktop, it sits beside chat."
+        },
+        "replayGallery": {
+          "title": "2. Replay gallery",
+          "desc": "Replay shows execution traces and supports filters for status, quality, dangerous actions, delegation, and more.",
+          "detail": "## Entry points\n\nOpen Replay from bottom navigation, or hover a session row and click its replay action.\n\n## Gallery\n\nThe gallery supports search, filters, and sorting. Filters include success, error, live, quality error, dangerous, delegation, ACP, and context.\n\n## Replay page\n\nThe replay page shows timeline, stats, event details, Agent tree, and playback controls."
+        },
+        "preferences": {
+          "title": "3. Preferences",
+          "desc": "Preferences are for personal theme, language, and user-level connections.",
+          "detail": "## Theme\n\nSwitch between light and dark mode. The setting is stored locally.\n\n## Language\n\nSwitch between Chinese and English. Text updates immediately.\n\n## Difference from admin settings\n\nPreferences are personal. Runtime, permissions, MCP, and IM channel configuration live in Admin Settings."
+        },
+        "wechat": {
+          "title": "4. WeChat Bot connection",
+          "desc": "Preferences include user-level WeChat Bot connection status and QR flow.",
+          "detail": "## Entry\n\nOpen Preferences and find the WeChat Bot connection panel. It shows status, QR code, recent events, and conversations.\n\n## Connection\n\nScan or refresh from the panel. Contacts must message clawbot in WeChat for messages to enter the system.\n\n## Note\n\nThis is an official wechatbot/iLink user-level connection, not personal private-chat scraping."
+        }
       }
     },
-    "webuiBasics": {
-      "title": "UI Overview",
-      "desc": "Get familiar with the WebUI layout, theme switching, and dashboard",
-      "layout": {
-        "title": "1. Page Layout",
-        "desc": "• Left sidebar: Dashboard, Sessions, Agents, Skills, Guide, Settings — six navigation entries, plus the 10 most recent sessions for quick access\n• Top bar: Current page title, with theme toggle and language switch buttons on the right\n• Center: Main content area showing the current page\n• The sidebar can be collapsed/expanded via the top-left button; when collapsed, only icons are shown",
-        "detail": "## Page Layout Structure\n\nThe interface uses a classic three-column layout:\n\n```\n┌──────────┬──────────────────────────────────┐\n│          │         Top Title Bar             │\n│  Left    ├──────────────────────────────────┤\n│  Sidebar │                                  │\n│          │         Main Content Area         │\n│  • Dash  │                                  │\n│  • Sess  │                                  │\n│  • Agent │                                  │\n│  • Skill │                                  │\n│  • Guide │                                  │\n│  • Setup │                                  │\n│          │                                  │\n│ ──────── │                                  │\n│ Recent   │                                  │\n└──────────┴──────────────────────────────────┘\n```\n\n### Left Sidebar\n\nSix main navigation entries:\n\n| Entry | Function |\n|-------|----------|\n| Dashboard | System status overview, agent and skill lists |\n| Sessions | Create/manage multiple chat sessions |\n| Agents | View registered agents and tools |\n| Skills | Browse/search available skills |\n| Guide | This page |\n| Settings | Theme, language, connection info |\n\nBelow the nav entries, the 10 most recent sessions are shown for quick access.\n\n### Collapse/Expand\n\nClick the collapse button in the top-left corner to shrink the sidebar to icon-only mode, giving more space to the main content area."
+    "admin": {
+      "title": "Admin Guide",
+      "adminOverview": {
+        "title": "Admin Overview",
+        "desc": "Understand admin navigation, dashboard, and permission boundaries.",
+        "navigation": {
+          "title": "1. Admin navigation",
+          "desc": "Enter Admin from the normal sidebar footer. The admin sidebar contains Agents, Skills, LLM, users, quality, memory, and settings.",
+          "detail": "## Entry\n\nClick Admin in the normal sidebar footer to open `/admin`. Admin uses a separate sidebar from the chat workspace.\n\n## Current admin navigation\n\n- Overview: inspect node status and core resources.\n- Agents / Skills / Multi-Agent: inspect local agents, skills, and remote ACP agents.\n- Scheduled Tasks: configure cron or interval agent work.\n- LLM Models: configure providers, models, and defaults.\n- Users / Usage / Auth Providers: manage accounts, quotas, login methods, and costs.\n- Prompt Manager: override built-in prompts and run smoke eval before saving.\n- Quality Candidates / Quality Workbench / Memory Governance / Auto Optimization: capture failures, run batch evals, govern memory, and approve optimization suggestions.\n- Settings: manage runtime, security rules, MCP, external resources, IM channels, and remote agents."
+        },
+        "dashboard": {
+          "title": "2. Admin dashboard",
+          "desc": "The admin home is for operational status and system overview.",
+          "detail": "## What to check\n\nUse the dashboard to confirm backend health and loaded resources.\n\n## Difference from the user home\n\nThe user home starts conversations. The admin home manages the system."
+        },
+        "accessModel": {
+          "title": "3. Access boundaries",
+          "desc": "AdminGuard protects sensitive admin pages. Unauthorized users should not access protected operations.",
+          "detail": "## Role boundaries\n\nUsers, auth, LLM, Skills, system settings, and quality workbench pages generally require admin permissions.\n\n## Auth behavior\n\nFrontend requests include `auth_token`. On 401, the client attempts token refresh; if refresh fails, it returns to login.\n\n## Operational split\n\nUse the user workspace for chat and the admin console for providers, permissions, runtime, and quality operations."
+        }
       },
-      "themeAndLang": {
-        "title": "2. Switch Theme & Language",
-        "desc": "• Theme: Click the 🌙/☀️ icon in the top bar to toggle between light and dark mode. Dark mode uses a deep blue background (#0f172a) for eye comfort\n• Language: Click the language icon to switch between Chinese and English. All UI text updates immediately\n• On first visit, the system auto-detects your browser's preferences",
-        "tip": "Theme and language settings are saved in browser localStorage and automatically restored on refresh or revisit.",
-        "detail": "## Theme Switching\n\nClick the 🌙/☀️ icon in the top-right of the title bar to toggle between light and dark mode.\n\n| Mode | Background | Best For |\n|------|------------|----------|\n| Light Mode | White/light gray | Daytime use |\n| Dark Mode | Deep blue (#0f172a) | Night use, eye comfort |\n\n## Language Switching\n\nClick the language icon in the top bar to switch between Chinese and English:\n\n- 🇨🇳 中文 — All UI text switches to Chinese\n- 🇬🇧 English — All UI text switches to English\n\nAll text updates **instantly** — no page refresh needed.\n\n## Auto Detection\n\nOn first visit, the system auto-detects your browser's language and theme preferences and applies them.\n\n> Theme and language settings are saved in browser `localStorage` and automatically restored on refresh or revisit."
+      "agentsSkills": {
+        "title": "Agents and Skills",
+        "desc": "Inspect local agents, skills, remote agents, and external capability sources.",
+        "agents": {
+          "title": "1. Agents page",
+          "desc": "Agents shows registered agents, capabilities, and tool relationships.",
+          "detail": "## Purpose\n\nUse Agents to understand which agents are loaded and where task routing can go.\n\n## Troubleshooting\n\nIf a class of work is not being routed correctly, confirm the expected agent is loaded. For remote agents, also check Admin Settings → Integrations."
+        },
+        "skills": {
+          "title": "2. Skills page",
+          "desc": "Skills lets admins browse skill packages. The admin route is permission-protected.",
+          "detail": "## What Skills are\n\nSkills are declarative instruction and knowledge packages, often described by `SKILL.md`. They are not plain chat messages.\n\n## Loading\n\nThe backend loads project, user, and built-in skill roots according to server configuration.\n\n## Recommendation\n\nWhen a repeatable business workflow stabilizes, promote it to a Skill instead of copying long prompts into every session."
+        },
+        "remoteAgents": {
+          "title": "3. Remote Agents",
+          "desc": "Configure remote ACP agents from Admin Settings → Integrations.",
+          "detail": "## Location\n\nOpen Admin Settings, then Integrations, then Remote Agents.\n\n## Fields\n\nRemote agent configuration includes name, description, transport, command or URL, and capability tags.\n\n## Recommendation\n\nKeep capability tags precise and avoid routing broad work to unclear remote executors."
+        },
+        "multiAgent": {
+          "title": "4. Multi-Agent page",
+          "desc": "The Multi-Agent page summarizes local agents, remote ACP agents, health, and delegation policy boundaries.",
+          "detail": "## What it shows\n\nOpen Admin → Multi-Agent to inspect:\n\n- Local registered agents and capability summaries.\n- Configured remote ACP agents, transport, command, or URL.\n- Remote agent health state.\n- Current policy for `spawn_agent`, read tools, and shell/write tools.\n\n## Difference from Settings\n\nAdmin Settings → Integrations edits remote agent configuration. Multi-Agent shows global status and delegation boundaries.\n\n## Troubleshooting\n\nIf a remote agent does not work, confirm it is enabled, check health and policy state, then inspect the command or remote URL."
+        }
       },
-      "dashboard": {
-        "title": "3. Dashboard Details",
-        "desc": "The dashboard (home page) shows four key metrics:\n• System Status: Green \"Operational\" or red \"Offline\"\n• Active Sessions: Number of created sessions\n• Registered Agents: Number of loaded agents (including CodeReview, Research sub-agents)\n• Available Skills: Number of registered skills\nBelow are two lists showing all agents and skills in detail.",
-        "detail": "## Dashboard Metrics\n\nThe dashboard (home page) displays four key metric cards:\n\n| Metric | Description | Example |\n|--------|-------------|---------|\n| System Status | Backend service connection | 🟢 Operational / 🔴 Offline |\n| Active Sessions | Number of created sessions | 3 |\n| Registered Agents | Number of loaded agents | 3 (including sub-agents) |\n| Available Skills | Number of registered skills | 5 |\n\n## Agent List\n\nBelow the metrics, all registered agents are displayed:\n\n- **Master Agent** — Main agent for task planning and execution\n- **CodeReview Agent** — Code review sub-agent\n- **Research Agent** — Information research sub-agent\n\n## Skill List\n\nShows all available skills with name and description. Click to view details.\n\n> If system status shows \"Offline\", check if the backend service is running and the API address is correctly configured."
-      }
-    },
-    "sessionManagement": {
-      "title": "Session Management",
-      "desc": "Create, switch, and manage multiple independent sessions with isolated context",
-      "createSession": {
-        "title": "1. Create a New Session",
-        "desc": "Two ways to create a session:\n• Quick: Click the \"Create\" button in the left sidebar — auto-creates and navigates to the chat page\n• Full: Go to \"Sessions\" page, click \"New Session\", enter a name (e.g. \"Bug Fix\", \"Code Review\"), optionally select a Profile (builder/reviewer/planner), and click Create\n\nEach session has independent chat history and context — they don't interfere with each other.",
-        "tip": "Sessions are persisted as Markdown files in ~/.claw/sessions/ and auto-restored on service restart.",
-        "detail": "## Quick Create\n\nClick the **\"+\"** button at the bottom of the left sidebar:\n\n1. System auto-creates a new session (with default name and Profile)\n2. Auto-navigates to the chat page\n3. Start typing messages immediately\n\n## Full Create\n\n1. Go to the **\"Sessions\"** page\n2. Click **\"New Session\"** in the top-right\n3. Fill in the form:\n   - **Session name** (e.g. \"Bug Fix\", \"Code Review\", \"Project Planning\")\n   - **Profile** (optional): Select builder/reviewer/planner, etc.\n4. Click **\"Create\"**\n\n## Session Isolation\n\nEach session has **independent chat history and context** — they don't interfere with each other. You can maintain multiple sessions:\n\n- One for daily development (builder)\n- One for code reviews (reviewer)\n- One for research (assistant)\n\n> Sessions are persisted as Markdown files in `~/.claw/sessions/` and auto-restored on service restart."
+      "llmProviders": {
+        "title": "LLM Management",
+        "desc": "Configure providers, model records, and the source of the chat model selector.",
+        "providers": {
+          "title": "1. Provider configuration",
+          "desc": "The LLM page supports creating, editing, and deleting providers.",
+          "detail": "## Provider fields\n\nCommon fields include name, provider type, service type, Base URL, API key, and enabled status.\n\n## Supported types\n\nThe UI includes OpenAI, Anthropic, DeepSeek, Gemini, Qianfan, Moonshot, Minimax, and Custom provider types.\n\n## Security\n\nAPI keys are sensitive. Production should manage secrets server-side or through environment-backed config, never committed frontend files."
+        },
+        "models": {
+          "title": "2. Model configuration",
+          "desc": "Models can be attached to providers or stand alone. Chat model options come from backend model config.",
+          "detail": "## Model records\n\nA model record usually includes display name, actual model ID, provider, temperature, and max tokens.\n\n## Grouping\n\nThe LLM page groups models by provider and also shows orphan models.\n\n## Chat relation\n\nThe model selector in chat reads available models from the current node."
+        },
+        "runtimeSwitch": {
+          "title": "3. Runtime switching",
+          "desc": "When a user changes model in chat, the frontend calls the backend model switch endpoint.",
+          "detail": "## Behavior\n\nThe selected model is sent to the backend and then displayed as active in the composer.\n\n## Troubleshooting\n\nIf the selector is empty:\n\n1. Check that enabled models exist.\n2. Check that the backend model list returns data.\n3. Check that the user is connected to the intended node."
+        }
       },
-      "sessionList": {
-        "title": "2. Session List & Switching",
-        "desc": "The \"Sessions\" page displays all sessions, each showing:\n• Session name\n• Message count\n• Token usage\n• Last active time\n\nClick any session card to enter the chat page. You can also quickly switch using the \"Recent Sessions\" list in the left sidebar.",
-        "detail": "## Session List\n\nThe \"Sessions\" page displays all sessions. Each card shows:\n\n| Field | Description |\n|-------|-------------|\n| Session name | The name specified at creation |\n| Message count | Total messages in the session |\n| Token usage | Tokens consumed |\n| Last active | Time of last sent/received message |\n\n## Switching Sessions\n\nTwo ways to quickly switch:\n\n### Option 1: Sessions Page\n\nClick any session card to enter its chat page.\n\n### Option 2: Left Sidebar\n\nThe **\"Recent Sessions\"** list below the nav entries shows the 10 most recently active sessions. Click to jump directly.\n\n> Sessions are sorted by last active time (most recent first)."
+      "usersAuth": {
+        "title": "Users and Auth",
+        "desc": "Manage users, auth providers, roles, status, and quotas.",
+        "users": {
+          "title": "1. User management",
+          "desc": "The users page supports search, provider visibility, role/status changes, and quota edits.",
+          "detail": "## User list\n\nThe page shows email, display name, role, status, auth provider, and quota.\n\n## Common operations\n\n- Search users.\n- Adjust role.\n- Disable or restore accounts.\n- Edit quota.\n\nOnly trusted admins should have these capabilities."
+        },
+        "usage": {
+          "title": "2. Usage stats",
+          "desc": "Usage shows total tokens, total cost, per-model cost, and quality-task related cost.",
+          "detail": "## What it shows\n\nUsage reads backend accounting records and displays:\n\n- Total tokens.\n- Total USD cost.\n- Number of models used.\n- Per-model token and cost details.\n- Quality task, prompt version, failure type, final status, and quality case cost.\n\n## When to use it\n\nWhen cost climbs unexpectedly, start with model breakdown, then use quality task and prompt version panels to determine whether evals, replays, or a task class caused it.\n\n## Note\n\nIf no data appears, cost tracking may be disabled, there may be no LLM calls yet, or the environment may not be writing `usage_records`."
+        },
+        "authProviders": {
+          "title": "3. Auth providers",
+          "desc": "Auth Providers configures login methods.",
+          "detail": "## Purpose\n\nAuth providers determine how users log in. A broken provider can lock users out, so validate changes in a test environment first.\n\n## Troubleshooting\n\nCheck enabled status, callback URL, credentials, and frontend/backend domain alignment."
+        },
+        "rolesQuota": {
+          "title": "4. Roles, status, and quota",
+          "desc": "Roles control admin access, status controls account usability, and quota controls resource usage.",
+          "detail": "## Roles\n\nAdmin roles can access protected console pages. Normal users should keep only daily-use permissions.\n\n## Status\n\nDisabled users should lose access to protected resources.\n\n## Quota\n\nQuota limits model and system resource usage in shared environments."
+        }
       },
-      "deleteSession": {
-        "title": "3. Delete & Clear Sessions",
-        "desc": "• Delete: In the session list, hover over a session card and click the delete button. After confirmation, the session and all messages are permanently deleted.\n• Clear: In the chat page, click the \"Clear\" button at the top to erase all message history while keeping the session and Profile settings.",
-        "tip": "Deletion is irreversible! Clearing only removes message history — the session itself is preserved.",
-        "detail": "## Delete a Session\n\n1. Go to the **\"Sessions\"** page\n2. Hover over the target session card\n3. Click the 🗑️ **delete button** that appears\n4. Click \"Confirm\" in the dialog\n\n> ⚠️ Deletion is **irreversible**! The session and all messages are permanently removed.\n\n## Clear Session Messages\n\n1. Enter the target session's **chat page**\n2. Click the **\"Clear\"** button at the top\n3. Click \"Confirm\" in the dialog\n\n## Delete vs Clear\n\n| Action | Deletes Messages | Deletes Session | Keeps Profile |\n|--------|-----------------|-----------------|---------------|\n| Delete Session | ✅ | ✅ | ❌ |\n| Clear Messages | ✅ | ❌ | ✅ |\n\nClearing only removes message history — the session and Profile settings are preserved for continued use."
+      "runtimeSecurity": {
+        "title": "Runtime and Security",
+        "desc": "Manage node info, permissions, command rules, MCP, external resources, and IM settings.",
+        "systemSettings": {
+          "title": "1. Settings structure",
+          "desc": "Admin Settings has System, Security, and Integrations tabs.",
+          "detail": "## System\n\nShows node ID, mode, health, version, uptime, and Agent timeout settings.\n\n## Security\n\nContains permission rules and command execution rules.\n\n## Integrations\n\nContains IM channels, MCP servers, external resources, and remote agents."
+        },
+        "permissionRules": {
+          "title": "2. Permission rules",
+          "desc": "Permission rules decide whether tool actions are allowed, asked, or denied.",
+          "detail": "## Rule meaning\n\nRules usually include tool name, action, pattern, and policy. Policies are allow, ask, and deny.\n\n## Recommendation\n\nBe permissive with read-only tools and conservative with writes, deletes, shell commands, and external sends.\n\n## Applying changes\n\nClick Apply to submit runtime config updates to the backend."
+        },
+        "execRules": {
+          "title": "3. Exec rules",
+          "desc": "Exec Rules constrain shell commands. Defaults ask before commands like npm install, git push, and rm -rf.",
+          "detail": "## Why\n\nShell access is high risk. Exec rules force review before dangerous commands.\n\n## Common policies\n\n- Dependency install: ask.\n- Git push: ask.\n- Recursive delete: ask or deny.\n\n## Maintenance\n\nKeep regexes specific enough to avoid blocking normal work or missing dangerous commands."
+        },
+        "integrations": {
+          "title": "4. Integrations",
+          "desc": "Integrations centralize IM channels, MCP, external resources, and remote agents.",
+          "detail": "## IM channels\n\nConfigure Feishu, DingTalk, WeCom, and the official WeChat Bot enable switch. Feishu supports webhook / longconn ingress, ack emoji, streaming cards, and throttling.\n\n## MCP Servers\n\nConfigure external MCP servers with stdio, sse, or http transport, plus env, headers, timeout, and args.\n\n## External resources\n\nRegister external resources that the system can reference.\n\n## Remote Agents\n\nConfigure remote agents connected over ACP. User-level WeChat Bot QR connection stays in Preferences."
+        },
+        "mcpTools": {
+          "title": "5. MCP tool catalog and reload",
+          "desc": "MCP Servers loads a tool catalog. Applying changes updates runtime config and triggers MCP reload.",
+          "detail": "## Tool catalog\n\nThe MCP Servers panel attempts to read the current MCP tool catalog. When loading succeeds, it shows server tools, resources, and prompt capabilities; when loading fails, the error is visible but configuration remains editable.\n\n## Apply behavior\n\nClick Apply to submit runtime config, call MCP reload, and fetch the tool catalog again.\n\n## Common misconfiguration\n\nIn stdio mode, `command=node` should not be paired with `-y`; `-y` belongs to `npx`. The panel shows an inline warning for this case."
+        }
       },
-      "forkRevert": {
-        "title": "4. Session Fork & Revert",
-        "desc": "Advanced session management features:\n\n• Fork: Create a branch copy from the current session, preserving a specified number of message history. Useful for \"what if\" exploration scenarios\n• Revert: Roll back the session to a specified message index, removing all subsequent messages. Useful for undoing wrong conversation directions\n• Export: Export the complete session as JSON format",
-        "tip": "Use CLI commands /session fork and /session revert, or REST API endpoints POST /sessions/{id}/fork and POST /sessions/{id}/revert.",
-        "detail": "## Fork (Session Branching)\n\nCreate a branch copy from the current session:\n\n### CLI Usage\n\n```bash\n/session fork [name] [fork_point]\n```\n\n- `name` — Branch name (optional, defaults to `original-name-fork`)\n- `fork_point` — Fork from which message (optional, defaults to all messages)\n\n### REST API\n\n```bash\ncurl -X POST http://localhost:8080/api/v1/sessions/{id}/fork \\\n  -d '{\"name\": \"Explore Plan B\", \"fork_point\": 10}'\n```\n\n## Revert (Session Rollback)\n\nRoll back the session to a specified message index:\n\n### CLI Usage\n\n```bash\n/session revert <message_index>\n```\n\n### REST API\n\n```bash\ncurl -X POST http://localhost:8080/api/v1/sessions/{id}/revert \\\n  -d '{\"target_index\": 5}'\n```\n\n## Export (Session Export)\n\nExport the complete session as JSON:\n\n### CLI Usage\n\n```bash\n/session export\n```\n\n> Forked branches are independent sessions — modifications don't affect the original session."
-      }
-    },
-    "chatWithAgent": {
-      "title": "Chat with Agent",
-      "desc": "Learn about messaging, agent states, action buttons, and the Canvas panel",
-      "sendMessage": {
-        "title": "1. Sending Messages & Profile Switching",
-        "desc": "Type in the input box at the bottom of the chat page and press Enter to send.\n\n• Normal chat: Just type your question, e.g. \"Analyze the structure of main.go\"\n• Switch Profile: Prefix with @profile to change agent mode:\n  - @direct Who are you? — Quick Q&A mode (no tools)\n  - @assistant Analyze auth.go — Assistant mode (read-only tools)\n  - @builder Refactor auth module — Builder mode (all tools)\n  - @reviewer Check code quality — Reviewer mode\n  - @debugger Debug login failure — Debugger mode",
-        "tip": "Use Shift+Enter for line breaks. The system auto-selects the best Profile based on your message content — manual selection is rarely needed.",
-        "detail": "## Sending Messages\n\nType in the input box at the bottom of the chat page. Press **Enter** to send. Use **Shift+Enter** for line breaks.\n\n## Profile Switching\n\nPrefix your message with `@profile` to switch agent modes:\n\n```\n@direct Who are you?\n@assistant Analyze the structure of auth.go\n@builder Refactor the auth module\n@reviewer Check recent code changes\n@debugger Debug the login failure\n```\n\n### Profile Reference\n\n| Profile | Tools | Best For |\n|---------|-------|----------|\n| `@direct` | None | Quick Q&A, knowledge queries |\n| `@assistant` | Read-only | Code analysis, explanation |\n| `@builder` | All tools | Development, code changes (default) |\n| `@reviewer` | Read-only + git | Code review |\n| `@debugger` | read/grep/bash | Debugging |\n| `@planner` | Read-only | Task planning |\n| `@writer` | read/write/glob | Documentation |\n| `@explainer` | Read-only | Code explanation |\n\n> The system auto-selects the best Profile based on your message — manual selection is rarely needed."
+      "operationsQuality": {
+        "title": "Operations and Quality",
+        "desc": "Use scheduled tasks, replay, quality candidates, quality workbench, memory governance, and auto optimization.",
+        "scheduledTasks": {
+          "title": "1. Scheduled tasks",
+          "desc": "Scheduled Tasks creates and manages recurring or timed work.",
+          "detail": "## Purpose\n\nUse scheduled tasks for periodic checks, evaluations, syncs, or stable business workflows.\n\n## Management\n\nThe page includes task table, form, and run history drawer. Check recent runs after creating a task."
+        },
+        "replay": {
+          "title": "2. Replay and trace",
+          "desc": "Replay helps admins inspect decisions, tool calls, quality events, and execution traces.",
+          "detail": "## Admin use\n\nUsers can understand process with replay; admins can also diagnose failures, dangerous actions, delegation paths, and context issues.\n\n## Deep links\n\nReplay supports `?step=N` links for sharing exact events."
+        },
+        "prompts": {
+          "title": "3. Prompt Manager",
+          "desc": "Prompt Manager overrides built-in system, tool, and sub-agent prompts, with smoke eval before save.",
+          "detail": "## Scope\n\nThe page groups known prompt keys under system, tools, and subagents. When there is no database override, Hive uses the go:embed default.\n\n## Edit flow\n\n1. Pick a prompt key.\n2. Edit content and optional language.\n3. Run smoke eval before saving.\n4. Save a database override, or delete the override to restore default.\n\n## When it takes effect\n\nChanges affect later conversation turns. The page notes that propagation may take up to about 30 seconds; already-running model calls are not replaced mid-call."
+        },
+        "qualityCandidates": {
+          "title": "4. Quality candidates",
+          "desc": "Quality candidates turn real failures into evaluation assets.",
+          "detail": "## Sources\n\nCandidates can come from replay quality events or admin quality workflows.\n\n## Purpose\n\nUse them for replay, evaluation, optimization suggestions, and version comparisons."
+        },
+        "qualityWorkbench": {
+          "title": "5. Quality workbench",
+          "desc": "Quality Workbench groups rules, replay jobs, batch evals, and version diff analysis.",
+          "detail": "## When to use\n\nUse it when behavior regresses or a task category fails repeatedly.\n\n## Workflow\n\n1. Select samples from candidates or history.\n2. Create replays or batch evals.\n3. Review reports and version diffs.\n4. Generate and approve optimization suggestions."
+        },
+        "memoryAndOptimization": {
+          "title": "6. Memory governance and optimization",
+          "desc": "Memory Governance and Auto Optimization control long-term memory quality and change rollout.",
+          "detail": "## Memory governance\n\nInspect, filter, explain, and prune memories to prevent stale or low-quality memories from affecting future tasks.\n\n## Auto optimization\n\nGenerate suggestions from quality samples or eval diffs, then approve, apply, or roll them back.\n\n## Principle\n\nReview optimization suggestions before production rollout."
+        }
       },
-      "responseStates": {
-        "title": "2. Understanding Agent Response States",
-        "desc": "The agent goes through these states while processing:\n\n• 🤔 Thinking — Analyzing your request and planning\n• 🔧 Calling Tools — Executing tools (reading files, running commands, searching code, etc.)\n• ✅ Completed — Processing done, reply displayed\n\nThe agent has 6 built-in tools: read_file, write_file, edit (string replace), glob (find files), grep (search content), bash (run commands).",
-        "detail": "## Agent Response States\n\nThe agent goes through these states while processing:\n\n| State | Icon | Description |\n|-------|------|-------------|\n| Thinking | 🤔 | Analyzing request, planning execution |\n| Calling Tools | 🔧 | Executing tools (reading files, running commands, etc.) |\n| Completed | ✅ | Processing done, reply displayed |\n\n## Built-in Tools\n\n| Tool | Function | Permission |\n|------|----------|------------|\n| `read_file` | Read file contents | Auto-allowed |\n| `write_file` | Write/create files | Requires confirmation |\n| `edit` | Precise string replacement | Requires confirmation |\n| `glob` | Find files by pattern | Auto-allowed |\n| `grep` | Search file contents | Auto-allowed |\n| `bash` | Execute shell commands | Requires confirmation |\n\n> Tools that \"require confirmation\" trigger the HITL approval workflow — the agent pauses and waits for your approval before proceeding."
-      },
-      "messageActions": {
-        "title": "3. Message Action Buttons",
-        "desc": "Hover over any message to reveal action buttons on the right:\n\n• 📋 Copy — Copy the full message to clipboard\n• 👍 Helpful / 👎 Not helpful — Rate the agent's response\n• 🔄 Regenerate — Generate a new response for this message\n• 🗑️ Delete — Delete a single message\n\nCode blocks have a built-in \"Copy code\" button. Long code blocks can be expanded/collapsed.",
-        "detail": "## Message Action Buttons\n\nHover over any message to reveal action buttons on the right:\n\n| Button | Function | Description |\n|--------|----------|-------------|\n| 📋 Copy | Copy full message | Copies as plain text to clipboard |\n| 👍 Helpful | Positive feedback | Mark response as good quality |\n| 👎 Not helpful | Negative feedback | Mark response as poor quality |\n| 🔄 Regenerate | New response | Generate a new reply for this message |\n| 🗑️ Delete | Delete message | Remove a single message (confirmation required) |\n\n## Code Block Features\n\nCode blocks returned by the agent have extra features:\n\n- **Copy code** — One-click code copying\n- **Expand/Collapse** — Long code blocks can be folded\n- **Fullscreen** — View code in fullscreen mode\n- **Wrap lines** — Toggle line wrapping\n\n> Code blocks support syntax highlighting with automatic language detection."
-      },
-      "canvas": {
-        "title": "4. Using the Canvas Panel",
-        "desc": "When the agent returns code, JSON, HTML, or other structured content, click \"Open in Canvas\" in the message to view it in the right-side Canvas panel:\n\n• Preview mode: HTML content rendered directly\n• Code mode: View source with syntax highlighting\n• Download: Save content as a file\n• Copy All: Copy the entire content\n\nCanvas supports multiple open items with tab switching.",
-        "tip": "HTML preview in Canvas has scripts disabled by default. Click \"Enable Scripts\" in the panel to allow execution.",
-        "detail": "## Opening the Canvas Panel\n\nWhen the agent returns code, JSON, HTML, or other structured content:\n\n1. Find the **\"Open in Canvas\"** button in the message\n2. Click to display the content in the right-side Canvas panel\n\n## Canvas Features\n\n| Mode | Description |\n|------|-------------|\n| Preview | HTML/Markdown content rendered directly |\n| Code | View source with syntax highlighting |\n\n### Action Buttons\n\n- **Download** — Save content as a file (auto-detects file type)\n- **Copy All** — One-click copy of the entire content\n- **Close** — Close the current tab\n- **Close All** — Close all tabs\n\n## Multiple Tabs\n\nCanvas supports multiple open items with tab switching at the top.\n\n> HTML preview has scripts disabled by default for security. Click \"Enable Scripts\" in the panel to allow execution."
-      }
-    },
-    "toolsAndSkills": {
-      "title": "Tools & Skills",
-      "desc": "Learn about built-in tools, the skill system, and HITL approval workflow",
-      "viewAgents": {
-        "title": "1. Built-in Tools & Agent List",
-        "desc": "Go to the \"Agents\" page to see all registered agents. The system includes these built-in tools:\n\n• read_file — Read file contents (auto-allowed)\n• write_file — Write to files (requires confirmation)\n• edit — Precise string replacement (requires confirmation)\n• glob — Find files by pattern (auto-allowed)\n• grep — Search file contents (auto-allowed)\n• bash — Execute shell commands (requires confirmation)\n\nThe system also has CodeReview and Research sub-agents for code review and information research.",
-        "tip": "Tool permissions have three levels: Allow (auto-allowed), Ask (requires HITL confirmation), Deny (auto-rejected). Customize in hitl.permission_rules in the config file.",
-        "detail": "## View Agent List\n\nGo to the **\"Agents\"** page to see all registered agents.\n\n## Built-in Tool Permissions\n\n| Tool | Description | Default Permission |\n|------|-------------|-------------------|\n| `read_file` | Read file contents at a given path | ✅ Allow (auto-allowed) |\n| `write_file` | Write content to a specified file | ⚠️ Ask (requires confirmation) |\n| `edit` | Perform precise string replacement in files | ⚠️ Ask (requires confirmation) |\n| `glob` | Find files matching a glob pattern | ✅ Allow (auto-allowed) |\n| `grep` | Search file contents with regex | ✅ Allow (auto-allowed) |\n| `bash` | Execute shell commands and return output | ⚠️ Ask (requires confirmation) |\n\n## Sub-agents\n\nThe system includes two specialized sub-agents:\n\n- **CodeReview Agent** — Focuses on code review, uses read-only tools to analyze quality\n- **Research Agent** — Focuses on information research, searches and summarizes relevant materials\n\n> Tool permissions can be customized in `hitl.permission_rules` in the config. Set to `allow` to skip confirmation, `deny` to block entirely."
-      },
-      "allTools": {
-        "title": "Complete Tool List",
-        "desc": "The system registers 22+ tools, grouped by category:\n\nCore tools: read_file, write_file, edit, glob, grep, bash, ls, multiedit, apply_patch\nWeb tools: websearch, webfetch\nBatch & parallel: batch, parallel_dispatch\nInteraction & tasks: question, task, skill\nState management: todoread, todowrite\nIM communication: send_im_message\nLSP language services: hover, definition, references, etc. (9 total)",
-        "detail": "## Complete Tool List\n\nThe system registers 22+ tools, grouped by function:\n\n### Core File Operations\n\n| Tool | Description | Default Permission |\n|------|-------------|-------------------|\n| `read_file` | Read file contents | ✅ Allow |\n| `write_file` | Write/create files | ⚠️ Ask |\n| `edit` | Precise string replacement editing | ⚠️ Ask |\n| `multiedit` | Batch multi-file editing | ⚠️ Ask |\n| `apply_patch` | Apply unified diff patches | ⚠️ Ask |\n| `glob` | Find files by pattern | ✅ Allow |\n| `grep` | Search file contents | ✅ Allow |\n| `ls` | List directory contents | ✅ Allow |\n| `bash` | Execute shell commands | ⚠️ Ask |\n\n### Web Tools\n\n| Tool | Description |\n|------|-------------|\n| `websearch` | Web search |\n| `webfetch` | Fetch web page content |\n\n### Batch & Parallel\n\n| Tool | Description |\n|------|-------------|\n| `batch` | Batch execute multiple tool calls |\n| `parallel_dispatch` | Dispatch tasks to multiple SubAgents in parallel |\n\n### Interaction & Tasks\n\n| Tool | Description |\n|------|-------------|\n| `question` | Ask user for input |\n| `task` | Create and manage subtasks |\n| `skill` | Invoke registered skills |\n\n### State Management\n\n| Tool | Description |\n|------|-------------|\n| `todoread` | Read todo list |\n| `todowrite` | Update todo list |\n\n### IM Communication\n\n| Tool | Description |\n|------|-------------|\n| `send_im_message` | Send messages to IM platforms |\n\n### LSP Language Services\n\n| Tool | Description |\n|------|-------------|\n| `hover` | Hover info (type/docs) |\n| `definition` | Go to definition |\n| `references` | Find all references |\n| `implementation` | Go to implementation |\n| `document_symbol` | Document symbol list |\n| `workspace_symbol` | Workspace symbol search |\n| `call_hierarchy` | Call hierarchy |\n| `incoming_calls` | Who calls this function |\n| `outgoing_calls` | What this function calls |"
-      },
-      "viewSkills": {
-        "title": "2. Using the Skill System",
-        "desc": "Go to \"Skills\" to browse available skills. Skills are declarative instruction/knowledge packs (Markdown files), distinct from executable Tools.\n\nCreate a custom Skill: Create a subdirectory under .claude/skills/ with a SKILL.md file:\n\n---\nname: python-linter\ndescription: Python code checking guide\nallowed-tools: [\"read_file\", \"bash\"]\n---\nCheck code following PEP 8 standards using pylint...\n\nSkill search paths: .claude/skills/ (project) → ~/.claude/skills/ (user) → skills/ (built-in)",
-        "detail": "## Browse Skills\n\nGo to the **\"Skills\"** page to browse all available skills. Skills are declarative instruction/knowledge packs (Markdown files), distinct from executable Tools.\n\n## Create a Custom Skill\n\nCreate a subdirectory under `.claude/skills/` with a `SKILL.md` file:\n\n```markdown\n---\nname: python-linter\ndescription: Python code checking guide\nallowed-tools: [\"read_file\", \"bash\"]\n---\n\n## Checking Standards\n\nFollow PEP 8 standards using these tools:\n\n1. Use `read_file` to read the target file\n2. Use `bash` to run `pylint`\n3. Summarize results and provide fix suggestions\n```\n\n## Skill Search Paths\n\nSkills are searched in this order:\n\n| Priority | Path | Scope |\n|----------|------|-------|\n| 1 (highest) | `.claude/skills/` | Project-level |\n| 2 | `~/.claude/skills/` | User-level |\n| 3 (lowest) | `skills/` | Built-in |\n\n> Same-name skills are overridden by priority: project > user > built-in."
-      },
-      "hitl": {
-        "title": "3. Human Approval (HITL) Workflow",
-        "desc": "When the agent performs dangerous operations like writing files or running shell commands, the system pauses and shows an approval panel:\n\n• Permission Request: Shows operation details (e.g. \"Execute command: rm -rf /tmp/test\")\n• Approve: Confirm the operation\n• Reject: Block it — the agent will try alternatives\n• Provide Input: Some scenarios require your additional information\n\nApproval requests appear in the notification area at the top and the sidebar shows pending count.",
-        "tip": "Customize approval rules in config. For example, setting bash tool's action to \"allow\" skips command approval (not recommended for production). Default timeout is 5 minutes, configurable via hitl.input_timeout.",
-        "detail": "## HITL Approval Workflow\n\nWhen the agent performs an operation requiring confirmation, the system pauses and shows an approval panel:\n\n```\n┌─────────────────────────────────────┐\n│  ⚠️ Permission Request              │\n│                                     │\n│  The agent requests to:             │\n│  Execute command: rm -rf /tmp/test  │\n│                                     │\n│  [Approve]  [Reject]  [Provide Input]│\n└─────────────────────────────────────┘\n```\n\n## Approval Options\n\n| Button | Action | Description |\n|--------|--------|-------------|\n| Approve | Confirm | Agent proceeds with the operation |\n| Reject | Block | Agent tries alternative approaches |\n| Provide Input | Add info | Give the agent additional guidance |\n\n## Notifications\n\n- **Notification area** at the top shows pending approvals\n- Left sidebar shows **pending count** badge\n- WebSocket real-time push supported\n\n## Timeout Configuration\n\nDefault timeout is **5 minutes**. Customize in config:\n\n```json\n{\n  \"hitl\": {\n    \"input_timeout\": \"10m\"\n  }\n}\n```\n\n> Customize approval rules in config. Setting bash tool's action to `allow` skips command approval (not recommended for production)."
-      },
-      "parallelTasks": {
-        "title": "4. Parallel Tasks & Progress Tracking",
-        "desc": "The system supports decomposing complex tasks into multiple subtasks executed in parallel, with real-time progress display:\n\n• parallel_dispatch tool: Distributes tasks to multiple SubAgents for concurrent processing\n• Real-time progress panel: Shows task group progress, subtask status, and Agent tool calls in the chat interface",
-        "detail": "## Parallel Task System\n\n### Parallel Dispatch\n\nThe Agent executes multiple subtasks simultaneously via `parallel_dispatch`, collects all subtask results, and generates the final reply.\n\n### Progress Tracking Panel\n\nThe progress panel in the chat interface shows in real-time:\n\n| Info | Description |\n|------|-------------|\n| Task group status | started → completed/failed |\n| Subtask list | Each task's ID, description, and current status |\n| Agent tool calls | Tools being used by each SubAgent and turn count |\n\n### Event Types\n\nThe system broadcasts the following events via WebSocket:\n\n- `task_group` — Parallel task group lifecycle\n- `task_progress` — Individual task progress\n- `agent_progress` — SubAgent tool-call level progress"
-      }
-    },
-    "configuration": {
-      "title": "Configuration",
-      "desc": "Configure system behavior via config.json and environment variables",
-      "configFile": {
-        "title": "1. Create Config File",
-        "desc": "Create config.json in the project root. Key settings:\n\n{\n  \"server\": {\n    \"port\": 8080,\n    \"host\": \"0.0.0.0\",\n    \"cors_origins\": [\"http://localhost:3000\"]\n  },\n  \"logging\": { \"level\": \"info\", \"format\": \"json\" },\n  \"hitl\": {\n    \"enabled\": true,\n    \"input_timeout\": \"5m\",\n    \"websocket_enabled\": true\n  },\n  \"agent\": {\n    \"timeout\": \"30m\"\n  }\n}\n\nSpecify at startup with --config config.json.",
-        "tip": "All settings have sensible defaults. For first use, you only need to set the LLM API key.",
-        "detail": "## Create Config File\n\nCreate `config.json` in the project root:\n\n```json\n{\n  \"server\": {\n    \"port\": 8080,\n    \"host\": \"0.0.0.0\",\n    \"cors_origins\": [\"http://localhost:3000\"]\n  },\n  \"logging\": {\n    \"level\": \"info\",\n    \"format\": \"json\"\n  },\n  \"hitl\": {\n    \"enabled\": true,\n    \"input_timeout\": \"5m\",\n    \"websocket_enabled\": true\n  },\n  \"agent\": {\n    \"timeout\": \"30m\"\n  }\n}\n```\n\n## Configuration Reference\n\n| Setting | Default | Description |\n|---------|---------|-------------|\n| `server.port` | `8080` | HTTP server port |\n| `server.host` | `0.0.0.0` | Listen address |\n| `server.cors_origins` | `[\"*\"]` | Allowed CORS origins |\n| `logging.level` | `info` | Log level (debug/info/warn/error) |\n| `logging.format` | `json` | Log format (json/text) |\n| `hitl.enabled` | `true` | Enable HITL approval |\n| `hitl.input_timeout` | `5m` | Approval timeout |\n| `agent.timeout` | `30m` | Single task timeout |\n\n## Starting with Config\n\n```bash\n./server --config config.json\n```\n\n> All settings have sensible defaults. For first use, you only need to set the LLM API key."
-      },
-      "llmProvider": {
-        "title": "2. Configure LLM Provider",
-        "desc": "In the llm section of config.json:\n\n{\n  \"llm\": {\n    \"provider\": \"openai\",\n    \"api_key\": \"sk-...\",\n    \"model\": \"gpt-4\",\n    \"base_url\": \"https://www.gmini.xyz/v1\"\n  }\n}\n\nSupported providers:\n• openai — default model gpt-4o\n• deepseek — default model deepseek-chat\n• anthropic — default model claude-3-5-sonnet\n• custom — any OpenAI-compatible API\n\nEnv vars also work: CLAW_API_KEY, CLAW_MODEL, CLAW_BASE_URL, CLAW_PROVIDER (higher priority than config file).",
-        "tip": "Support multiple models — add more in the llm.models array and switch at runtime with the /model command.",
-        "detail": "## LLM Configuration\n\nIn the `llm` section of `config.json`:\n\n```json\n{\n  \"llm\": {\n    \"provider\": \"openai\",\n    \"api_key\": \"sk-...\",\n    \"model\": \"gpt-4o\",\n    \"base_url\": \"https://www.gmini.xyz/v1\"\n  }\n}\n```\n\n## Supported Providers\n\n| Provider | Value | Default Model | Base URL |\n|----------|-------|---------------|----------|\n| OpenAI | `openai` | `gpt-4o` | `https://www.gmini.xyz/v1` |\n| DeepSeek | `deepseek` | `deepseek-chat` | `https://api.deepseek.com/v1` |\n| Anthropic | `anthropic` | `claude-3-5-sonnet` | `https://api.anthropic.com/v1` |\n| Custom | `custom` | Must specify | Must specify |\n\n## Environment Variables\n\nEnvironment variables take priority over config file:\n\n| Variable | Description |\n|----------|-------------|\n| `CLAW_API_KEY` | API Key (highest priority) |\n| `OPENAI_API_KEY` | OpenAI API Key |\n| `CLAW_MODEL` | Model name |\n| `CLAW_BASE_URL` | API base URL |\n| `CLAW_PROVIDER` | Provider name |\n\n## Multi-model Configuration\n\n```json\n{\n  \"llm\": {\n    \"provider\": \"openai\",\n    \"api_key\": \"sk-...\",\n    \"model\": \"gpt-4o\",\n    \"models\": [\n      { \"name\": \"gpt-4o\", \"provider\": \"openai\" },\n      { \"name\": \"deepseek-chat\", \"provider\": \"deepseek\", \"base_url\": \"https://api.deepseek.com/v1\" }\n    ]\n  }\n}\n```\n\n> Switch models at runtime with the `/model` command."
-      },
-      "profiles": {
-        "title": "3. Profile System Setup",
-        "desc": "10 built-in Profiles with different tool permissions:\n\n• direct — No tools, quick Q&A\n• assistant — read/glob/grep, read-only\n• builder — All tools (default)\n• planner — Read-only, task planning\n• reviewer — Read-only + git, code review\n• debugger — read/grep/bash/git, debugging\n• writer — read/write/glob, documentation\n• explainer — Read-only, code explanation\n• im-operator — IM tools + read-only, IM message management\n• researcher — websearch/webfetch + read-only, information research\n\nCustom Profiles: Create ~/.claw/profiles.json with custom name, description, tool permissions, and system prompts.",
-        "detail": "## Built-in Profiles\n\n10 pre-configured profiles covering common use cases:\n\n| Profile | Tools | Best For |\n|---------|-------|----------|\n| `direct` | None | Quick Q&A |\n| `assistant` | read/glob/grep | Code analysis |\n| `builder` | All tools | Development (default) |\n| `planner` | Read-only | Task planning |\n| `reviewer` | Read-only + git | Code review |\n| `debugger` | read/grep/bash/git | Debugging |\n| `writer` | read/write/glob | Documentation |\n| `explainer` | Read-only | Code explanation |\n| `im-operator` | IM tools + read-only | IM message management |\n| `researcher` | websearch/webfetch + read-only | Information research |\n\n## Custom Profiles\n\nCreate `~/.claw/profiles.json`:\n\n```json\n[\n  {\n    \"name\": \"security-auditor\",\n    \"description\": \"Security audit profile\",\n    \"tools\": [\"read_file\", \"glob\", \"grep\", \"bash\"],\n    \"system_prompt\": \"You are a security audit expert focused on finding vulnerabilities...\"\n  }\n]\n```\n\nUsage:\n\n```\n@security-auditor Check auth.go for security issues\n```\n\n> Custom profiles merge with built-in ones. Same-name custom profiles take priority."
-      },
-      "extensionsPlugins": {
-        "title": "4. Extensions & Plugins",
-        "desc": "The system supports multiple extension methods:\n\n• Plugin system: Place JSON-RPC plugins in the plugin.dir directory, auto-loaded by the system\n• MCP servers: Configure external MCP servers for additional tools (supports stdio/SSE/HTTP transport)\n• Custom tools: Place tool definition files in the custom_tools_dir directory\n• Custom commands: Configure shortcut command templates in the commands section of config.json",
-        "detail": "## Plugin System\n\nEnable plugins in the config file:\n\n```json\n{\n  \"plugin\": {\n    \"enabled\": true,\n    \"dir\": \".claw/plugins\"\n  }\n}\n```\n\nPlugins communicate via JSON-RPC protocol. The system auto-discovers and loads executables in the directory.\n\n## MCP Servers\n\nConfigure external MCP (Model Context Protocol) servers:\n\n```json\n{\n  \"mcp\": {\n    \"timeout\": \"30s\",\n    \"servers\": {\n      \"my-server\": {\n        \"transport\": \"stdio\",\n        \"command\": \"npx\",\n        \"args\": [\"-y\", \"@modelcontextprotocol/server-filesystem\"]\n      },\n      \"remote-server\": {\n        \"transport\": \"sse\",\n        \"url\": \"https://mcp.example.com/sse\",\n        \"headers\": { \"Authorization\": \"Bearer token\" }\n      }\n    }\n  }\n}\n```\n\nThree transport methods supported:\n\n| Transport | Description |\n|-----------|-------------|\n| `stdio` | Local process, communicates via stdin/stdout |\n| `sse` | Server-Sent Events, suitable for remote services |\n| `http` | HTTP Streamable, recommended for new MCP |\n\n## Custom Commands\n\nDefine shortcut commands in config.json:\n\n```json\n{\n  \"commands\": {\n    \"review\": {\n      \"description\": \"Code review\",\n      \"template\": \"Please review the code quality of: {{args}}\",\n      \"agent\": \"codereview\"\n    },\n    \"explain\": {\n      \"description\": \"Code explanation\",\n      \"template\": \"Please explain this code: {{args}}\",\n      \"model\": \"gpt-3.5-turbo\"\n    }\n  }\n}\n```\n\nUsage: Type `/review main.go` or `/explain auth.go` in the CLI."
-      }
-    },
-    "imChannels": {
-      "title": "IM Integration",
-      "desc": "Connect DingTalk, Feishu, WeCom, or the official WeChat Bot to chat with agents in IM",
-      "overview": {
-        "title": "1. Supported IM Platforms & Architecture",
-        "desc": "The Channel system bridges IM messages to Agent sessions:\n\nIM Platform → Webhook/Long Poll → Channel Router → ACP Control Plane → Master Agent\n\nSupported platforms:\n• DingTalk (dingtalk) — Enterprise, requires DingTalk app creation\n• Feishu (feishu) — Enterprise, requires Feishu app creation\n• WeCom (wecom) — Enterprise, requires WeCom admin access\n• WeChat Bot — clawbot backed by official wechatbot/iLink; only receives messages sent to clawbot, not normal private chats sent to a personal WeChat account\n\nMessage types: direct (DM), group (group chat), channel.",
-        "detail": "## Architecture Flow\n\n```\nIM User Message\n    ↓\nWebhook / Long Poll ingress\n    ↓\nChannel Router (lookup Binding mapping)\n    ↓\nACP Control Plane (rate limiting, auth)\n    ↓\nMaster Agent (process and reply)\n    ↓\nIM Reply Message\n```\n\n## Supported Platforms\n\n| Platform | ID | Type | Requirements |\n|----------|-----|------|-------------|\n| DingTalk | `dingtalk` | Enterprise | Create DingTalk app |\n| Feishu | `feishu` | Enterprise | Create Feishu app |\n| WeCom | `wecom` | Enterprise | WeCom admin access |\n| WeChat Bot | `wechatbot` | Official wechatbot/iLink clawbot | Users scan in `/settings` to connect clawbot; contacts must message clawbot; normal Web Chat does not show IM sessions |\n\n## Message Types\n\n| Type | ID | Description |\n|------|-----|-------------|\n| Direct | `direct` | One-on-one private messages |\n| Group | `group` | Group chat messages |\n| Channel | `channel` | Channel/topic messages |"
-      },
-      "channelConfig": {
-        "title": "2. Platform Configuration",
-        "desc": "Enable and configure platforms in the channel section of config.json:\n\nDingTalk: requires app_key, app_secret, callback token, aes_key, and agent_id\nFeishu: requires app_id, app_secret, verification_token, and encrypt_key\nWeCom: requires corp_id, agent_id, secret, callback token, and encoding_aes_key\n\nWeChat Bot enters settings through an official wechatbot user-level connection; legacy protocol configuration has been removed.",
-        "tip": "Legacy personal WeChat protocol settings have been removed. Users scan in /settings to connect clawbot through official wechatbot. It only handles messages sent to clawbot.",
-        "detail": "## DingTalk Configuration\n\n```json\n{\n  \"channel\": {\n    \"dingtalk\": {\n      \"enabled\": true,\n      \"app_key\": \"your-app-key\",\n      \"app_secret\": \"your-app-secret\",\n      \"token\": \"callback-token\",\n      \"aes_key\": \"callback-aes-key\",\n      \"agent_id\": \"your-agent-id\"\n    }\n  }\n}\n```\n\n## Feishu Configuration\n\n```json\n{\n  \"channel\": {\n    \"feishu\": {\n      \"enabled\": true,\n      \"app_id\": \"your-app-id\",\n      \"app_secret\": \"your-app-secret\",\n      \"verification_token\": \"your-verification-token\",\n      \"encrypt_key\": \"your-encrypt-key\"\n    }\n  }\n}\n```\n\n## WeCom Configuration\n\n```json\n{\n  \"channel\": {\n    \"wecom\": {\n      \"enabled\": true,\n      \"corp_id\": \"your-corp-id\",\n      \"agent_id\": \"your-agent-id\",\n      \"secret\": \"your-secret\",\n      \"token\": \"callback-token\",\n      \"encoding_aes_key\": \"your-encoding-aes-key\"\n    }\n  }\n}\n```\n\n## WeChat Bot\n\nWeChat Bot enters settings through an official wechatbot user-level connection; legacy protocol configuration has been removed. It is not normal personal WeChat private-chat hosting; contacts must message clawbot in WeChat."
-      },
-      "webhook": {
-        "title": "3. Webhook & Message Routing",
-        "desc": "Configure the IM platform's webhook callback URL:\n\n• DingTalk/Feishu/WeCom: In the platform's developer console, set event callback URL to http://your-host:8080/api/v1/webhook/{platform}\n\nMessage routing flow:\n1. IM message arrives at webhook endpoint\n2. Router looks up Binding (platform:chatID → sessionID mapping)\n3. ACP Control Plane performs rate limiting\n4. Master Agent processes message and replies\n\nUse Gateway RPC's channel.bind method to manually bind an IM channel to a specific session.",
-        "tip": "Ensure the webhook port is publicly accessible by the IM platform. HTTPS with nginx reverse proxy is recommended.",
-        "detail": "## Webhook URL Format\n\nCallback URLs for each platform:\n\n| Platform | Webhook URL |\n|----------|-------------|\n| DingTalk | `http://your-host:8080/api/v1/webhook/dingtalk` |\n| Feishu | `http://your-host:8080/api/v1/webhook/feishu` |\n| WeCom | `http://your-host:8080/api/v1/webhook/wecom` |\n\n## Setup Steps\n\n1. Go to the IM platform's **developer console**\n2. Find the event callback configuration\n3. Set the callback URL to the format above\n4. Enter the verification token and encryption key (matching config.json)\n5. Save and verify the connection\n\n## Message Routing Flow\n\n1. IM message arrives at the webhook endpoint\n2. Router looks up **Binding** (`platform:chatID` → `sessionID` mapping)\n3. ACP Control Plane performs **rate limiting**\n4. Master Agent **processes and replies**\n\n## Manual Channel Binding\n\nBind an IM channel to a session via Gateway RPC:\n\n```bash\ncurl -X POST http://localhost:8080/api/v1/rpc \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\n    \"method\": \"channel.bind\",\n    \"params\": {\n      \"platform\": \"dingtalk\",\n      \"chat_id\": \"group-123\",\n      \"session_id\": \"sess-456\"\n    }\n  }'\n```\n\n> Ensure the webhook port is publicly accessible by the IM platform. HTTPS with nginx reverse proxy is recommended."
-      }
-    },
-    "apiReference": {
-      "title": "API Reference",
-      "desc": "HTTP REST API and WebSocket interface usage",
-      "healthAndSession": {
-        "title": "1. Session Management API",
-        "desc": "Base URL: http://localhost:8080/api/v1\n\n• GET /health — Check service status, returns {\"status\":\"ok\"}\n• POST /sessions — Create session, Body: {\"name\":\"my-session\", \"profile\":\"builder\"}, returns session_id\n• GET /sessions — List all sessions\n• GET /sessions/{id} — Get session details\n• PATCH /sessions/{id} — Update session (e.g. rename)\n• DELETE /sessions/{id} — Delete session\n• POST /sessions/{id}/clear — Clear message history",
-        "detail": "## Base Info\n\n- **Base URL**: `http://localhost:8080/api/v1`\n- **Content-Type**: `application/json`\n\n## Health Check\n\n```bash\ncurl http://localhost:8080/api/v1/health\n```\n\nResponse:\n\n```json\n{\n  \"status\": \"ok\"\n}\n```\n\n## Session APIs\n\n### Create Session\n\n```bash\ncurl -X POST http://localhost:8080/api/v1/sessions \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"name\": \"my-session\", \"profile\": \"builder\"}'\n```\n\nResponse:\n\n```json\n{\n  \"id\": \"sess-abc123\",\n  \"name\": \"my-session\",\n  \"profile\": \"builder\",\n  \"created_at\": \"2026-03-16T10:00:00Z\"\n}\n```\n\n### List All Sessions\n\n```bash\ncurl http://localhost:8080/api/v1/sessions\n```\n\n### Get Session Details\n\n```bash\ncurl http://localhost:8080/api/v1/sessions/{id}\n```\n\n### Update Session\n\n```bash\ncurl -X PATCH http://localhost:8080/api/v1/sessions/{id} \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"name\": \"new-name\"}'\n```\n\n### Delete Session\n\n```bash\ncurl -X DELETE http://localhost:8080/api/v1/sessions/{id}\n```\n\n### Clear Message History\n\n```bash\ncurl -X POST http://localhost:8080/api/v1/sessions/{id}/clear\n```"
-      },
-      "chatApi": {
-        "title": "2. Chat & HITL API",
-        "desc": "• POST /sessions/{id}/messages — Send message, Body: {\"content\":\"Analyze main.go\"}, returns agent reply\n\nHITL endpoints:\n• GET /tasks/{id}/pending-input — Query pending approval requests\n• POST /tasks/{id}/input — Submit approval response, Body: {\"input_id\":\"xxx\", \"response\":\"yes\"}\n• POST /tasks/{id}/command — Send control command (e.g. \"cancel\")\n\nOther APIs:\n• GET /agents — List all agents\n• GET /skills — List all skills",
-        "tip": "There's also a Gateway RPC interface (POST /api/v1/rpc) using JSON-RPC 2.0, with token auth and more operations like channel.send, plugin.list, etc.",
-        "detail": "## Send Message\n\n```bash\ncurl -X POST http://localhost:8080/api/v1/sessions/{id}/messages \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"content\": \"Analyze the structure of main.go\"}'\n```\n\nResponse:\n\n```json\n{\n  \"id\": \"msg-xyz789\",\n  \"role\": \"assistant\",\n  \"content\": \"The structure of main.go is...\",\n  \"created_at\": \"2026-03-16T10:01:00Z\"\n}\n```\n\n## HITL API\n\n### Query Pending Approvals\n\n```bash\ncurl http://localhost:8080/api/v1/tasks/{id}/pending-input\n```\n\n### Submit Approval Response\n\n```bash\ncurl -X POST http://localhost:8080/api/v1/tasks/{id}/input \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"input_id\": \"inp-001\", \"response\": \"yes\"}'\n```\n\n### Cancel Task\n\n```bash\ncurl -X POST http://localhost:8080/api/v1/tasks/{id}/command \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"command\": \"cancel\"}'\n```\n\n## Other APIs\n\n| Endpoint | Method | Description |\n|----------|--------|-------------|\n| `/agents` | GET | List all agents |\n| `/skills` | GET | List all skills |\n\n> There's also a Gateway RPC interface (`POST /api/v1/rpc`) using JSON-RPC 2.0 with token auth and more operations."
-      },
-      "websocket": {
-        "title": "3. WebSocket Real-time Communication",
-        "desc": "Connect to ws://localhost:8080/api/v1/ws for a real-time channel.\n\nWebSocket is used for:\n• Streaming agent responses (token by token)\n• Agent state changes (thinking → tool_calling → completed)\n• HITL approval request push notifications\n• Real-time message notifications\n\nRequires config: hitl.websocket_enabled: true\n\nThe frontend WebSocket client has built-in auto-reconnect on disconnect.",
-        "tip": "The Gateway also provides a WebSocket RPC endpoint at /api/v1/rpc/ws with Bearer token auth, supporting all RPC methods in real-time.",
-        "detail": "## Establish Connection\n\n```javascript\nconst ws = new WebSocket('ws://localhost:8080/api/v1/ws');\n\nws.onopen = () => {\n  console.log('WebSocket connected');\n};\n\nws.onmessage = (event) => {\n  const data = JSON.parse(event.data);\n  console.log('Received:', data);\n};\n```\n\n## Message Types\n\n| Type | Description | Example |\n|------|-------------|----------|\n| `stream` | Streaming response | Agent outputs reply token by token |\n| `state_change` | State change | thinking → tool_calling → completed |\n| `hitl_request` | Approval request | Agent needs to perform dangerous operation |\n| `notification` | Notification | Real-time message alerts |\n\n## Message Format\n\n```json\n{\n  \"type\": \"stream\",\n  \"session_id\": \"sess-abc123\",\n  \"data\": {\n    \"content\": \"Analyzing\",\n    \"done\": false\n  }\n}\n```\n\n```json\n{\n  \"type\": \"state_change\",\n  \"session_id\": \"sess-abc123\",\n  \"data\": {\n    \"state\": \"tool_calling\",\n    \"tool\": \"read_file\",\n    \"args\": {\"path\": \"main.go\"}\n  }\n}\n```\n\n## Configuration\n\nWebSocket must be enabled in config:\n\n```json\n{\n  \"hitl\": {\n    \"websocket_enabled\": true\n  }\n}\n```\n\n> The frontend WebSocket client has built-in **auto-reconnect** on disconnect. The Gateway also provides a WebSocket RPC endpoint at `/api/v1/rpc/ws` with Bearer token auth."
+      "channelsApi": {
+        "title": "Channels and API",
+        "desc": "Configure org-level IM channels and understand HTTP, RPC, and WebSocket boundaries.",
+        "imChannels": {
+          "title": "1. IM channels",
+          "desc": "Org-level IM channels live in Admin Settings → Integrations. User-level WeChat Bot lives in Preferences.",
+          "detail": "## Org-level channels\n\nConfigure Feishu, DingTalk, WeCom, and similar channels in admin integrations. They typically require app credentials, callback URL, token, secret, or encryption key.\n\n## User-level WeChat Bot\n\nWeChat Bot connection belongs in user Preferences and should not be mixed with org-level channel setup."
+        },
+        "webhooks": {
+          "title": "2. Webhooks and routing",
+          "desc": "External IM events enter through webhook or long connection, then route to agent sessions.",
+          "detail": "## Typical flow\n\nThe backend receives IM events, deduplicates, routes, checks policy/rate limits, runs the agent, and replies through the renderer.\n\n## Recommendations\n\n- Use HTTPS in production.\n- Make callback URLs reachable from the platform.\n- Keep platform tokens and encryption keys aligned.\n- Avoid duplicate delivery when switching webhook/long connection mode."
+        },
+        "apiWebSocket": {
+          "title": "3. API and WebSocket",
+          "desc": "The frontend talks to the backend through `/api/v1` REST/RPC endpoints and WebSocket. Vite proxies `/api` to port 8080 in dev.",
+          "detail": "## Frontend proxy\n\nThe local frontend dev server runs on `localhost:3000`; `/api` proxies to `localhost:8080`.\n\n## Endpoint categories\n\n- Sessions and messages.\n- Admin APIs for users, auth, LLM, quality, and runtime config.\n- RPC for selected configuration and management methods.\n- WebSocket for chat streaming, task state, replay live events, and approval notifications.\n\n## Production\n\nThe frontend build outputs to `internal/webui/dist` and is embedded in the Go binary."
+        }
       }
     }
   },
@@ -652,7 +742,7 @@
     "ask": "Ask",
     "deny": "Deny",
     "mcpServers": "MCP Servers",
-    "mcpServersHint": "Configure external MCP servers for additional tools. Changes require saving to file and restarting the service.",
+    "mcpServersHint": "Configure external MCP servers to expose more tools. Changes hot-reload after saving.",
     "mcpTimeout": "MCP Timeout",
     "mcpServerName": "Name",
     "mcpTransport": "Transport",
@@ -660,8 +750,16 @@
     "mcpArgs": "Args",
     "mcpEnv": "Env Vars",
     "mcpEnvHint": "one per line",
+    "mcpHeaders": "Headers",
+    "mcpHeadersHint": "one per line, for example Authorization=Bearer ...",
     "mcpUrl": "URL",
     "mcpServerTimeout": "Timeout",
+    "mcpRuntimeTools": "Runtime tool catalog",
+    "mcpToolCount": "MCP {{count}}",
+    "mcpTotalToolCount": "Total {{count}}",
+    "mcpNoRuntimeTools": "No remote MCP tools are currently registered at runtime.",
+    "mcpToolsLoadFailed": "Failed to load MCP tool catalog",
+    "mcpServerRuntimeCounts": "{{tools}} tools / {{resources}} resources / {{prompts}} prompts",
     "addMcpServer": "Add Server",
     "deleteMcpServer": "Delete",
     "mcpNeedRestart": "MCP changes require saving to file and restart",

@@ -13,6 +13,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
+
+	"github.com/chef-guo/agents-hive/internal/mcphost"
 )
 
 func TestEmptyContentTransformer(t *testing.T) {
@@ -330,7 +332,7 @@ func TestListModelMetas(t *testing.T) {
 
 func TestPromptCachingTransformer_Anthropic(t *testing.T) {
 	logger := zap.NewNop()
-	transformer := NewPromptCachingTransformer(logger)
+	transformer := NewPromptCachingTransformer(true, logger)
 
 	t.Run("Anthropic 注入 cache_control 到系统消息和最近 2 条 user 消息", func(t *testing.T) {
 		sysMsg := openai.SystemMessage("你是一个助手")
@@ -397,7 +399,7 @@ func TestPromptCachingTransformer_Anthropic(t *testing.T) {
 
 func TestPromptCachingTransformer_Bedrock(t *testing.T) {
 	logger := zap.NewNop()
-	transformer := NewPromptCachingTransformer(logger)
+	transformer := NewPromptCachingTransformer(true, logger)
 
 	t.Run("Bedrock 注入 cache_point", func(t *testing.T) {
 		sysMsg := openai.SystemMessage("系统提示")
@@ -430,7 +432,7 @@ func TestPromptCachingTransformer_Bedrock(t *testing.T) {
 
 func TestPromptCachingTransformer_OpenAI(t *testing.T) {
 	logger := zap.NewNop()
-	transformer := NewPromptCachingTransformer(logger)
+	transformer := NewPromptCachingTransformer(true, logger)
 
 	t.Run("OpenAI 设置 prompt_cache_key", func(t *testing.T) {
 		messages := []openai.ChatCompletionMessageParamUnion{
@@ -450,14 +452,31 @@ func TestPromptCachingTransformer_OpenAI(t *testing.T) {
 
 		transformer.TransformRequest(ctx)
 
-		// 验证 prompt_cache_key 被设置
-		assert.Equal(t, openai.String("gpt-4o"), ctx.Params.PromptCacheKey)
+		// 验证 prompt_cache_key 被设置为稳定分桶 key
+		assert.Equal(t, openai.String(stablePromptCacheKey("gpt-4o", "", nil, nil)), ctx.Params.PromptCacheKey)
 	})
+}
+
+func TestStablePromptCacheKey(t *testing.T) {
+	key := stablePromptCacheKey("gpt-4o", "user-123", []string{"b", "a"}, []mcphost.ToolDefinition{
+		{Name: "zeta", InputSchema: []byte(`{"type":"object"}`)},
+		{Name: "alpha", InputSchema: []byte(`{"type":"object"}`)},
+	})
+	same := stablePromptCacheKey("gpt-4o", "user-123", []string{"a", "b"}, []mcphost.ToolDefinition{
+		{Name: "alpha", InputSchema: []byte(`{"type":"object"}`)},
+		{Name: "zeta", InputSchema: []byte(`{"type":"object"}`)},
+	})
+	if key != same {
+		t.Fatalf("stablePromptCacheKey should be stable across prompt/tool ordering, got %q vs %q", key, same)
+	}
+	if strings.Contains(key, "user-123") {
+		t.Fatalf("prompt cache key must not contain raw user id: %q", key)
+	}
 }
 
 func TestPromptCachingTransformer_SkipUnsupported(t *testing.T) {
 	logger := zap.NewNop()
-	transformer := NewPromptCachingTransformer(logger)
+	transformer := NewPromptCachingTransformer(true, logger)
 
 	t.Run("DeepSeek 跳过缓存注入", func(t *testing.T) {
 		messages := []openai.ChatCompletionMessageParamUnion{
@@ -694,7 +713,7 @@ func TestChainRequestTransformer(t *testing.T) {
 	logger := zap.NewNop()
 
 	t.Run("链式请求转换器按顺序执行", func(t *testing.T) {
-		chain := DefaultRequestTransformer("high", logger)
+		chain := DefaultRequestTransformer("high", logger, WithPromptCacheKey(true))
 
 		messages := []openai.ChatCompletionMessageParamUnion{
 			openai.SystemMessage("系统提示"),
@@ -715,14 +734,14 @@ func TestChainRequestTransformer(t *testing.T) {
 		chain.TransformRequest(ctx)
 
 		// 验证缓存转换器执行（设置了 prompt_cache_key）
-		assert.Equal(t, openai.String("o1"), ctx.Params.PromptCacheKey)
+		assert.Equal(t, openai.String(stablePromptCacheKey("o1", "", nil, nil)), ctx.Params.PromptCacheKey)
 
 		// 验证 reasoning 转换器执行（设置了 reasoning_effort）
 		assert.Equal(t, "high", string(ctx.Params.ReasoningEffort))
 	})
 
 	t.Run("无 reasoning effort 时仅执行缓存转换器", func(t *testing.T) {
-		chain := DefaultRequestTransformer("", logger)
+		chain := DefaultRequestTransformer("", logger, WithPromptCacheKey(true))
 
 		messages := []openai.ChatCompletionMessageParamUnion{
 			openai.UserMessage("hello"),
@@ -742,7 +761,7 @@ func TestChainRequestTransformer(t *testing.T) {
 		chain.TransformRequest(ctx)
 
 		// 缓存转换器应执行
-		assert.Equal(t, openai.String("gpt-4o"), ctx.Params.PromptCacheKey)
+		assert.Equal(t, openai.String(stablePromptCacheKey("gpt-4o", "", nil, nil)), ctx.Params.PromptCacheKey)
 
 		// reasoning 不应设置
 		assert.Empty(t, string(ctx.Params.ReasoningEffort))

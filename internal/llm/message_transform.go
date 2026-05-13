@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -13,6 +14,8 @@ import (
 	"github.com/openai/openai-go/packages/param"
 	"github.com/openai/openai-go/shared"
 	"go.uber.org/zap"
+
+	"github.com/chef-guo/agents-hive/internal/mcphost"
 )
 
 // MaxToolCallIDLength 是 tool_call_id 的最大允许长度。
@@ -521,10 +524,11 @@ type RequestTransformer interface {
 
 // RequestTransformContext 封装请求转换所需的上下文信息
 type RequestTransformContext struct {
-	Provider string                                     // provider 名称（如 "anthropic"、"openai"）
-	Model    string                                     // 当前使用的模型 ID
-	Messages []openai.ChatCompletionMessageParamUnion    // SDK 消息列表（可修改）
-	Params   *openai.ChatCompletionNewParams             // SDK 请求参数（可修改）
+	Provider string                                   // provider 名称（如 "anthropic"、"openai"）
+	Model    string                                   // 当前使用的模型 ID
+	Messages []openai.ChatCompletionMessageParamUnion // SDK 消息列表（可修改）
+	Params   *openai.ChatCompletionNewParams          // SDK 请求参数（可修改）
+	CacheKey string                                   // 去标识化、稳定的 prompt_cache_key
 }
 
 // ChainRequestTransformer 按顺序执行多个 RequestTransformer
@@ -553,17 +557,22 @@ func (c *ChainRequestTransformer) TransformRequest(ctx *RequestTransformContext)
 //   - OpenAI: 设置 prompt_cache_key（OpenAI 自动缓存，此字段提升命中率）
 //   - 其他 Provider: 跳过（不支持或自动处理）
 type PromptCachingTransformer struct {
-	logger *zap.Logger
+	enabled bool
+	logger  *zap.Logger
 }
 
 // NewPromptCachingTransformer 创建 Prompt 缓存转换器
-func NewPromptCachingTransformer(logger *zap.Logger) *PromptCachingTransformer {
-	return &PromptCachingTransformer{logger: logger}
+func NewPromptCachingTransformer(enabled bool, logger *zap.Logger) *PromptCachingTransformer {
+	return &PromptCachingTransformer{enabled: enabled, logger: logger}
 }
 
 // TransformRequest 根据 Provider 注入缓存控制参数。
 // 仅当模型元数据表明支持 prompt caching 时才注入。
 func (t *PromptCachingTransformer) TransformRequest(ctx *RequestTransformContext) {
+	if !t.enabled {
+		return
+	}
+
 	// 检查模型是否支持 prompt caching
 	if meta := GetModelMeta(ctx.Model); meta != nil {
 		if !meta.Capabilities.PromptCaching {
@@ -700,15 +709,70 @@ func injectCacheControlOnUserMessage(msg *openai.ChatCompletionMessageParamUnion
 // applyOpenAICaching 为 OpenAI 设置 prompt_cache_key 以提升缓存命中率。
 // OpenAI 自动缓存，此字段为可选优化。
 func (t *PromptCachingTransformer) applyOpenAICaching(ctx *RequestTransformContext) {
-	// 使用模型名作为缓存键的一部分，确保相同模型的请求共享缓存
-	if ctx.Model != "" {
-		ctx.Params.PromptCacheKey = openai.String(ctx.Model)
+	cacheKey := ctx.CacheKey
+	if cacheKey == "" {
+		cacheKey = stablePromptCacheKey(ctx.Model, "", nil, nil)
+	}
+	if cacheKey != "" {
+		ctx.Params.PromptCacheKey = openai.String(cacheKey)
 		if t.logger != nil {
 			t.logger.Debug("OpenAI 缓存适配: 已设置 prompt_cache_key",
-				zap.String("cache_key", ctx.Model),
+				zap.String("cache_key", cacheKey),
 			)
 		}
 	}
+}
+
+func stablePromptCacheKey(model, userID string, promptVersions []string, tools []mcphost.ToolDefinition) string {
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return ""
+	}
+	return strings.Join([]string{
+		"v2",
+		"model=" + model,
+		"scope=" + shortHash(strings.TrimSpace(userID)),
+		"prompt=" + shortHash(strings.Join(stableStringList(promptVersions), "\x00")),
+		"tools=" + stableToolsetHash(tools),
+	}, ":")
+}
+
+func stableToolsetHash(tools []mcphost.ToolDefinition) string {
+	if len(tools) == 0 {
+		return "none"
+	}
+	parts := make([]string, 0, len(tools))
+	for _, tool := range stableToolDefinitions(tools) {
+		parts = append(parts, strings.Join([]string{
+			strings.TrimSpace(tool.Name),
+			strings.TrimSpace(tool.Description),
+			strings.TrimSpace(string(tool.InputSchema)),
+		}, "\x00"))
+	}
+	return shortHash(strings.Join(parts, "\x1f"))
+}
+
+func stableStringList(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			out = append(out, value)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+func shortHash(value string) string {
+	if value == "" {
+		return "none"
+	}
+	sum := sha256.Sum256([]byte(value))
+	return hex.EncodeToString(sum[:])[:16]
 }
 
 // --- ReasoningVariantsTransformer ---
@@ -1044,7 +1108,7 @@ func DefaultRequestTransformer(reasoningEffort string, logger *zap.Logger, opts 
 	}
 
 	transformers := []RequestTransformer{
-		NewPromptCachingTransformer(logger),
+		NewPromptCachingTransformer(options.promptCacheKey, logger),
 		NewTemperatureDefaultsTransformer(logger),
 		NewMaxOutputTokensTransformer(logger),
 		NewStorePrivacyTransformer(options.storePrivacy),
@@ -1060,7 +1124,8 @@ func DefaultRequestTransformer(reasoningEffort string, logger *zap.Logger, opts 
 
 // requestTransformerOptions 请求转换器可选参数
 type requestTransformerOptions struct {
-	storePrivacy bool
+	storePrivacy   bool
+	promptCacheKey bool
 }
 
 // RequestTransformerOption 请求转换器可选配置函数
@@ -1070,6 +1135,12 @@ type RequestTransformerOption func(*requestTransformerOptions)
 func WithStorePrivacy(enabled bool) RequestTransformerOption {
 	return func(o *requestTransformerOptions) {
 		o.storePrivacy = enabled
+	}
+}
+
+func WithPromptCacheKey(enabled bool) RequestTransformerOption {
+	return func(o *requestTransformerOptions) {
+		o.promptCacheKey = enabled
 	}
 }
 
@@ -1173,9 +1244,9 @@ func (m ModelMeta) SupportsJSON() bool { return m.Capabilities.JSON }
 // 预定义常用模型的元数据
 var modelRegistry = map[string]ModelMeta{
 	"gpt-4o": {
-		Name:               "GPT-4o",
-		ContextWindow:      128000,
-		MaxOutput:          16384,
+		Name:          "GPT-4o",
+		ContextWindow: 128000,
+		MaxOutput:     16384,
 
 		CostPerInputToken:  2.5e-6,
 		CostPerOutputToken: 10e-6,
@@ -1189,9 +1260,9 @@ var modelRegistry = map[string]ModelMeta{
 		},
 	},
 	"gpt-4o-mini": {
-		Name:               "GPT-4o Mini",
-		ContextWindow:      128000,
-		MaxOutput:          16384,
+		Name:          "GPT-4o Mini",
+		ContextWindow: 128000,
+		MaxOutput:     16384,
 
 		CostPerInputToken:  0.15e-6,
 		CostPerOutputToken: 0.6e-6,
@@ -1205,9 +1276,9 @@ var modelRegistry = map[string]ModelMeta{
 		},
 	},
 	"gpt-4-turbo": {
-		Name:               "GPT-4 Turbo",
-		ContextWindow:      128000,
-		MaxOutput:           4096,
+		Name:          "GPT-4 Turbo",
+		ContextWindow: 128000,
+		MaxOutput:     4096,
 
 		CostPerInputToken:  10e-6,
 		CostPerOutputToken: 30e-6,
@@ -1219,9 +1290,9 @@ var modelRegistry = map[string]ModelMeta{
 		},
 	},
 	"o1": {
-		Name:               "OpenAI o1",
-		ContextWindow:      200000,
-		MaxOutput:          100000,
+		Name:          "OpenAI o1",
+		ContextWindow: 200000,
+		MaxOutput:     100000,
 
 		CostPerInputToken:  15e-6,
 		CostPerOutputToken: 60e-6,
@@ -1237,9 +1308,9 @@ var modelRegistry = map[string]ModelMeta{
 		},
 	},
 	"o3-mini": {
-		Name:               "OpenAI o3-mini",
-		ContextWindow:      200000,
-		MaxOutput:          100000,
+		Name:          "OpenAI o3-mini",
+		ContextWindow: 200000,
+		MaxOutput:     100000,
 
 		CostPerInputToken:  1.1e-6,
 		CostPerOutputToken: 4.4e-6,
@@ -1254,9 +1325,9 @@ var modelRegistry = map[string]ModelMeta{
 		},
 	},
 	"claude-3-5-sonnet-20241022": {
-		Name:               "Claude 3.5 Sonnet",
-		ContextWindow:      200000,
-		MaxOutput:           8192,
+		Name:          "Claude 3.5 Sonnet",
+		ContextWindow: 200000,
+		MaxOutput:     8192,
 
 		CostPerInputToken:  3e-6,
 		CostPerOutputToken: 15e-6,
@@ -1271,9 +1342,9 @@ var modelRegistry = map[string]ModelMeta{
 		},
 	},
 	"claude-3-opus-20240229": {
-		Name:               "Claude 3 Opus",
-		ContextWindow:      200000,
-		MaxOutput:           4096,
+		Name:          "Claude 3 Opus",
+		ContextWindow: 200000,
+		MaxOutput:     4096,
 
 		CostPerInputToken:  15e-6,
 		CostPerOutputToken: 75e-6,
@@ -1287,9 +1358,9 @@ var modelRegistry = map[string]ModelMeta{
 		},
 	},
 	"claude-3-haiku-20240307": {
-		Name:               "Claude 3 Haiku",
-		ContextWindow:      200000,
-		MaxOutput:           4096,
+		Name:          "Claude 3 Haiku",
+		ContextWindow: 200000,
+		MaxOutput:     4096,
 
 		CostPerInputToken:  0.25e-6,
 		CostPerOutputToken: 1.25e-6,
@@ -1303,9 +1374,9 @@ var modelRegistry = map[string]ModelMeta{
 		},
 	},
 	"deepseek-chat": {
-		Name:               "DeepSeek Chat",
-		ContextWindow:      64000,
-		MaxOutput:           8192,
+		Name:          "DeepSeek Chat",
+		ContextWindow: 64000,
+		MaxOutput:     8192,
 
 		CostPerInputToken:  0.14e-6,
 		CostPerOutputToken: 0.28e-6,
@@ -1316,9 +1387,9 @@ var modelRegistry = map[string]ModelMeta{
 		},
 	},
 	"deepseek-reasoner": {
-		Name:               "DeepSeek Reasoner",
-		ContextWindow:      64000,
-		MaxOutput:           8192,
+		Name:          "DeepSeek Reasoner",
+		ContextWindow: 64000,
+		MaxOutput:     8192,
 
 		CostPerInputToken:  0.55e-6,
 		CostPerOutputToken: 2.19e-6,
@@ -1329,9 +1400,9 @@ var modelRegistry = map[string]ModelMeta{
 		},
 	},
 	"mistral-large-latest": {
-		Name:               "Mistral Large",
-		ContextWindow:      128000,
-		MaxOutput:           4096,
+		Name:          "Mistral Large",
+		ContextWindow: 128000,
+		MaxOutput:     4096,
 
 		CostPerInputToken:  2e-6,
 		CostPerOutputToken: 6e-6,
@@ -1342,9 +1413,9 @@ var modelRegistry = map[string]ModelMeta{
 		},
 	},
 	"gemini-1.5-pro": {
-		Name:               "Gemini 1.5 Pro",
-		ContextWindow:      2000000,
-		MaxOutput:           8192,
+		Name:          "Gemini 1.5 Pro",
+		ContextWindow: 2000000,
+		MaxOutput:     8192,
 
 		CostPerInputToken:  1.25e-6,
 		CostPerOutputToken: 5e-6,
@@ -1358,9 +1429,9 @@ var modelRegistry = map[string]ModelMeta{
 		},
 	},
 	"gemini-2.0-flash": {
-		Name:               "Gemini 2.0 Flash",
-		ContextWindow:      1000000,
-		MaxOutput:           8192,
+		Name:          "Gemini 2.0 Flash",
+		ContextWindow: 1000000,
+		MaxOutput:     8192,
 
 		CostPerInputToken:  0.075e-6,
 		CostPerOutputToken: 0.3e-6,

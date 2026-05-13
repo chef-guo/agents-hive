@@ -68,10 +68,14 @@ type Config struct {
 	PluginMgr                   *plugin.Manager            // 插件管理器（可选）
 	InstructionURLs             []string                   // 远程指令文件 URL 列表
 	StorePrivacy                bool                       // 隐私保护：为 OpenAI/Copilot 设置 store=false
+	PromptCacheKey              bool                       // 是否设置 prompt_cache_key
+	ServiceTier                 string                     // 交互式请求 service_tier
 	APIFormat                   string                     // API 格式: "chat" 或 "responses"，默认 "chat"
 	Router                      *airouter.Router           // AI 服务路由器（可选，设置后替代直接 llmClient）
 	ToolPolicy                  config.ToolPolicyConfig    // 工具过滤策略配置
 	ToolRecall                  config.ToolRecallConfig    // 每轮隐藏工具召回配置
+	FirstToken                  config.FirstTokenConfig    // 首 token 快路径配置
+	ActionGuardEnabled          bool                       // ActionGuard 防护开关
 	MaxSessionCost              float64                    // P0-3: per-session 成本预算上限（USD），<=0 表示不限制（需要 PostgreSQL 成本追踪启用）
 	SpecDriven                  config.SpecDrivenConfig    // Spec-driven Phase 2 总开关（默认 mode=legacy，零成本短路 session_loop intake hook）
 	PlanRuntime                 config.PlanRuntimeConfig   // session 级 plan/todos runtime 配置
@@ -350,6 +354,8 @@ func NewMaster(cfg Config, hitlCfg config.HITLConfig, registry *subagent.Registr
 			Provider:        provDef,
 			ReasoningEffort: cfg.ReasoningEffort,
 			StorePrivacy:    cfg.StorePrivacy,
+			PromptCacheKey:  cfg.PromptCacheKey,
+			ServiceTier:     cfg.ServiceTier,
 		}, logger)
 	}
 

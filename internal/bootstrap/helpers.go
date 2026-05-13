@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
+	"sort"
 	"sync"
 	"time"
 
@@ -810,6 +812,14 @@ func BuildReloadMCPFunc(
 			URL:       serverCfg.URL,
 			Headers:   serverCfg.Headers,
 		}
+		logger.Info("准备重载 MCP 服务端",
+			zap.String("name", serverName),
+			zap.String("transport", serverCfg.Transport),
+			zap.String("url", safeURLForLog(serverCfg.URL)),
+			zap.Strings("header_keys", sortedMapKeys(serverCfg.Headers)),
+			zap.Bool("has_x_api_key", serverCfg.Headers["X-API-Key"] != ""),
+			zap.Bool("has_authorization", serverCfg.Headers["Authorization"] != ""),
+		)
 		if serverCfg.Timeout != "" {
 			if d, err := time.ParseDuration(serverCfg.Timeout); err == nil {
 				spec.Timeout = d
@@ -846,6 +856,25 @@ func BuildReloadMCPFunc(
 	}
 }
 
+func sortedMapKeys(m map[string]string) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func safeURLForLog(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return "<invalid-url>"
+	}
+	u.RawQuery = ""
+	u.Fragment = ""
+	return u.String()
+}
+
 // LoadAllConfigFromDB 从数据库 configs KV 表加载所有运行时配置覆盖到内存 Config
 func LoadAllConfigFromDB(db store.Store, cfg *config.Config, logger *zap.Logger) {
 	allCfg, err := db.GetAllConfig(context.Background())
@@ -873,6 +902,9 @@ func LoadAllConfigFromDB(db store.Store, cfg *config.Config, logger *zap.Logger)
 	cfgParseDuration(allCfg, "agent.script_timeout", &cfg.Agent.ScriptTimeout)
 	cfgParseDuration(allCfg, "agent.ws_ping_interval", &cfg.Agent.WSPingInterval)
 	cfgParseDuration(allCfg, "agent.sync_interval", &cfg.Agent.SyncInterval)
+	cfgParseBool(allCfg, "agent.first_token.fast_path_enabled", &cfg.Agent.FirstToken.FastPathEnabled)
+	cfgParseDuration(allCfg, "agent.first_token.preflight_classifier_timeout", &cfg.Agent.FirstToken.PreflightClassifierTimeout)
+	cfgParseBool(allCfg, "agent.action_guard_enabled", &cfg.Agent.ActionGuardEnabled)
 	cfgParseBool(allCfg, "agent.plan_runtime.enabled", &cfg.Agent.PlanRuntime.Enabled)
 	cfgParseBool(allCfg, "agent.plan_runtime.auto_continue", &cfg.Agent.PlanRuntime.AutoContinue)
 	cfgParseInt(allCfg, "agent.plan_runtime.max_auto_continue", &cfg.Agent.PlanRuntime.MaxAutoContinue)
@@ -1019,6 +1051,12 @@ func LoadLLMFromDB(db store.Store, cfg *config.Config, logger *zap.Logger) {
 					if v, ok := extra["store_privacy"].(bool); ok {
 						cfg.LLM.StorePrivacy = v
 					}
+					if v, ok := extra["prompt_cache_key_enabled"].(bool); ok {
+						cfg.LLM.PromptCacheKeyEnabled = v
+					}
+					if v, ok := extra["interactive_service_tier"].(string); ok && v != "" {
+						cfg.LLM.InteractiveServiceTier = v
+					}
 				}
 			}
 			if p.APIFormat != "" {
@@ -1155,6 +1193,12 @@ func BuildLLMExtraConfig(cfg *config.Config) map[string]any {
 	}
 	if cfg.LLM.StorePrivacy {
 		extra["store_privacy"] = true
+	}
+	if cfg.LLM.PromptCacheKeyEnabled {
+		extra["prompt_cache_key_enabled"] = true
+	}
+	if cfg.LLM.InteractiveServiceTier != "" {
+		extra["interactive_service_tier"] = cfg.LLM.InteractiveServiceTier
 	}
 	if cfg.LLM.ModelRegistryURL != "" {
 		extra["model_registry_url"] = cfg.LLM.ModelRegistryURL

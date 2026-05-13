@@ -420,6 +420,8 @@ func (m *Master) buildLLMSummaryCompactor(cfg config.CompactionConfig, tc *llm.T
 			DisableJSONMode: m.config.DisableJSONMode,
 			ReasoningEffort: m.config.ReasoningEffort,
 			StorePrivacy:    m.config.StorePrivacy,
+			PromptCacheKey:  m.config.PromptCacheKey,
+			ServiceTier:     m.config.ServiceTier,
 		})
 	}
 	return &compaction.LLMSummaryCompactor{

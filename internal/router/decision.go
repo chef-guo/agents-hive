@@ -200,6 +200,10 @@ func blockReason(intent IntentFrame, profile ToolProfile) string {
 	if profile.Risk == RiskRuntimeExec && intent.Kind != IntentManageTool {
 		return "runtime execution not required by intent"
 	}
+	if profile.Kind == CapabilityKindMCPTool && profile.Trust == TrustTrusted &&
+		(profile.Risk == RiskLocalWrite || profile.Risk == RiskExternalWrite) && intent.AllowsSideEffects {
+		return ""
+	}
 	if externalSendMixedToolBlockedForIntent(intent, profile) {
 		return "side effect not allowed by intent"
 	}

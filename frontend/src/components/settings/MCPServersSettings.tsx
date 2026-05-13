@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNodeClient } from '../../hooks/useNodeClient';
 import { useToastStore } from '../../store/toast';
-import type { RuntimeConfig, MCPServerConfig } from '../../types/api';
+import type { MCPServerConfig, MCPToolsListResponse } from '../../types/api';
 
 /** 带名称的 MCP 服务端条目（前端编辑用） */
 interface MCPServerEntry extends MCPServerConfig {
@@ -26,19 +26,32 @@ export function MCPServersSettings() {
   const [mcpTimeout, setMcpTimeout] = useState('30s');
   const [mcpServers, setMcpServers] = useState<MCPServerEntry[]>([]);
   const [envTexts, setEnvTexts] = useState<Record<number, string>>({});
+  const [headerTexts, setHeaderTexts] = useState<Record<number, string>>({});
   const [argsTexts, setArgsTexts] = useState<Record<number, string>>({});
+  const [toolCatalog, setToolCatalog] = useState<MCPToolsListResponse | null>(null);
+  const [toolCatalogError, setToolCatalogError] = useState('');
   const [loading, setLoading] = useState(true);
   const [applying, setApplying] = useState(false);
 
-  const envToText = (env?: Record<string, string>) => {
-    if (!env) return '';
-    return Object.entries(env).map(([k, v]) => `${k}=${v}`).join('\n');
+  const keyValueToText = (values?: Record<string, string>) => {
+    if (!values) return '';
+    return Object.entries(values).map(([k, v]) => `${k}=${v}`).join('\n');
   };
 
   const loadConfig = useCallback(async () => {
     setLoading(true);
     try {
-      const cfg: RuntimeConfig = await client.getRuntimeConfig();
+      const [cfg, catalog] = await Promise.all([
+        client.getRuntimeConfig(),
+        client.listMCPTools().catch((e) => {
+          setToolCatalogError(e instanceof Error ? e.message : t('runtimeConfig.mcpToolsLoadFailed'));
+          return null;
+        }),
+      ]);
+      if (catalog) {
+        setToolCatalog(catalog);
+        setToolCatalogError('');
+      }
       if (cfg.mcp?.timeout) {
         setMcpTimeout(formatNanosToStr(cfg.mcp.timeout));
       }
@@ -49,12 +62,15 @@ export function MCPServersSettings() {
         }));
         setMcpServers(entries);
         const eTexts: Record<number, string> = {};
+        const hTexts: Record<number, string> = {};
         const aTexts: Record<number, string> = {};
         entries.forEach((srv, i) => {
-          eTexts[i] = envToText(srv.env);
+          eTexts[i] = keyValueToText(srv.env);
+          hTexts[i] = keyValueToText(srv.headers);
           aTexts[i] = (srv.args || []).join(', ');
         });
         setEnvTexts(eTexts);
+        setHeaderTexts(hTexts);
         setArgsTexts(aTexts);
       }
     } catch (e) {
@@ -69,29 +85,30 @@ export function MCPServersSettings() {
     loadConfig();
   }, [loadConfig]);
 
-  const parseEnvText = (text: string): Record<string, string> => {
-    const env: Record<string, string> = {};
+  const parseKeyValueText = (text: string): Record<string, string> => {
+    const values: Record<string, string> = {};
     for (const line of text.split('\n')) {
       const eq = line.indexOf('=');
       if (eq > 0) {
-        env[line.slice(0, eq).trim()] = line.slice(eq + 1);
+        values[line.slice(0, eq).trim()] = line.slice(eq + 1);
       }
     }
-    return env;
+    return values;
   };
 
   const buildMcpPayload = () => {
     const servers: Record<string, MCPServerConfig | null> = {};
     mcpServers.forEach((srv, i) => {
       if (!srv.name) return;
-      const env = envTexts[i] !== undefined ? parseEnvText(envTexts[i]) : srv.env;
+      const env = envTexts[i] !== undefined ? parseKeyValueText(envTexts[i]) : srv.env;
+      const headers = headerTexts[i] !== undefined ? parseKeyValueText(headerTexts[i]) : srv.headers;
       servers[srv.name] = {
         command: srv.command,
         args: srv.args,
         env,
         transport: srv.transport || 'stdio',
         url: srv.url,
-        headers: srv.headers,
+        headers,
         timeout: srv.timeout,
       };
     });
@@ -105,6 +122,9 @@ export function MCPServersSettings() {
         mcp: buildMcpPayload(),
       });
       await client.reloadMCP();
+      const catalog = await client.listMCPTools();
+      setToolCatalog(catalog);
+      setToolCatalogError('');
       addToast('success', t('runtimeConfig.applySuccess'));
     } catch (e) {
       const msg = e instanceof Error ? e.message : t('runtimeConfig.applyFailed');
@@ -119,14 +139,11 @@ export function MCPServersSettings() {
   };
 
   const updateMcpServerEnvText = (index: number, text: string) => {
-    const env: Record<string, string> = {};
-    for (const line of text.split('\n')) {
-      const eq = line.indexOf('=');
-      if (eq > 0) {
-        env[line.slice(0, eq).trim()] = line.slice(eq + 1);
-      }
-    }
-    updateMcpServer(index, 'env', env);
+    updateMcpServer(index, 'env', parseKeyValueText(text));
+  };
+
+  const updateMcpServerHeaderText = (index: number, text: string) => {
+    updateMcpServer(index, 'headers', parseKeyValueText(text));
   };
 
   const deleteMcpServer = (index: number) => {
@@ -142,6 +159,7 @@ export function MCPServersSettings() {
       return next;
     };
     setEnvTexts(reindex);
+    setHeaderTexts(reindex);
     setArgsTexts(reindex);
   };
 
@@ -164,6 +182,8 @@ export function MCPServersSettings() {
           <p className="text-xs text-[var(--text-secondary)] mb-3">
             {t('runtimeConfig.mcpServersHint')}
           </p>
+
+          <MCPRuntimeStatus catalog={toolCatalog} error={toolCatalogError} />
 
           <div className="flex items-center gap-3 mb-4">
             <span className="text-sm text-[var(--text-secondary)] whitespace-nowrap">{t('runtimeConfig.mcpTimeout')}</span>
@@ -242,7 +262,7 @@ export function MCPServersSettings() {
                     <p className="text-xs text-[var(--text-secondary)] mb-1">{t('runtimeConfig.mcpEnv')} (KEY=VALUE, {t('runtimeConfig.mcpEnvHint')})</p>
                     <textarea
                       rows={3}
-                      value={envTexts[i] ?? envToText(srv.env)}
+                      value={envTexts[i] ?? keyValueToText(srv.env)}
                       onChange={(e) => {
                         setEnvTexts((prev) => ({ ...prev, [i]: e.target.value }));
                       }}
@@ -256,13 +276,30 @@ export function MCPServersSettings() {
                 </div>
               )}
               {(srv.transport === 'sse' || srv.transport === 'http') && (
-                <input
-                  type="text"
-                  value={srv.url || ''}
-                  onChange={(e) => updateMcpServer(i, 'url', e.target.value)}
-                  placeholder={t('runtimeConfig.mcpUrl') + ' (https://...)'}
-                  className="w-full px-2 py-1.5 text-sm rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--accent-subtle)] focus:border-[var(--accent)]"
-                />
+                <div className="space-y-2">
+                  <input
+                    type="text"
+                    value={srv.url || ''}
+                    onChange={(e) => updateMcpServer(i, 'url', e.target.value)}
+                    placeholder={t('runtimeConfig.mcpUrl') + ' (https://...)'}
+                    className="w-full px-2 py-1.5 text-sm rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--accent-subtle)] focus:border-[var(--accent)]"
+                  />
+                  <div>
+                    <p className="text-xs text-[var(--text-secondary)] mb-1">{t('runtimeConfig.mcpHeaders')} (KEY=VALUE, {t('runtimeConfig.mcpHeadersHint')})</p>
+                    <textarea
+                      rows={3}
+                      value={headerTexts[i] ?? keyValueToText(srv.headers)}
+                      onChange={(e) => {
+                        setHeaderTexts((prev) => ({ ...prev, [i]: e.target.value }));
+                      }}
+                      onBlur={(e) => {
+                        updateMcpServerHeaderText(i, e.target.value);
+                      }}
+                      placeholder={'Authorization=Bearer sk_mt_...'}
+                      className="w-full px-2 py-1.5 text-sm font-mono rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--accent-subtle)] focus:border-[var(--accent)] resize-none"
+                    />
+                  </div>
+                </div>
               )}
             </div>
           ))}
@@ -288,6 +325,86 @@ export function MCPServersSettings() {
           {applying ? t('common.loading') : t('runtimeConfig.apply')}
         </button>
       </div>
+    </div>
+  );
+}
+
+function MCPRuntimeStatus({ catalog, error }: { catalog: MCPToolsListResponse | null; error: string }) {
+  const { t } = useTranslation();
+
+  if (error) {
+    return (
+      <div className="mb-4 rounded-lg border border-[var(--warning)]/30 bg-[var(--warning)]/10 px-3 py-2 text-xs text-[var(--warning)]">
+        {t('runtimeConfig.mcpToolsLoadFailed')}: {error}
+      </div>
+    );
+  }
+
+  if (!catalog) {
+    return null;
+  }
+
+  const servers = catalog.servers || [];
+  return (
+    <div className="mb-4 rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] px-3 py-3">
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        <span className="font-medium text-[var(--text-primary)]">{t('runtimeConfig.mcpRuntimeTools')}</span>
+        <span className="rounded-full bg-[var(--accent-subtle)] px-2 py-0.5 text-[var(--accent-600)]">
+          {t('runtimeConfig.mcpToolCount', { count: catalog.mcp_count })}
+        </span>
+        <span className="rounded-full bg-[var(--bg-secondary)] px-2 py-0.5 text-[var(--text-secondary)]">
+          {t('runtimeConfig.mcpTotalToolCount', { count: catalog.total })}
+        </span>
+      </div>
+
+      {servers.length === 0 ? (
+        <div className="mt-2 text-xs text-[var(--text-secondary)]">{t('runtimeConfig.mcpNoRuntimeTools')}</div>
+      ) : (
+        <div className="mt-3 space-y-2">
+          {servers.map((server) => {
+            const previewTools = (server.tools || []).slice(0, 6);
+            const hidden = Math.max(0, server.count - previewTools.length);
+            return (
+              <div key={server.name} className="rounded-md border border-[var(--border-color)] bg-[var(--bg-card)] px-3 py-2">
+                <div className="flex flex-wrap items-center gap-2 text-xs">
+                  <span className="font-mono font-medium text-[var(--text-primary)]">{server.name}</span>
+                  <span className="text-[var(--text-secondary)]">
+                    {t('runtimeConfig.mcpServerRuntimeCounts', {
+                      tools: server.count,
+                      resources: server.resources || 0,
+                      prompts: server.prompts || 0,
+                    })}
+                  </span>
+                </div>
+                {previewTools.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {previewTools.map((tool) => (
+                      <span
+                        key={tool.name}
+                        title={`${tool.name}${tool.risk ? ` · ${tool.risk}` : ''}`}
+                        className={`rounded px-1.5 py-0.5 text-[11px] ${
+                          tool.requires_approval
+                            ? 'bg-amber-500/10 text-amber-700 dark:text-amber-300'
+                            : tool.trusted
+                              ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+                              : 'bg-[var(--bg-secondary)] text-[var(--text-secondary)]'
+                        }`}
+                      >
+                        <code>{tool.name}</code>
+                      </span>
+                    ))}
+                    {hidden > 0 && (
+                      <span className="rounded bg-[var(--bg-secondary)] px-1.5 py-0.5 text-[11px] text-[var(--text-secondary)]">
+                        +{hidden}
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

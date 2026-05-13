@@ -74,7 +74,7 @@ export default function App() {
                 <Route path="/" element={<ChatLanding />} />
                 <Route path="/sessions/:id" element={<Chat />} />
                 <Route path="/replay" element={<ReplayGallery />} />
-                <Route path="/guide" element={<Guide />} />
+                <Route path="/guide" element={<Guide key="user-guide" variant="user" />} />
                 <Route path="/settings" element={<Settings />} />
               </Route>
 
@@ -92,7 +92,7 @@ export default function App() {
                 <Route path="/admin/scheduled-tasks" element={<ScheduledTasks />} />
                 <Route path="/admin/skills" element={<AdminGuard><Skills /></AdminGuard>} />
                 <Route path="/admin/settings" element={<AdminGuard><AdminSettings /></AdminGuard>} />
-                <Route path="/admin/guide" element={<Guide />} />
+                <Route path="/admin/guide" element={<Guide key="admin-guide" variant="admin" />} />
                 {/* Admin-only 页面 */}
                 <Route path="/admin/users" element={<AdminGuard><UserList /></AdminGuard>} />
                 <Route path="/admin/usage" element={<AdminGuard><UsageStats /></AdminGuard>} />

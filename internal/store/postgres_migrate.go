@@ -912,6 +912,7 @@ INSERT INTO configs (key, value) VALUES
   ('agent.script_timeout',        '30s'),
   ('agent.ws_ping_interval',      '30s'),
   ('agent.sync_interval',         '5m'),
+  ('agent.action_guard_enabled',  'true'),
   ('agent.plan_runtime.enabled',  'true'),
   ('agent.plan_runtime.auto_continue', 'false'),
   ('agent.plan_runtime.max_auto_continue', '0'),
@@ -961,6 +962,21 @@ INSERT INTO configs (key, value) VALUES
   ('lsp.max_servers',             '5'),
   ('lsp.health_interval',         '30s'),
   ('lsp.languages',               '{"go":{"command":"gopls","args":["serve"],"extensions":[".go"]},"python":{"command":"pyright-langserver","args":["--stdio"],"extensions":[".py"]},"typescript":{"command":"typescript-language-server","args":["--stdio"],"extensions":[".ts",".tsx",".js",".jsx"]}}')
+ON CONFLICT (key) DO NOTHING;
+`
+
+// pgSeedActionGuardConfigs 单独种子 ActionGuard 开关，便于新增 key 独立回填。
+const pgSeedActionGuardConfigs = `
+INSERT INTO configs (key, value) VALUES
+  ('agent.action_guard_enabled', 'true')
+ON CONFLICT (key) DO NOTHING;
+`
+
+// pgSeedFirstTokenConfigs 单独种子首 token 快路径配置，便于新增 key 独立回填。
+const pgSeedFirstTokenConfigs = `
+INSERT INTO configs (key, value) VALUES
+  ('agent.first_token.fast_path_enabled',            'true'),
+  ('agent.first_token.preflight_classifier_timeout', '300ms')
 ON CONFLICT (key) DO NOTHING;
 `
 
@@ -1397,6 +1413,12 @@ func pgMigrate(ctx context.Context, pool *pgxpool.Pool, logger *zap.Logger) erro
 	// 种子默认运行时配置
 	if _, err := pool.Exec(ctx, pgSeedDefaultConfigs); err != nil {
 		return errs.Wrap(errs.CodeStoreError, "PostgreSQL 默认配置种子失败", err)
+	}
+	if _, err := pool.Exec(ctx, pgSeedFirstTokenConfigs); err != nil {
+		return errs.Wrap(errs.CodeStoreError, "PostgreSQL 首 token 默认配置种子失败", err)
+	}
+	if _, err := pool.Exec(ctx, pgSeedActionGuardConfigs); err != nil {
+		return errs.Wrap(errs.CodeStoreError, "PostgreSQL ActionGuard 默认配置种子失败", err)
 	}
 	if _, err := pool.Exec(ctx, pgFixDefaultPermissionRules); err != nil {
 		logger.Warn("hitl.permission_rules 默认值迁移失败（不影响功能，可手动在 Web UI 更新规则）", zap.Error(err))

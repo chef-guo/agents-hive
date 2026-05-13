@@ -55,6 +55,15 @@ func TestDefault(t *testing.T) {
 	if cfg.Agent.PlanRuntime.AutoContinue {
 		t.Error("Agent.PlanRuntime.AutoContinue = true, want false by default")
 	}
+	if !cfg.Agent.FirstToken.FastPathEnabled {
+		t.Error("Agent.FirstToken.FastPathEnabled = false, want true by default")
+	}
+	if cfg.Agent.FirstToken.PreflightClassifierTimeout != DefaultFirstTokenPreflightClassifierTimeout {
+		t.Errorf("Agent.FirstToken.PreflightClassifierTimeout = %v, want %v", cfg.Agent.FirstToken.PreflightClassifierTimeout, DefaultFirstTokenPreflightClassifierTimeout)
+	}
+	if !cfg.Agent.ActionGuardEnabled {
+		t.Error("Agent.ActionGuardEnabled = false, want true by default")
+	}
 
 	// Logging defaults
 	if cfg.Logging.Level != DefaultLogLevel {
@@ -125,6 +134,36 @@ func TestLoad_ChannelWechatbotFlag(t *testing.T) {
 	}
 	if !cfg.Channel.WeChatBot.Enabled {
 		t.Fatal("Channel.WeChatBot.Enabled = false, want true")
+	}
+}
+
+func TestLoad_PromptCacheKeyAndServiceTier(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+
+	raw := map[string]any{
+		"llm": map[string]any{
+			"prompt_cache_key_enabled": false,
+			"interactive_service_tier": "priority",
+		},
+	}
+	data, err := json.Marshal(raw)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load(%q) returned error: %v", path, err)
+	}
+	if cfg.LLM.PromptCacheKeyEnabled {
+		t.Fatal("LLM.PromptCacheKeyEnabled = true, want explicit false preserved")
+	}
+	if cfg.LLM.InteractiveServiceTier != "priority" {
+		t.Fatalf("LLM.InteractiveServiceTier = %q, want priority", cfg.LLM.InteractiveServiceTier)
 	}
 }
 
@@ -202,6 +241,81 @@ func TestToolRecallDefaultsAndNormalize(t *testing.T) {
 	}
 	if normalized.SideEffectMinScore != 1 {
 		t.Fatalf("side effect min score normalized to %v, want 1", normalized.SideEffectMinScore)
+	}
+}
+
+func TestFirstTokenDefaultsAndNormalize(t *testing.T) {
+	cfg := Default()
+	cfg.Resolve()
+	assertFirstTokenDefaults(t, cfg.Agent.FirstToken, "Default().Resolve()")
+
+	cli := Default()
+	cli.CLIDefaults()
+	cli.Resolve()
+	assertFirstTokenDefaults(t, cli.Agent.FirstToken, "CLIDefaults().Resolve()")
+
+	normalized := NormalizeFirstTokenConfig(FirstTokenConfig{
+		FastPathEnabled:            false,
+		PreflightClassifierTimeout: 0,
+	})
+	if normalized.FastPathEnabled {
+		t.Fatal("NormalizeFirstTokenConfig FastPathEnabled = true, want explicit false preserved")
+	}
+	if normalized.PreflightClassifierTimeout != DefaultFirstTokenPreflightClassifierTimeout {
+		t.Fatalf("NormalizeFirstTokenConfig timeout = %v, want %v", normalized.PreflightClassifierTimeout, DefaultFirstTokenPreflightClassifierTimeout)
+	}
+}
+
+func TestLoadCLI_PreservesExplicitFirstTokenAndActionGuardFalse(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+
+	raw := map[string]any{
+		"agent": map[string]any{
+			"first_token": map[string]any{
+				"fast_path_enabled": false,
+			},
+			"action_guard_enabled": false,
+		},
+	}
+	data, err := json.Marshal(raw)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	cfg, err := LoadCLI(path)
+	if err != nil {
+		t.Fatalf("LoadCLI(%q) returned error: %v", path, err)
+	}
+	if cfg.Agent.FirstToken.FastPathEnabled {
+		t.Fatal("CLI Agent.FirstToken.FastPathEnabled = true, want explicit false preserved")
+	}
+	if cfg.Agent.ActionGuardEnabled {
+		t.Fatal("CLI Agent.ActionGuardEnabled = true, want explicit false preserved")
+	}
+	if cfg.Agent.FirstToken.PreflightClassifierTimeout != DefaultFirstTokenPreflightClassifierTimeout {
+		t.Fatalf("CLI Agent.FirstToken.PreflightClassifierTimeout = %v, want default %v", cfg.Agent.FirstToken.PreflightClassifierTimeout, DefaultFirstTokenPreflightClassifierTimeout)
+	}
+	if cfg.Agent.Timeout != DefaultAgentTimeout {
+		t.Fatalf("CLI Agent.Timeout = %v, want runtime default %v", cfg.Agent.Timeout, DefaultAgentTimeout)
+	}
+}
+
+func TestActionGuardDefaultsAndResolve(t *testing.T) {
+	cfg := Default()
+	cfg.Resolve()
+	if !cfg.Agent.ActionGuardEnabled {
+		t.Fatal("Default().Resolve() Agent.ActionGuardEnabled = false, want true")
+	}
+
+	cli := Default()
+	cli.CLIDefaults()
+	cli.Resolve()
+	if !cli.Agent.ActionGuardEnabled {
+		t.Fatal("CLIDefaults().Resolve() Agent.ActionGuardEnabled = false, want true")
 	}
 }
 
@@ -330,6 +444,16 @@ func assertToolRecallDefaults(t *testing.T, cfg ToolRecallConfig, source string)
 	}
 	if !cfg.LogCandidates {
 		t.Fatalf("%s Agent.ToolRecall.LogCandidates = false, want true", source)
+	}
+}
+
+func assertFirstTokenDefaults(t *testing.T, cfg FirstTokenConfig, source string) {
+	t.Helper()
+	if !cfg.FastPathEnabled {
+		t.Fatalf("%s Agent.FirstToken.FastPathEnabled = false, want true", source)
+	}
+	if cfg.PreflightClassifierTimeout != 300*time.Millisecond {
+		t.Fatalf("%s Agent.FirstToken.PreflightClassifierTimeout = %v, want 300ms", source, cfg.PreflightClassifierTimeout)
 	}
 }
 

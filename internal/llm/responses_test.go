@@ -2,6 +2,10 @@ package llm
 
 import (
 	"testing"
+
+	"github.com/openai/openai-go/responses"
+
+	"github.com/chef-guo/agents-hive/internal/mcphost"
 )
 
 func TestBuildResponsesInputFromToolMessages_IsError(t *testing.T) {
@@ -97,5 +101,46 @@ func TestBuildResponsesInputFromToolMessages_MixedMessages(t *testing.T) {
 	}
 	if toolItem.OfFunctionCallOutput.Output != "[TOOL_ERROR] 文件不存在: test.go" {
 		t.Errorf("错误工具结果的 Output = %q，期望包含 [TOOL_ERROR] 前缀", toolItem.OfFunctionCallOutput.Output)
+	}
+}
+
+func TestApplyResponsesRequestOptimizations(t *testing.T) {
+	params := responses.ResponseNewParams{}
+	applyResponsesRequestOptimizations(&params, responsesRequestOptions{
+		Provider:        "openai",
+		Model:           "gpt-5.4",
+		UserID:          "user-123",
+		PromptVersions:  []string{"b", "a"},
+		Tools:           []mcphost.ToolDefinition{{Name: "tool_search"}, {Name: "memory"}},
+		CacheKeyEnabled: true,
+		ServiceTier:     "priority",
+	})
+
+	if !params.PromptCacheKey.Valid() {
+		t.Fatal("Responses prompt_cache_key should be set")
+	}
+	if got := params.PromptCacheKey.Value; got == "" || got == "user-123" {
+		t.Fatalf("Responses prompt_cache_key should be hashed/stable, got %q", got)
+	}
+	if params.ServiceTier != responses.ResponseNewParamsServiceTierPriority {
+		t.Fatalf("Responses service tier = %q, want priority", params.ServiceTier)
+	}
+}
+
+func TestApplyResponsesRequestOptimizationsSkipsDisabledCacheKey(t *testing.T) {
+	params := responses.ResponseNewParams{}
+	applyResponsesRequestOptimizations(&params, responsesRequestOptions{
+		Provider:        "openai",
+		Model:           "gpt-5.4",
+		UserID:          "user-123",
+		CacheKeyEnabled: false,
+		ServiceTier:     "unknown",
+	})
+
+	if params.PromptCacheKey.Valid() {
+		t.Fatalf("Responses prompt_cache_key should be omitted when disabled, got %q", params.PromptCacheKey.Value)
+	}
+	if params.ServiceTier != "" {
+		t.Fatalf("invalid service tier should be omitted, got %q", params.ServiceTier)
 	}
 }

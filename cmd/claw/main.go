@@ -14,14 +14,11 @@ import (
 func main() {
 	opts := cli.ParseArgs(os.Args[1:])
 
-	cfg, err := config.Load(opts.ConfigPath)
+	cfg, err := config.LoadCLI(opts.ConfigPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "加载配置错误: %v\n", err)
 		os.Exit(1)
 	}
-
-	// CLI 模式无数据库，填充运行时配置默认值
-	cfg.CLIDefaults()
 
 	// CLI 标志覆盖所有配置（最高优先级）
 	cfg.ApplyOverrides(opts.Model, opts.BaseURL, opts.APIKey, opts.LogLevel)

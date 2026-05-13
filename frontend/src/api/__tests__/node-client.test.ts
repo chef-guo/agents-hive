@@ -27,6 +27,22 @@ function createApiClientMock() {
 }
 
 describe('LocalNodeClient admin capability endpoints', () => {
+  it('calls MCP runtime tool catalog RPC', async () => {
+    const api = createApiClientMock();
+    api.post.mockResolvedValue({
+      result: { total: 1, mcp_count: 1, local_count: 0, servers: [], tools: [] },
+    });
+    const client = new LocalNodeClient(api);
+
+    await client.listMCPTools();
+
+    expect(api.post).toHaveBeenCalledWith('/api/v1/rpc', {
+      id: expect.any(String),
+      method: 'mcp.tools.list',
+      params: undefined,
+    });
+  });
+
   it('calls session trace endpoint with optional limit', async () => {
     const api = createApiClientMock();
     api.get.mockResolvedValue({ session_id: 'sess-1', items: [] });

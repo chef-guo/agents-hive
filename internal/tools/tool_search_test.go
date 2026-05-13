@@ -108,8 +108,8 @@ func TestToolSearchFindsRegisteredToolsWithoutMutatingRegistry(t *testing.T) {
 	if got.Invocation != "direct_tool" {
 		t.Fatalf("invocation = %q, want direct_tool", got.Invocation)
 	}
-	if got.RouteStatus != "discovery_only" {
-		t.Fatalf("route_status = %q, want discovery_only", got.RouteStatus)
+	if got.RouteStatus != "callable_read_only" {
+		t.Fatalf("route_status = %q, want callable_read_only", got.RouteStatus)
 	}
 	if got.Score <= 0 {
 		t.Fatalf("expected positive score, got %f", got.Score)
@@ -168,6 +168,54 @@ func TestToolSearchExposesExternalMCPRiskMetadata(t *testing.T) {
 	}
 }
 
+func TestToolSearchExposesTrustedMCPReadOnlyMetadata(t *testing.T) {
+	logger := zap.NewNop()
+	host := mcphost.NewHost(logger)
+	host.RegisterTool(mcphost.ToolDefinition{
+		Name:         "metamcp__query_prometheus",
+		Description:  "Query Prometheus metrics",
+		SourceServer: "metamcp",
+		Trusted:      true,
+	}, func(ctx context.Context, input json.RawMessage) (*mcphost.ToolResult, error) {
+		t.Fatal("tool_search must not execute matched tools")
+		return nil, nil
+	})
+	registerToolSearch(host, logger)
+
+	result, err := host.ExecuteTool(context.Background(), "tool_search", []byte(`{"query":"prometheus"}`))
+	if err != nil {
+		t.Fatalf("ExecuteTool(tool_search): %v", err)
+	}
+
+	var out struct {
+		Results []struct {
+			Name             string `json:"name"`
+			DangerLevel      string `json:"danger_level"`
+			RequiresApproval bool   `json:"requires_approval"`
+			Kind             string `json:"kind"`
+			Domain           string `json:"domain"`
+			Source           string `json:"source"`
+			Invocation       string `json:"invocation"`
+		} `json:"results"`
+	}
+	if err := json.Unmarshal([]byte(result.DecodeContent()), &out); err != nil {
+		t.Fatalf("decode tool_search output: %v; content=%s", err, result.DecodeContent())
+	}
+	if len(out.Results) == 0 {
+		t.Fatalf("expected metamcp tool in results, got content=%s", result.DecodeContent())
+	}
+	got := out.Results[0]
+	if got.Name != "metamcp__query_prometheus" {
+		t.Fatalf("expected metamcp__query_prometheus top hit, got %q", got.Name)
+	}
+	if got.DangerLevel != "read_only" || got.RequiresApproval {
+		t.Fatalf("trusted MCP read tool metadata wrong: %+v", got)
+	}
+	if got.Kind != "mcp_tool" || got.Domain != "metamcp" || got.Source != "mcp_server" || got.Invocation != "direct_tool" {
+		t.Fatalf("unexpected typed metadata: %+v", got)
+	}
+}
+
 func TestToolSearchResultsAreDiscoveryOnly(t *testing.T) {
 	logger := zap.NewNop()
 	host := mcphost.NewHost(logger)
@@ -200,14 +248,14 @@ func TestToolSearchResultsAreDiscoveryOnly(t *testing.T) {
 	if len(out.Results) != 1 || out.Results[0].Name != "feishu_api" {
 		t.Fatalf("expected one feishu_api result, got %#v", out.Results)
 	}
-	if out.Results[0].RouteStatus != "discovery_only" {
-		t.Fatalf("route_status = %q, want discovery_only", out.Results[0].RouteStatus)
+	if out.Results[0].RouteStatus != "callable_with_action_constraints" {
+		t.Fatalf("route_status = %q, want callable_with_action_constraints", out.Results[0].RouteStatus)
 	}
-	if out.Results[0].CallableNow {
-		t.Fatal("tool_search result must not claim callable_now")
+	if !out.Results[0].CallableNow {
+		t.Fatal("mixed read-capable tool should report callable_now for constrained read actions")
 	}
-	if !strings.Contains(out.Results[0].ExecutionNote, "不授权执行") {
-		t.Fatalf("execution_note should explain no authorization, got %q", out.Results[0].ExecutionNote)
+	if !strings.Contains(out.Results[0].ExecutionNote, "只读动作") {
+		t.Fatalf("execution_note should explain action constraints, got %q", out.Results[0].ExecutionNote)
 	}
 }
 
@@ -367,9 +415,9 @@ func TestToolSearchTypedMetadataPhase0Kinds(t *testing.T) {
 	}
 
 	assertToolSearchMeta(t, byName, "tool_search", "builtin_tool", "discovery", "builtin", "discovery_only", "discovery_only")
-	assertToolSearchMeta(t, byName, "mcp-builder", "skill_workflow", "mcp_server_building", "local_skill", "skill_tool", "discovery_only")
-	assertToolSearchMeta(t, byName, "github__create_issue", "mcp_tool", "github", "mcp_server", "direct_tool", "discovery_only")
-	assertToolSearchMeta(t, byName, "project_status", "custom_tool", "custom", "custom_dir", "direct_tool", "discovery_only")
+	assertToolSearchMeta(t, byName, "mcp-builder", "skill_workflow", "mcp_server_building", "local_skill", "skill_tool", "requires_matching_intent")
+	assertToolSearchMeta(t, byName, "github__create_issue", "mcp_tool", "github", "mcp_server", "direct_tool", "blocked_dangerous")
+	assertToolSearchMeta(t, byName, "project_status", "custom_tool", "custom", "custom_dir", "direct_tool", "blocked_dangerous")
 	assertToolSearchMeta(t, byName, "opaque_candidate", "unknown", "unknown", "unknown", "discovery_only", "discovery_only")
 }
 

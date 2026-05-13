@@ -785,6 +785,7 @@ func TestMCPMethods_MethodsRegistered(t *testing.T) {
 	gw.mu.RLock()
 	defer gw.mu.RUnlock()
 	for _, name := range []string{
+		"mcp.tools.list",
 		"mcp.resources.list",
 		"mcp.resources.read",
 		"mcp.prompts.list",
@@ -793,6 +794,56 @@ func TestMCPMethods_MethodsRegistered(t *testing.T) {
 		_, ok := gw.methods[name]
 		assert.True(t, ok, "MCP 方法应已注册: %s", name)
 	}
+}
+
+// TestMCPTools_List_GroupsRemoteTools 验证运行时工具目录按 MCP 服务端分组
+func TestMCPTools_List_GroupsRemoteTools(t *testing.T) {
+	gw, token := newTestGateway(t)
+	host := mcphost.NewHost(zap.NewNop())
+	host.RegisterTool(mcphost.ToolDefinition{Name: "read_file", Core: true}, nil)
+	host.RegisterTool(mcphost.ToolDefinition{
+		Name:              "metamcp__grafana__query_prometheus",
+		Description:       "[metamcp] query prometheus",
+		IsConcurrencySafe: true,
+		SourceServer:      "metamcp",
+		Trusted:           true,
+	}, nil)
+	host.RegisterTool(mcphost.ToolDefinition{
+		Name:         "metamcp__dbhub__execute_sql",
+		Description:  "[metamcp] execute sql",
+		SourceServer: "metamcp",
+		Trusted:      true,
+	}, nil)
+	host.RegisterResource(mcphost.ResourceDefinition{
+		URI:  "metamcp://resource://dashboards",
+		Name: "dashboards",
+	}, nil)
+	host.RegisterPrompt(mcphost.PromptDefinition{
+		Name:        "metamcp__sre_prompt",
+		Description: "SRE prompt",
+	}, nil)
+	deps := Deps{MCPHost: host}
+	registerMCPMethods(gw, deps)
+
+	resp := doRPC(t, gw, "mcp.tools.list", map[string]interface{}{}, token)
+	assert.Nil(t, resp.Error)
+
+	var got mcpToolsListResponse
+	require.NoError(t, json.Unmarshal(resp.Result, &got))
+	assert.Equal(t, 3, got.Total)
+	assert.Equal(t, 2, got.MCPCount)
+	assert.Equal(t, 1, got.LocalCount)
+	require.Len(t, got.Servers, 1)
+	assert.Equal(t, "metamcp", got.Servers[0].Name)
+	assert.Equal(t, 2, got.Servers[0].Count)
+	assert.Equal(t, 1, got.Servers[0].Resources)
+	assert.Equal(t, 1, got.Servers[0].Prompts)
+	assert.Equal(t, "metamcp__dbhub__execute_sql", got.Servers[0].Tools[0].Name)
+	assert.Equal(t, "metamcp__grafana__query_prometheus", got.Servers[0].Tools[1].Name)
+	assert.True(t, got.Servers[0].Tools[1].Trusted)
+	assert.Equal(t, "read_only", got.Servers[0].Tools[1].Risk)
+	assert.True(t, got.Servers[0].Tools[1].ReadOnly)
+	assert.False(t, got.Servers[0].Tools[1].RequiresApproval)
 }
 
 // TestMCPResources_List_Empty 验证空 MCP Host 返回空资源列表
