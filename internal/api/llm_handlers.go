@@ -341,6 +341,7 @@ func (s *Server) handleAdminUpdateLLMModel(w http.ResponseWriter, r *http.Reques
 	}
 
 	var req struct {
+		Name         *string `json:"name"`
 		ProviderName *string `json:"provider_name"`
 		Model        *string `json:"model"`
 		BaseURL      *string `json:"base_url"`
@@ -354,11 +355,33 @@ func (s *Server) handleAdminUpdateLLMModel(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	if req.Name != nil {
+		newName := strings.TrimSpace(*req.Name)
+		if newName == "" {
+			writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "name 不能为空", Code: errs.CodeBadRequest})
+			return
+		}
+		if newName != name {
+			if _, err := s.store.GetLLMModel(ctx, newName); err == nil {
+				writeJSON(w, http.StatusConflict, ErrorResponse{Error: "Model 已存在: " + newName, Code: errs.CodeInvalidInput})
+				return
+			} else if !errs.IsCode(err, errs.CodeNotFound) {
+				s.logger.Error("检查 LLM Model 重名失败", zap.String("name", newName), zap.Error(err))
+				writeJSON(w, http.StatusInternalServerError, ErrorResponse{Error: "检查名称失败", Code: errs.CodeStoreReadFailed})
+				return
+			}
+			existing.Name = newName
+		}
+	}
 	if req.ProviderName != nil {
 		existing.ProviderName = *req.ProviderName
 	}
 	if req.Model != nil && *req.Model != "" {
-		existing.Model = *req.Model
+		existing.Model = strings.TrimSpace(*req.Model)
+		if existing.Model == "" {
+			writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "model 不能为空", Code: errs.CodeBadRequest})
+			return
+		}
 	}
 	if req.BaseURL != nil {
 		existing.BaseURL = *req.BaseURL
@@ -367,13 +390,6 @@ func (s *Server) handleAdminUpdateLLMModel(w http.ResponseWriter, r *http.Reques
 		existing.APIKey = *req.APIKey
 	}
 	if req.IsDefault != nil {
-		if *req.IsDefault {
-			if err := s.store.SetDefaultLLMModel(ctx, name); err != nil {
-				s.logger.Error("原子化设置默认 LLM Model 失败", zap.Error(err))
-				writeJSON(w, http.StatusInternalServerError, ErrorResponse{Error: "设置默认 Model 失败", Code: errs.CodeStoreWriteFailed})
-				return
-			}
-		}
 		existing.IsDefault = *req.IsDefault
 	}
 	if req.Enabled != nil {
@@ -383,13 +399,14 @@ func (s *Server) handleAdminUpdateLLMModel(w http.ResponseWriter, r *http.Reques
 		existing.ConfigJSON = *req.ConfigJSON
 	}
 
-	if err := s.store.SaveLLMModel(ctx, existing); err != nil {
+	if err := s.store.UpdateLLMModel(ctx, name, existing); err != nil {
 		s.logger.Error("更新 LLM Model 失败", zap.Error(err))
 		writeJSON(w, http.StatusInternalServerError, ErrorResponse{Error: "更新失败: " + err.Error(), Code: errs.CodeStoreWriteFailed})
 		return
 	}
-	s.logger.Info("LLM Model 已更新", zap.String("name", name))
-	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "name": name})
+	s.logger.Info("LLM Model 已更新", zap.String("old_name", name), zap.String("name", existing.Name))
+	s.reloadAIRouter(r)
+	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "name": existing.Name})
 }
 
 // handleAdminDeleteLLMModel DELETE /api/v1/admin/llm/models/{name}
@@ -410,6 +427,7 @@ func (s *Server) handleAdminDeleteLLMModel(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	s.logger.Info("LLM Model 已删除", zap.String("name", name))
+	s.reloadAIRouter(r)
 	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "name": name})
 }
 

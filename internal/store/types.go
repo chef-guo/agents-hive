@@ -119,6 +119,7 @@ type Store interface {
 	// LLM 模型配置
 	GetLLMModel(ctx context.Context, name string) (*LLMModelRecord, error)
 	SaveLLMModel(ctx context.Context, rec *LLMModelRecord) error
+	UpdateLLMModel(ctx context.Context, oldName string, rec *LLMModelRecord) error
 	DeleteLLMModel(ctx context.Context, name string) error
 	ListLLMModels(ctx context.Context) ([]*LLMModelRecord, error)
 	// SetDefaultLLMModel 原子化地将指定 Model 设为默认（事务保证唯一性）

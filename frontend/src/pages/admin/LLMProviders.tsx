@@ -177,12 +177,11 @@ const EMPTY_MODEL: ModelFormData = {
 interface ModelFormProps {
   providers: LLMProviderRecord[];
   initial?: Partial<ModelFormData>;
-  isEdit?: boolean;
   onSubmit: (data: ModelFormData) => Promise<void>;
   onCancel: () => void;
 }
 
-function ModelForm({ providers, initial, isEdit, onSubmit, onCancel }: ModelFormProps) {
+function ModelForm({ providers, initial, onSubmit, onCancel }: ModelFormProps) {
   const { t } = useTranslation();
   const [form, setForm] = useState<ModelFormData>({ ...EMPTY_MODEL, ...initial });
   const [saving, setSaving] = useState(false);
@@ -209,9 +208,8 @@ function ModelForm({ providers, initial, isEdit, onSubmit, onCancel }: ModelForm
             type="text"
             value={form.name}
             onChange={(e) => set('name', e.target.value)}
-            disabled={isEdit}
             placeholder="gpt-4o-main"
-            className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--accent-subtle)] disabled:opacity-50"
+            className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--accent-subtle)]"
           />
         </div>
         <div>
@@ -372,7 +370,8 @@ export function LLMProviders() {
 
   const handleUpdateModel = async (name: string, data: ModelFormData) => {
     await client.adminUpdateLLMModel(name, data);
-    addToast('success', `Model "${name}" 已更新`);
+    const newName = data.name.trim();
+    addToast('success', newName && newName !== name ? `Model "${name}" 已重命名为 "${newName}"` : `Model "${name}" 已更新`);
     setEditingModel(null);
     load();
   };
@@ -553,7 +552,6 @@ export function LLMProviders() {
                               is_default: m.is_default,
                               enabled: m.enabled,
                             }}
-                            isEdit
                             onSubmit={(data) => handleUpdateModel(m.name, data)}
                             onCancel={() => setEditingModel(null)}
                           />
@@ -616,7 +614,6 @@ export function LLMProviders() {
                           is_default: m.is_default,
                           enabled: m.enabled,
                         }}
-                        isEdit
                         onSubmit={(data) => handleUpdateModel(m.name, data)}
                         onCancel={() => setEditingModel(null)}
                       />

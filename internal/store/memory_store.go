@@ -480,6 +480,30 @@ func (m *MemoryStore) SaveLLMModel(_ context.Context, rec *LLMModelRecord) error
 	m.llmModels[rec.Name] = &cp
 	return nil
 }
+func (m *MemoryStore) UpdateLLMModel(_ context.Context, oldName string, rec *LLMModelRecord) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.llmModels == nil {
+		m.llmModels = map[string]*LLMModelRecord{}
+	}
+	if _, ok := m.llmModels[oldName]; !ok {
+		return errs.New(errs.CodeNotFound, "llm model not found: "+oldName)
+	}
+	if oldName != rec.Name {
+		if _, ok := m.llmModels[rec.Name]; ok {
+			return errs.New(errs.CodeInvalidInput, "llm model already exists: "+rec.Name)
+		}
+		delete(m.llmModels, oldName)
+	}
+	if rec.IsDefault {
+		for _, mod := range m.llmModels {
+			mod.IsDefault = false
+		}
+	}
+	cp := *rec
+	m.llmModels[rec.Name] = &cp
+	return nil
+}
 func (m *MemoryStore) DeleteLLMModel(_ context.Context, name string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()

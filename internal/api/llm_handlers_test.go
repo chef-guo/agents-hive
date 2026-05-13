@@ -241,3 +241,72 @@ func TestLLM_UpdateModel_MaskedKeyNotOverwritten(t *testing.T) {
 		t.Errorf("api_key 被 **** 覆盖，期望保留原值，得到: %s", m.APIKey)
 	}
 }
+
+func TestLLM_UpdateModel_RenamesModel(t *testing.T) {
+	handler, st := newTestServerForLLM(t)
+	ctx := t.Context()
+
+	_ = st.SaveLLMModel(ctx, &store.LLMModelRecord{
+		Name: "gpt-5.2", ProviderName: "openai", Model: "gpt-5.4",
+		APIKey: "model-secret", ConfigJSON: "{}",
+	})
+
+	body := map[string]any{"name": "gpt-5.4", "model": "gpt-5.4"}
+	rec := doJSON(t, handler, "PATCH", "/api/v1/admin/llm/models/gpt-5.2", body)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("更新应成功，得到 %d: %s", rec.Code, rec.Body.String())
+	}
+
+	if _, err := st.GetLLMModel(ctx, "gpt-5.2"); err == nil {
+		t.Fatal("旧模型名称仍可读取，期望已被 rename")
+	}
+	m, err := st.GetLLMModel(ctx, "gpt-5.4")
+	if err != nil {
+		t.Fatalf("新模型名称读取失败: %v", err)
+	}
+	if m.Model != "gpt-5.4" {
+		t.Fatalf("Model = %q, want gpt-5.4", m.Model)
+	}
+	models, err := st.ListLLMModels(ctx)
+	if err != nil {
+		t.Fatalf("ListLLMModels failed: %v", err)
+	}
+	if len(models) != 1 {
+		t.Fatalf("models count = %d, want 1", len(models))
+	}
+}
+
+func TestLLM_UpdateModel_RenameAndSetDefaultClearsOthers(t *testing.T) {
+	handler, st := newTestServerForLLM(t)
+	ctx := t.Context()
+
+	_ = st.SaveLLMModel(ctx, &store.LLMModelRecord{
+		Name: "old-default", ProviderName: "openai", Model: "gpt-4o",
+		IsDefault: true, ConfigJSON: "{}",
+	})
+	_ = st.SaveLLMModel(ctx, &store.LLMModelRecord{
+		Name: "gpt-5.2", ProviderName: "openai", Model: "gpt-5.4",
+		IsDefault: false, ConfigJSON: "{}",
+	})
+
+	body := map[string]any{"name": "gpt-5.4", "model": "gpt-5.4", "is_default": true}
+	rec := doJSON(t, handler, "PATCH", "/api/v1/admin/llm/models/gpt-5.2", body)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("更新应成功，得到 %d: %s", rec.Code, rec.Body.String())
+	}
+
+	oldDefault, err := st.GetLLMModel(ctx, "old-default")
+	if err != nil {
+		t.Fatalf("读取旧默认模型失败: %v", err)
+	}
+	if oldDefault.IsDefault {
+		t.Fatal("旧默认模型仍为默认，期望被清除")
+	}
+	newDefault, err := st.GetLLMModel(ctx, "gpt-5.4")
+	if err != nil {
+		t.Fatalf("读取新默认模型失败: %v", err)
+	}
+	if !newDefault.IsDefault {
+		t.Fatal("重命名后的模型未设为默认")
+	}
+}

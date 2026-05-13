@@ -1198,6 +1198,49 @@ func (s *PostgresStore) SaveLLMModel(ctx context.Context, rec *LLMModelRecord) e
 	return nil
 }
 
+func (s *PostgresStore) UpdateLLMModel(ctx context.Context, oldName string, rec *LLMModelRecord) error {
+	rec.ConfigJSON = ensureValidJSON(rec.ConfigJSON, "{}")
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return errs.Wrap(errs.CodeStoreWriteFailed, "开启事务失败", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	if oldName != rec.Name {
+		var exists bool
+		if err := tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM llm_models WHERE name = $1)", rec.Name).Scan(&exists); err != nil {
+			return errs.Wrap(errs.CodeStoreReadFailed, "检查 LLM 模型名称失败", err)
+		}
+		if exists {
+			return errs.New(errs.CodeInvalidInput, "LLM 模型已存在: "+rec.Name)
+		}
+	}
+	if rec.IsDefault {
+		if _, err := tx.Exec(ctx, "UPDATE llm_models SET is_default=false, updated_at=NOW() WHERE is_default=true AND name != $1", oldName); err != nil {
+			return errs.Wrap(errs.CodeStoreWriteFailed, "清除 LLM Model 默认标记失败", err)
+		}
+	}
+
+	ct, err := tx.Exec(ctx,
+		`UPDATE llm_models
+		SET name=$2, provider_name=$3, model=$4, base_url=$5, api_key=$6,
+			is_default=$7, enabled=$8, service_type=$9, config_json=$10, updated_at=NOW()
+		WHERE name=$1`,
+		oldName, rec.Name, rec.ProviderName, rec.Model, rec.BaseURL, rec.APIKey,
+		rec.IsDefault, rec.Enabled, rec.ServiceType, rec.ConfigJSON,
+	)
+	if err != nil {
+		return errs.Wrap(errs.CodeStoreWriteFailed, "更新 LLM 模型失败", err)
+	}
+	if ct.RowsAffected() == 0 {
+		return errs.New(errs.CodeNotFound, "LLM 模型未找到: "+oldName)
+	}
+	if _, err := tx.Exec(ctx, "SELECT pg_notify('config_change', $1)", "llm_model:"+rec.Name); err != nil {
+		s.logger.Warn("发送 LLM 模型配置变更通知失败", zap.String("name", rec.Name), zap.Error(err))
+	}
+	return tx.Commit(ctx)
+}
+
 func (s *PostgresStore) DeleteLLMModel(ctx context.Context, name string) error {
 	ct, err := s.pool.Exec(ctx, "DELETE FROM llm_models WHERE name = $1", name)
 	if err != nil {
