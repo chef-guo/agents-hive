@@ -168,7 +168,7 @@ func TestToolSearchExposesExternalMCPRiskMetadata(t *testing.T) {
 	}
 }
 
-func TestToolSearchExposesTrustedMCPReadOnlyMetadata(t *testing.T) {
+func TestToolSearchExposesTrustedRemoteReadOnlyMetadata(t *testing.T) {
 	logger := zap.NewNop()
 	host := mcphost.NewHost(logger)
 	host.RegisterTool(mcphost.ToolDefinition{
@@ -209,7 +209,7 @@ func TestToolSearchExposesTrustedMCPReadOnlyMetadata(t *testing.T) {
 		t.Fatalf("expected metamcp__query_prometheus top hit, got %q", got.Name)
 	}
 	if got.DangerLevel != "read_only" || got.RequiresApproval {
-		t.Fatalf("trusted MCP read tool metadata wrong: %+v", got)
+		t.Fatalf("trusted remote read tool metadata wrong: %+v", got)
 	}
 	if got.Kind != "mcp_tool" || got.Domain != "metamcp" || got.Source != "mcp_server" || got.Invocation != "direct_tool" {
 		t.Fatalf("unexpected typed metadata: %+v", got)
@@ -343,6 +343,55 @@ func TestToolSearchMixedOperationApprovalMetadataIsActionAware(t *testing.T) {
 	}
 }
 
+func TestToolSearchUsesUnifiedPolicyForCustomAndBuiltinTools(t *testing.T) {
+	logger := zap.NewNop()
+	host := mcphost.NewHost(logger)
+	registerToolSearch(host, logger)
+	host.RegisterTool(mcphost.ToolDefinition{Name: "read_file", Core: true, Description: "读取文件"}, nil)
+	host.RegisterTool(mcphost.ToolDefinition{Name: "project_status", Description: "查询项目状态", IsConcurrencySafe: true}, nil)
+	host.RegisterTool(mcphost.ToolDefinition{Name: "opaque_candidate", Description: "opaque extension"}, nil)
+
+	result, err := host.ExecuteTool(context.Background(), "tool_search", []byte(`{"query":"","limit":10}`))
+	if err != nil {
+		t.Fatalf("ExecuteTool(tool_search): %v", err)
+	}
+
+	var out struct {
+		Results []struct {
+			Name             string `json:"name"`
+			RouteStatus      string `json:"route_status"`
+			CallableNow      bool   `json:"callable_now"`
+			RequiresApproval bool   `json:"requires_approval"`
+		} `json:"results"`
+	}
+	if err := json.Unmarshal([]byte(result.DecodeContent()), &out); err != nil {
+		t.Fatalf("decode tool_search output: %v; content=%s", err, result.DecodeContent())
+	}
+
+	byName := map[string]struct {
+		RouteStatus      string
+		CallableNow      bool
+		RequiresApproval bool
+	}{}
+	for _, hit := range out.Results {
+		byName[hit.Name] = struct {
+			RouteStatus      string
+			CallableNow      bool
+			RequiresApproval bool
+		}{hit.RouteStatus, hit.CallableNow, hit.RequiresApproval}
+	}
+
+	if got := byName["read_file"]; got.RouteStatus != "callable_read_only" || !got.CallableNow || got.RequiresApproval {
+		t.Fatalf("read_file metadata = %+v", got)
+	}
+	if got := byName["project_status"]; got.RouteStatus != "callable_read_only" || !got.CallableNow || got.RequiresApproval {
+		t.Fatalf("project_status metadata = %+v", got)
+	}
+	if got := byName["opaque_candidate"]; (got.RouteStatus != "blocked_unknown" && got.RouteStatus != "blocked_dangerous") || got.CallableNow || !got.RequiresApproval {
+		t.Fatalf("opaque_candidate metadata = %+v", got)
+	}
+}
+
 func TestToolSearchTypedMetadataPhase0Kinds(t *testing.T) {
 	logger := zap.NewNop()
 	host := mcphost.NewHost(logger)
@@ -417,7 +466,7 @@ func TestToolSearchTypedMetadataPhase0Kinds(t *testing.T) {
 	assertToolSearchMeta(t, byName, "tool_search", "builtin_tool", "discovery", "builtin", "discovery_only", "discovery_only")
 	assertToolSearchMeta(t, byName, "mcp-builder", "skill_workflow", "mcp_server_building", "local_skill", "skill_tool", "requires_matching_intent")
 	assertToolSearchMeta(t, byName, "github__create_issue", "mcp_tool", "github", "mcp_server", "direct_tool", "blocked_dangerous")
-	assertToolSearchMeta(t, byName, "project_status", "custom_tool", "custom", "custom_dir", "direct_tool", "blocked_dangerous")
+	assertToolSearchMeta(t, byName, "project_status", "custom_tool", "custom", "custom_dir", "direct_tool", "blocked_unknown")
 	assertToolSearchMeta(t, byName, "opaque_candidate", "unknown", "unknown", "unknown", "discovery_only", "discovery_only")
 }
 

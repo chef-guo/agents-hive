@@ -72,6 +72,8 @@ type ToolRecall struct {
 	CandidateScores          map[string]float64 `json:"candidate_scores,omitempty"`
 	VisibleBeforeCount       int                `json:"visible_before_count,omitempty"`
 	VisibleAfterCount        int                `json:"visible_after_count,omitempty"`
+	VisibleTrimmedCount      int                `json:"visible_trimmed_count,omitempty"`
+	MaxVisibleTools          int                `json:"max_visible_tools,omitempty"`
 	SelectedTool             string             `json:"selected_tool,omitempty"`
 	ModelUsedRecalledTool    bool               `json:"model_used_recalled_tool,omitempty"`
 	BlockedByPlanGate        bool               `json:"blocked_by_plan_gate,omitempty"`

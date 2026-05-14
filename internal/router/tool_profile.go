@@ -54,9 +54,9 @@ func UnknownMCPToolProfile(name string) ToolProfile {
 	}
 }
 
-// TrustedMCPToolProfile 返回已配置远程 MCP 服务端工具的默认画像。
+// TrustedRemoteToolProfile 返回已配置可信远端工具的默认画像。
 // 默认信任的是服务端来源，不是任意动作：明显写入/删除/执行/发送类工具仍标记为有副作用。
-func TrustedMCPToolProfile(def mcphost.ToolDefinition, name, sanitizedDescription string) ToolProfile {
+func TrustedRemoteToolProfile(def mcphost.ToolDefinition, name, sanitizedDescription string) ToolProfile {
 	profile := ToolProfile{
 		Name:           name,
 		Kind:           CapabilityKindMCPTool,
@@ -77,9 +77,9 @@ func TrustedMCPToolProfile(def mcphost.ToolDefinition, name, sanitizedDescriptio
 		profile.Metadata["description"] = sanitizedDescription
 	}
 
-	classification := classifyTrustedMCPToolRisk(def)
-	profile.Metadata["mcp_risk_source"] = classification.Source
-	profile.Metadata["mcp_risk_reason"] = classification.Reason
+	classification := ClassifyToolDefinitionRisk(def)
+	profile.Metadata["risk_source"] = classification.Source
+	profile.Metadata["risk_reason"] = classification.Reason
 	switch classification.Risk {
 	case RiskDestructive:
 		profile.Risk = RiskDestructive
@@ -110,40 +110,40 @@ func TrustedMCPToolProfile(def mcphost.ToolDefinition, name, sanitizedDescriptio
 	return profile
 }
 
-type trustedMCPRiskClassification struct {
+type ToolRiskClassification struct {
 	Risk   RiskLevel
 	Source string
 	Reason string
 }
 
-func classifyTrustedMCPToolRisk(def mcphost.ToolDefinition) trustedMCPRiskClassification {
+func ClassifyToolDefinitionRisk(def mcphost.ToolDefinition) ToolRiskClassification {
 	text := strings.ToLower(strings.Join([]string{
 		def.Name,
 		def.Description,
 		string(def.InputSchema),
 	}, " "))
-	if risk, reason, ok := highRiskFromMCPAnnotations(def.Annotations); ok {
-		return trustedMCPRiskClassification{Risk: risk, Source: "annotations", Reason: reason}
+	if risk, reason, ok := highRiskFromToolAnnotations(def.Annotations); ok {
+		return ToolRiskClassification{Risk: risk, Source: "annotations", Reason: reason}
 	}
-	if reason := firstKeywordReason(text, mcpRuntimeExecKeywords); reason != "" {
-		return trustedMCPRiskClassification{Risk: RiskRuntimeExec, Source: "heuristic", Reason: reason}
+	if reason := firstKeywordReason(text, runtimeExecKeywords); reason != "" {
+		return ToolRiskClassification{Risk: RiskRuntimeExec, Source: "heuristic", Reason: reason}
 	}
-	if reason := firstKeywordReason(text, mcpDestructiveKeywords); reason != "" {
-		return trustedMCPRiskClassification{Risk: RiskDestructive, Source: "heuristic", Reason: reason}
+	if reason := firstKeywordReason(text, destructiveKeywords); reason != "" {
+		return ToolRiskClassification{Risk: RiskDestructive, Source: "heuristic", Reason: reason}
 	}
-	if reason := firstKeywordReason(text, mcpExternalWriteKeywords); reason != "" {
-		return trustedMCPRiskClassification{Risk: RiskExternalWrite, Source: "heuristic", Reason: reason}
+	if reason := firstKeywordReason(text, externalWriteKeywords); reason != "" {
+		return ToolRiskClassification{Risk: RiskExternalWrite, Source: "heuristic", Reason: reason}
 	}
-	if reason := firstKeywordReason(text, mcpLocalWriteKeywords); reason != "" {
-		return trustedMCPRiskClassification{Risk: RiskLocalWrite, Source: "heuristic", Reason: reason}
+	if reason := firstKeywordReason(text, localWriteKeywords); reason != "" {
+		return ToolRiskClassification{Risk: RiskLocalWrite, Source: "heuristic", Reason: reason}
 	}
-	if risk, reason, ok := lowRiskFromMCPAnnotations(def.Annotations); ok {
-		return trustedMCPRiskClassification{Risk: risk, Source: "annotations", Reason: reason}
+	if risk, reason, ok := lowRiskFromToolAnnotations(def.Annotations); ok {
+		return ToolRiskClassification{Risk: risk, Source: "annotations", Reason: reason}
 	}
-	return trustedMCPRiskClassification{Risk: RiskReadOnly, Source: "default", Reason: "trusted_mcp_default_read_only"}
+	return ToolRiskClassification{Risk: RiskReadOnly, Source: "default", Reason: "trusted_remote_default_read_only"}
 }
 
-func highRiskFromMCPAnnotations(raw json.RawMessage) (RiskLevel, string, bool) {
+func highRiskFromToolAnnotations(raw json.RawMessage) (RiskLevel, string, bool) {
 	if len(raw) == 0 {
 		return "", "", false
 	}
@@ -165,7 +165,7 @@ func highRiskFromMCPAnnotations(raw json.RawMessage) (RiskLevel, string, bool) {
 	return "", "", false
 }
 
-func lowRiskFromMCPAnnotations(raw json.RawMessage) (RiskLevel, string, bool) {
+func lowRiskFromToolAnnotations(raw json.RawMessage) (RiskLevel, string, bool) {
 	if len(raw) == 0 {
 		return "", "", false
 	}
@@ -181,19 +181,19 @@ func lowRiskFromMCPAnnotations(raw json.RawMessage) (RiskLevel, string, bool) {
 	return "", "", false
 }
 
-var mcpRuntimeExecKeywords = []string{
+var runtimeExecKeywords = []string{
 	"exec_command", "execute_command", "shell", "bash", "command", "terminal", "script", "run_command", "kubectl", "ssh",
 }
 
-var mcpDestructiveKeywords = []string{
+var destructiveKeywords = []string{
 	"delete", "drop", "truncate", "destroy", "remove", "purge", "wipe", "kill", "terminate", "restart", "shutdown", "reboot",
 }
 
-var mcpExternalWriteKeywords = []string{
+var externalWriteKeywords = []string{
 	"send", "publish", "post", "message", "email", "notify", "deploy", "release", "rollback", "merge", "approve",
 }
 
-var mcpLocalWriteKeywords = []string{
+var localWriteKeywords = []string{
 	"write", "create", "update", "insert", "upsert", "patch", "modify", "save", "set_", "configure", "mutation",
 }
 

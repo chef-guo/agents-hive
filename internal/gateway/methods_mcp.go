@@ -124,6 +124,10 @@ func buildMCPToolsListResponse(host *mcphost.Host) mcpToolsListResponse {
 	servers := make(map[string]*mcpToolsByServer)
 	for _, tool := range tools {
 		profile := router.InferToolProfile(tool, router.ProfileHint{})
+		policy := router.EvaluateToolPolicy(profile, router.ToolPolicyContext{
+			Intent:   router.IntentFrame{Kind: router.IntentRead},
+			ForRoute: true,
+		})
 		summary := mcpToolSummary{
 			Name:              tool.Name,
 			Description:       tool.Description,
@@ -132,8 +136,8 @@ func buildMCPToolsListResponse(host *mcphost.Host) mcpToolsListResponse {
 			IsConcurrencySafe: tool.IsConcurrencySafe,
 			Trusted:           profile.Trust == router.TrustTrusted,
 			Risk:              string(profile.Risk),
-			ReadOnly:          profile.ReadOnly && !router.ProfileHasSideEffect(profile),
-			RequiresApproval:  router.ProfileRequiresApproval(profile),
+			ReadOnly:          policy.Action == router.ToolPolicyAllow && policy.RouteStatus == router.ToolRouteCallableReadOnly,
+			RequiresApproval:  policy.RequiresApproval || policy.Action == router.ToolPolicyDeny,
 		}
 		summaries = append(summaries, summary)
 		if summary.Server == "" {

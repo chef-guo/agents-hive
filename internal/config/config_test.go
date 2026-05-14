@@ -248,11 +248,17 @@ func TestFirstTokenDefaultsAndNormalize(t *testing.T) {
 	cfg := Default()
 	cfg.Resolve()
 	assertFirstTokenDefaults(t, cfg.Agent.FirstToken, "Default().Resolve()")
+	if cfg.Agent.MaxModelVisibleTools != DefaultMaxModelVisibleTools {
+		t.Fatalf("Default().Resolve() Agent.MaxModelVisibleTools = %d, want %d", cfg.Agent.MaxModelVisibleTools, DefaultMaxModelVisibleTools)
+	}
 
 	cli := Default()
 	cli.CLIDefaults()
 	cli.Resolve()
 	assertFirstTokenDefaults(t, cli.Agent.FirstToken, "CLIDefaults().Resolve()")
+	if cli.Agent.MaxModelVisibleTools != DefaultMaxModelVisibleTools {
+		t.Fatalf("CLIDefaults().Resolve() Agent.MaxModelVisibleTools = %d, want %d", cli.Agent.MaxModelVisibleTools, DefaultMaxModelVisibleTools)
+	}
 
 	normalized := NormalizeFirstTokenConfig(FirstTokenConfig{
 		FastPathEnabled:            false,
@@ -275,7 +281,8 @@ func TestLoadCLI_PreservesExplicitFirstTokenAndActionGuardFalse(t *testing.T) {
 			"first_token": map[string]any{
 				"fast_path_enabled": false,
 			},
-			"action_guard_enabled": false,
+			"max_model_visible_tools": 0,
+			"action_guard_enabled":    false,
 		},
 	}
 	data, err := json.Marshal(raw)
@@ -295,6 +302,9 @@ func TestLoadCLI_PreservesExplicitFirstTokenAndActionGuardFalse(t *testing.T) {
 	}
 	if cfg.Agent.ActionGuardEnabled {
 		t.Fatal("CLI Agent.ActionGuardEnabled = true, want explicit false preserved")
+	}
+	if cfg.Agent.MaxModelVisibleTools != 0 {
+		t.Fatalf("CLI Agent.MaxModelVisibleTools = %d, want explicit rollback value 0 preserved", cfg.Agent.MaxModelVisibleTools)
 	}
 	if cfg.Agent.FirstToken.PreflightClassifierTimeout != DefaultFirstTokenPreflightClassifierTimeout {
 		t.Fatalf("CLI Agent.FirstToken.PreflightClassifierTimeout = %v, want default %v", cfg.Agent.FirstToken.PreflightClassifierTimeout, DefaultFirstTokenPreflightClassifierTimeout)

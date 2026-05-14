@@ -376,6 +376,7 @@ func InitServer(cfg *config.Config, configPath string, logger *zap.Logger) *Serv
 		ToolRecall:                  cfg.Agent.ToolRecall,
 		FirstToken:                  cfg.Agent.FirstToken,
 		ActionGuardEnabled:          cfg.Agent.ActionGuardEnabled,
+		MaxModelVisibleTools:        cfg.Agent.MaxModelVisibleTools,
 		MaxSessionCost:              cfg.Agent.MaxSessionCost,
 		SpecDriven:                  cfg.SpecDriven,
 		PlanRuntime:                 cfg.Agent.PlanRuntime,

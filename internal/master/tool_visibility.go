@@ -25,6 +25,8 @@ type toolRecallObservation struct {
 	CandidateToolNames       map[string]bool
 	VisibleBeforeCount       int
 	VisibleAfterCount        int
+	VisibleTrimmedCount      int
+	MaxVisibleTools          int
 	RecalledToolNames        map[string]bool
 	BlockedByPlanGate        bool
 	SideEffectCandidateCount int
@@ -47,6 +49,11 @@ type admissionEntry struct {
 }
 
 const routeEmptyInputValue = "__empty__"
+
+type toolVisibilityOptions struct {
+	FastPath             bool
+	MaxModelVisibleTools int
+}
 
 // modelVisibleToolsForSession 收窄模型默认候选集：核心工具和质量杠杆工具默认可见，
 // 其他扩展/MCP/自定义工具需要先通过 tool_search 发现。
@@ -83,6 +90,10 @@ func modelVisibleToolsForSessionWithRecallObservationAndSkills(session *SessionS
 }
 
 func modelVisibleToolsForSessionWithRecallObservationAndSkillsAndIntent(session *SessionState, catalog []mcphost.ToolDefinition, skillMetas []skills.SkillMetadata, latestUserQuery string, recallCfg config.ToolRecallConfig, intent router.IntentFrame) ([]mcphost.ToolDefinition, toolRecallObservation) {
+	return modelVisibleToolsForSessionWithRecallObservationAndSkillsAndIntentWithOptions(session, catalog, skillMetas, latestUserQuery, recallCfg, intent, toolVisibilityOptions{})
+}
+
+func modelVisibleToolsForSessionWithRecallObservationAndSkillsAndIntentWithOptions(session *SessionState, catalog []mcphost.ToolDefinition, skillMetas []skills.SkillMetadata, latestUserQuery string, recallCfg config.ToolRecallConfig, intent router.IntentFrame, opts toolVisibilityOptions) ([]mcphost.ToolDefinition, toolRecallObservation) {
 	if len(catalog) == 0 {
 		return nil, toolRecallObservation{Mode: config.NormalizeToolRecallConfig(recallCfg).Mode}
 	}
@@ -90,7 +101,7 @@ func modelVisibleToolsForSessionWithRecallObservationAndSkillsAndIntent(session 
 	recallSet, obs := perTurnRecalledToolSetWithIntent(session, catalog, skillMetas, latestUserQuery, recallCfg, intent)
 	out := make([]mcphost.ToolDefinition, 0, len(catalog))
 	for _, tool := range catalog {
-		baselineVisible := isDefaultVisibleTool(tool)
+		baselineVisible := isDefaultVisibleToolWithOptions(tool, opts)
 		if decision := EvaluatePlanToolGate(context.Background(), session, tool.Name); !decision.Allowed {
 			if obs.CandidateToolNames[tool.Name] {
 				obs.BlockedByPlanGate = true
@@ -104,7 +115,11 @@ func modelVisibleToolsForSessionWithRecallObservationAndSkillsAndIntent(session 
 			out = append(out, tool)
 		}
 	}
+	out, obs.VisibleTrimmedCount = trimModelVisibleTools(out, opts, recallSet)
 	obs.VisibleAfterCount = len(out)
+	if opts.FastPath && opts.MaxModelVisibleTools > 0 {
+		obs.MaxVisibleTools = opts.MaxModelVisibleTools
+	}
 	obs.Entries = buildAdmissionEntries(session, catalog, out, obs.RouteDecision)
 	if session != nil {
 		session.SetAllowedTools(allowedToolsForRuntime(obs.RouteDecision, out))
@@ -130,11 +145,84 @@ func stableToolDefinitions(tools []mcphost.ToolDefinition) []mcphost.ToolDefinit
 }
 
 func isDefaultVisibleTool(tool mcphost.ToolDefinition) bool {
+	return isDefaultVisibleToolWithOptions(tool, toolVisibilityOptions{})
+}
+
+func isDefaultVisibleToolWithOptions(tool mcphost.ToolDefinition, opts toolVisibilityOptions) bool {
 	name := strings.TrimSpace(tool.Name)
 	if name == "" || isExecutionEntrypointTool(name) {
 		return false
 	}
+	if opts.FastPath && opts.MaxModelVisibleTools > 0 {
+		return isFastPathDefaultVisibleTool(name)
+	}
 	return tool.Core || router.IsHostToolInSet(router.HostToolSetDefaultVisible, name)
+}
+
+func isFastPathDefaultVisibleTool(name string) bool {
+	switch strings.TrimSpace(name) {
+	case "ls", "memory", "question", "skill", "tool_search", "read_file", "grep", "glob":
+		return true
+	default:
+		return false
+	}
+}
+
+func trimModelVisibleTools(tools []mcphost.ToolDefinition, opts toolVisibilityOptions, recallSet map[string]bool) ([]mcphost.ToolDefinition, int) {
+	if !opts.FastPath || opts.MaxModelVisibleTools <= 0 || len(tools) <= opts.MaxModelVisibleTools {
+		return tools, 0
+	}
+	selected := map[string]bool{}
+	addSelected := func(name string) {
+		if len(selected) >= opts.MaxModelVisibleTools {
+			return
+		}
+		name = strings.TrimSpace(name)
+		if name != "" {
+			selected[name] = true
+		}
+	}
+	for _, priority := range []string{"tool_search"} {
+		for _, tool := range tools {
+			name := strings.TrimSpace(tool.Name)
+			if name == priority {
+				addSelected(name)
+				break
+			}
+		}
+		if len(selected) >= opts.MaxModelVisibleTools {
+			break
+		}
+	}
+	for _, tool := range tools {
+		if len(selected) >= opts.MaxModelVisibleTools {
+			break
+		}
+		name := strings.TrimSpace(tool.Name)
+		if name == "" || !recallSet[name] || selected[name] {
+			continue
+		}
+		addSelected(name)
+	}
+	for _, priority := range []string{"question", "memory", "skill", "read_file", "grep", "glob", "ls"} {
+		for _, tool := range tools {
+			if len(selected) >= opts.MaxModelVisibleTools {
+				break
+			}
+			name := strings.TrimSpace(tool.Name)
+			if name == priority && !selected[name] {
+				addSelected(name)
+				break
+			}
+		}
+	}
+	kept := make([]mcphost.ToolDefinition, 0, len(selected))
+	for _, tool := range tools {
+		if selected[strings.TrimSpace(tool.Name)] {
+			kept = append(kept, tool)
+		}
+	}
+	return kept, len(tools) - len(kept)
 }
 
 func isExecutionEntrypointTool(name string) bool {
@@ -402,7 +490,8 @@ func buildAdmissionEntries(session *SessionState, catalog []mcphost.ToolDefiniti
 		}
 		planDecision := EvaluatePlanToolGate(context.Background(), session, name)
 		profile := router.InferToolProfile(tool, router.ProfileHint{})
-		discoveryOnly := name == "tool_search" || profile.Invocation == router.InvocationDiscoveryOnly || blockReasons[name] == "discovery only" || blockReasons[name] == "discovery_only"
+		policy := router.EvaluateToolPolicy(profile, router.ToolPolicyContext{ForRoute: true})
+		discoveryOnly := name == "tool_search" || policy.RouteStatus == router.ToolRouteDiscoveryOnly || profile.Invocation == router.InvocationDiscoveryOnly || blockReasons[name] == "discovery only" || blockReasons[name] == "discovery_only"
 		primaryReason := ""
 		switch {
 		case !planDecision.Allowed:
@@ -413,6 +502,10 @@ func buildAdmissionEntries(session *SessionState, catalog []mcphost.ToolDefiniti
 			primaryReason = blockReasons[name]
 		}
 		allowedInputs := defaultRuntimeAllowedInputsForTool(name, decision.AllowedToolInputs[name], callableSet[name])
+		mayRequireApproval := policy.RequiresApproval || policy.Action == router.ToolPolicyDeny
+		if discoveryOnly {
+			mayRequireApproval = policy.RequiresApproval
+		}
 		entries[name] = admissionEntry{
 			Name:                name,
 			SurvivedPolicy:      true,
@@ -420,7 +513,7 @@ func buildAdmissionEntries(session *SessionState, catalog []mcphost.ToolDefiniti
 			ExecutableByRuntime: planDecision.Allowed,
 			TaskCallable:        callableSet[name],
 			DiscoveryOnly:       discoveryOnly,
-			MayRequireApproval:  router.ProfileRequiresApproval(profile),
+			MayRequireApproval:  mayRequireApproval,
 			AllowedInputs:       allowedInputs,
 			DangerousActions:    router.StructuredDangerousActions(name),
 			PrimaryBlockReason:  primaryReason,
@@ -470,7 +563,8 @@ func allowedToolsForRuntime(decision router.RouteDecision, visible []mcphost.Too
 			continue
 		}
 		profile := router.InferToolProfile(tool, router.ProfileHint{})
-		if profile.ReadOnly && !router.ProfileHasSideEffect(profile) {
+		policy := router.EvaluateToolPolicy(profile, router.ToolPolicyContext{ForRoute: true})
+		if policy.Action == router.ToolPolicyAllow && policy.CallableNow {
 			allowed[name] = true
 		}
 	}
@@ -537,6 +631,8 @@ func (o toolRecallObservation) toEvent(traceID, turnID, selectedTool string, use
 		CandidateScores:          cloneToolRecallScores(o.CandidateScores),
 		VisibleBeforeCount:       o.VisibleBeforeCount,
 		VisibleAfterCount:        o.VisibleAfterCount,
+		VisibleTrimmedCount:      o.VisibleTrimmedCount,
+		MaxVisibleTools:          o.MaxVisibleTools,
 		SelectedTool:             selectedTool,
 		ModelUsedRecalledTool:    used,
 		BlockedByPlanGate:        o.BlockedByPlanGate,

@@ -46,7 +46,9 @@ if [[ -n "$testlog" ]]; then
     exit 1
   fi
   if grep -q '^--- SKIP:' "$testlog"; then
-    echo "SKIP→RED: the following tests were skipped (most likely TEST_DATABASE_URL missing):" >&2
+    echo "SKIP→RED: the following tests were skipped:" >&2
+    echo "  - store/spec tests usually mean TEST_DATABASE_URL is missing" >&2
+    echo "  - other tests usually mean a non-hermetic integration/stress test leaked into this gate" >&2
     grep '^--- SKIP:' "$testlog" >&2
     echo "refusing to promote — blocking dual-flag rollout" >&2
     exit 1

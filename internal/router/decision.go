@@ -118,7 +118,8 @@ func BuildRouteDecisionWithOptions(intent IntentFrame, profiles []ToolProfile, o
 			decision.BlockedTools = append(decision.BlockedTools, BlockedTool{Name: profile.Name, Reason: gate.Reason})
 			continue
 		}
-		if toolName, toolArgs, ok := isCallable(intent, profile); ok {
+		policy := EvaluateToolPolicy(profile, ToolPolicyContext{Intent: intent, ForRoute: true})
+		if toolName, toolArgs, ok := isCallable(intent, profile, policy); ok {
 			if len(toolArgs) > 0 {
 				if existing, ok := decision.AllowedToolInputs[toolName]; ok && !sameToolArgs(existing, toolArgs) {
 					decision.BlockedTools = append(decision.BlockedTools, BlockedTool{Name: profile.Name, Reason: "callable input conflict"})
@@ -191,23 +192,7 @@ func isBlockedIntent(kind IntentKind) bool {
 }
 
 func blockReason(intent IntentFrame, profile ToolProfile) string {
-	if profile.OpenWorld || profile.Destructive || profile.Risk == RiskDestructive || profile.Risk == RiskUnknown {
-		return "unknown destructive/open-world tool"
-	}
-	if isDiscoveryOnlyProfile(profile) {
-		return "discovery only"
-	}
-	if profile.Risk == RiskRuntimeExec && intent.Kind != IntentManageTool {
-		return "runtime execution not required by intent"
-	}
-	if profile.Kind == CapabilityKindMCPTool && profile.Trust == TrustTrusted &&
-		(profile.Risk == RiskLocalWrite || profile.Risk == RiskExternalWrite) && intent.AllowsSideEffects {
-		return ""
-	}
 	if externalSendMixedToolBlockedForIntent(intent, profile) {
-		return "side effect not allowed by intent"
-	}
-	if profile.SideEffect && !intent.AllowsSideEffects && !IsMixedReadWriteTool(profile.Name) {
 		return "side effect not allowed by intent"
 	}
 	if intent.Kind == IntentCreateSkill && profile.Kind == CapabilityKindSkillWorkflow && profile.Domain == "mcp_server_building" {
@@ -216,11 +201,38 @@ func blockReason(intent IntentFrame, profile ToolProfile) string {
 	if len(profile.AllowedIntentKinds) > 0 && !slices.Contains(profile.AllowedIntentKinds, intent.Kind) {
 		return "intent kind not allowed by profile"
 	}
+	policy := EvaluateToolPolicy(profile, ToolPolicyContext{Intent: intent, ForRoute: true})
+	if policy.Action == ToolPolicyDeny {
+		return blockReasonForPolicyDecision(policy)
+	}
+	if isDiscoveryOnlyProfile(profile) {
+		return "discovery only"
+	}
+	if policy.RequiresSideEffectIntent && !policy.CallableNow && profile.SideEffect {
+		return "side effect not allowed by intent"
+	}
 	return ""
 }
 
-func isCallable(intent IntentFrame, profile ToolProfile) (string, map[string]string, bool) {
-	if isDiscoveryOnlyProfile(profile) {
+func blockReasonForPolicyDecision(policy ToolPolicyDecision) string {
+	switch policy.RouteStatus {
+	case ToolRouteDiscoveryOnly:
+		return "discovery only"
+	case ToolRouteBlockedDangerous, ToolRouteBlockedUnknown:
+		if policy.Reason == "runtime_exec_not_allowed" {
+			return "runtime execution not required by intent"
+		}
+		return "unknown destructive/open-world tool"
+	default:
+		if policy.Reason != "" {
+			return policy.Reason
+		}
+		return "not callable for intent"
+	}
+}
+
+func isCallable(intent IntentFrame, profile ToolProfile, policy ToolPolicyDecision) (string, map[string]string, bool) {
+	if isDiscoveryOnlyProfile(profile) || policy.Action == ToolPolicyDeny || !policy.CallableNow {
 		return "", nil, false
 	}
 	switch intent.Kind {

@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/chef-guo/agents-hive/internal/agentquality"
 	"github.com/chef-guo/agents-hive/internal/config"
 	"github.com/chef-guo/agents-hive/internal/llm"
 	"github.com/chef-guo/agents-hive/internal/mcphost"
@@ -21,6 +22,7 @@ import (
 func TestExecuteTool_ActionGuardDeniesUnknownToolBeforeExecution(t *testing.T) {
 	m := newPhase6MasterWithMCPHost(t)
 	m.config.ActionGuardEnabled = true
+	m.obsCh = make(chan observabilityEntry, 4)
 	called := false
 	m.mcpHost.RegisterTool(
 		mcphost.ToolDefinition{Name: "unknown_side_effect", Description: "test"},
@@ -41,9 +43,36 @@ func TestExecuteTool_ActionGuardDeniesUnknownToolBeforeExecution(t *testing.T) {
 	assert.False(t, called, "ActionGuard deny 时不应执行底层工具")
 	assert.Contains(t, result.Content, "ActionGuard 拒绝")
 	assert.Contains(t, result.Content, "unknown_tool")
+	assertActionGuardQualityEvent(t, m, agentquality.StatusBlocked, "deny", "unknown_tool", "unknown_side_effect", "ag-deny-1")
 }
 
-func TestExecuteTool_ActionGuardAsksExternalSendAndRunsAfterApprove(t *testing.T) {
+func TestExecuteTool_ActionGuardAllowsPlainTextIMSendWithoutHITL(t *testing.T) {
+	m := newPhase6MasterWithMCPHost(t)
+	m.config.ActionGuardEnabled = true
+	m.mcpHost = mcphost.NewHost(zap.NewNop())
+	called := false
+	m.mcpHost.RegisterTool(
+		mcphost.ToolDefinition{Name: "send_im_message", Description: "send"},
+		func(context.Context, json.RawMessage) (*mcphost.ToolResult, error) {
+			called = true
+			return &mcphost.ToolResult{Content: jsonTestText("sent")}, nil
+		},
+	)
+	session := newTestSession("ag-send")
+	session.SetAllowedTools([]string{"send_im_message"})
+
+	result := m.executeTool(context.Background(), session, "user-1", llm.ToolCall{
+		ID:        "ag-send-1",
+		Name:      "send_im_message",
+		Arguments: json.RawMessage(`{"platform":"feishu","content":"hi"}`),
+	}, "trace-ag-send", "span-parent")
+
+	require.False(t, result.IsError)
+	assert.Equal(t, "sent", result.Content)
+	assert.True(t, called, "普通 IM 文本发送不应因为 HITL 关闭被 ActionGuard 拦截")
+}
+
+func TestExecuteTool_ActionGuardAsksExternalMediaSendAndRunsAfterApprove(t *testing.T) {
 	m, cancel := setupHITLMaster(t, config.HITLConfig{Enabled: true})
 	defer cancel()
 	defer m.Stop()
@@ -51,7 +80,7 @@ func TestExecuteTool_ActionGuardAsksExternalSendAndRunsAfterApprove(t *testing.T
 	m.mcpHost = mcphost.NewHost(zap.NewNop())
 	called := false
 	m.mcpHost.RegisterTool(
-		mcphost.ToolDefinition{Name: "send_im_message", Description: "send"},
+		mcphost.ToolDefinition{Name: "feishu_api", Description: "feishu"},
 		func(context.Context, json.RawMessage) (*mcphost.ToolResult, error) {
 			called = true
 			return &mcphost.ToolResult{Content: jsonTestText("sent")}, nil
@@ -64,12 +93,12 @@ func TestExecuteTool_ActionGuardAsksExternalSendAndRunsAfterApprove(t *testing.T
 	go func() {
 		resultCh <- m.executeTool(context.Background(), newTestSession("ag-ask"), "user-1", llm.ToolCall{
 			ID:        "ag-ask-1",
-			Name:      "send_im_message",
-			Arguments: json.RawMessage(`{"platform":"feishu","content":"hi"}`),
+			Name:      "feishu_api",
+			Arguments: json.RawMessage(`{"action":"send_file","file_key":"file_1"}`),
 		}, "trace-ag-ask", "span-parent")
 	}()
 
-	approvePermissionRequest(t, m, ch, "ag-ask", "send_im_message")
+	approvePermissionRequest(t, m, ch, "ag-ask", "feishu_api")
 
 	select {
 	case result := <-resultCh:
@@ -105,8 +134,11 @@ func TestExecuteTool_ActionGuardRechecksToolBridgeMutatedArgs(t *testing.T) {
 	skillReg.SetToolBridge(bridge)
 	m := NewMaster(Config{ActionGuardEnabled: true}, config.HITLConfig{Enabled: false}, subagent.NewRegistry(logger), skillReg, store.NewMemoryStore(), logger)
 	m.mcpHost = host
+	session := newTestSession("ag-mutated")
+	session.SetAllowedTools([]string{"feishu_api"})
+	session.SetAllowedToolInputs(map[string]map[string]string{"feishu_api": {"action": "get_doc_content|read_sheet"}})
 
-	result := m.executeTool(context.Background(), newTestSession("ag-mutated"), "user-1", llm.ToolCall{
+	result := m.executeTool(context.Background(), session, "user-1", llm.ToolCall{
 		ID:        "ag-mutated-1",
 		Name:      "feishu_api",
 		Arguments: json.RawMessage(`{"action":"get_doc_content","doc_token":"doc"}`),
@@ -114,8 +146,8 @@ func TestExecuteTool_ActionGuardRechecksToolBridgeMutatedArgs(t *testing.T) {
 
 	require.True(t, result.IsError)
 	assert.False(t, called, "ToolBridge 插件改写成外发参数后必须被 ActionGuard 拦住")
-	assert.Contains(t, result.Content, "ActionGuard 拒绝")
-	assert.Contains(t, result.Content, "external_send")
+	assert.Contains(t, result.Content, "RouteDecision 拒绝")
+	assert.Contains(t, result.Content, "send_message")
 }
 
 func TestExecuteTool_StrictModeWithHITLDisabledFailsClosed(t *testing.T) {
@@ -209,5 +241,53 @@ func approvePermissionRequest(t *testing.T, m *Master, ch <-chan BroadcastMessag
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("未收到 ActionGuard 审批请求")
+	}
+}
+
+func assertActionGuardQualityEvent(t *testing.T, m *Master, wantStatus agentquality.FinalStatus, wantAction, wantReason, wantTool, wantToolCallID string) {
+	t.Helper()
+	deadline := time.After(2 * time.Second)
+	for {
+		select {
+		case entry := <-m.obsCh:
+			if entry.log == nil || entry.log.Attributes == nil {
+				continue
+			}
+			raw, ok := entry.log.Attributes["quality_event"].(json.RawMessage)
+			if !ok {
+				continue
+			}
+			var ev agentquality.Event
+			if err := json.Unmarshal(raw, &ev); err != nil {
+				t.Fatalf("decode quality event: %v", err)
+			}
+			if ev.Name != agentquality.EventPermissionDecision {
+				continue
+			}
+			if ev.FinalStatus != wantStatus {
+				t.Fatalf("FinalStatus = %q, want %q; event=%+v", ev.FinalStatus, wantStatus, ev)
+			}
+			if ev.Attributes["tool_name"] != wantTool {
+				t.Fatalf("tool_name = %v, want %q; attrs=%+v", ev.Attributes["tool_name"], wantTool, ev.Attributes)
+			}
+			if ev.Attributes["tool_call_id"] != wantToolCallID {
+				t.Fatalf("tool_call_id = %v, want %q; attrs=%+v", ev.Attributes["tool_call_id"], wantToolCallID, ev.Attributes)
+			}
+			if ev.Attributes["action"] != wantAction {
+				t.Fatalf("action = %v, want %q; attrs=%+v", ev.Attributes["action"], wantAction, ev.Attributes)
+			}
+			if ev.Attributes["reason"] != wantReason {
+				t.Fatalf("reason = %v, want %q; attrs=%+v", ev.Attributes["reason"], wantReason, ev.Attributes)
+			}
+			if ev.Attributes["source"] == "" {
+				t.Fatalf("source missing: attrs=%+v", ev.Attributes)
+			}
+			if _, ok := ev.Attributes["latency_ms"]; !ok {
+				t.Fatalf("latency_ms missing: attrs=%+v", ev.Attributes)
+			}
+			return
+		case <-deadline:
+			t.Fatal("未收到 ActionGuard permission quality event")
+		}
 	}
 }

@@ -75,6 +75,7 @@ const (
 	DefaultToolRecallMinScore           = 0.35
 	DefaultToolRecallSideEffectMinScore = 0.65
 	DefaultToolRecallLogCandidates      = true
+	DefaultMaxModelVisibleTools         = 8
 
 	// 首 token 快路径默认值。server 模式即使 DB 尚未种子新 key，也应默认启用快路径。
 	DefaultFirstTokenFastPathEnabled            = true

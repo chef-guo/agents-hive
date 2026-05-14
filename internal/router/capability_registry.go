@@ -465,21 +465,20 @@ func StructuredDangerousActions(toolName string) []string {
 	return names
 }
 
-// ProfileRequiresApproval reports whether a tool generally requires approval
-// before considering action-level constraints. Mixed read/write tools can have
-// safe read/send actions, so their dangerous actions are exposed separately.
+// ProfileRequiresApproval reports whether the unified policy needs human
+// attention for this profile before action-level runtime narrowing.
 func ProfileRequiresApproval(profile ToolProfile) bool {
 	if structuredDangerousTools[strings.TrimSpace(strings.ToLower(profile.Name))] {
 		return true
 	}
-	if IsMixedReadWriteTool(profile.Name) {
-		return false
-	}
-	return ProfileHasSideEffect(profile)
+	decision := EvaluateToolPolicy(profile, ToolPolicyContext{ForRoute: true})
+	return decision.RequiresApproval || decision.Action == ToolPolicyDeny
 }
 
 // ToolActionProfile specializes a mixed read/write tool profile using a
 // structured action/operation value when available.
+// Invariant: dangerous mixed operations return the original profile so
+// EvaluateToolPolicy can ask through the mixed policy instead of outer deny.
 func ToolActionProfile(profile ToolProfile, input json.RawMessage) ToolProfile {
 	if profile.Name == "" || !IsMixedReadWriteTool(profile.Name) {
 		return profile

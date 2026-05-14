@@ -426,7 +426,10 @@ func (m *Master) runReActLoop(
 
 		toolVisibilityStart := time.Now()
 		skillMetas := m.skillMetasForModel(userID)
-		modelVisibleTools, toolRecallObs := modelVisibleToolsForSessionWithRecallObservationAndSkillsAndIntent(session, availableTools, skillMetas, latestQuery, m.config.ToolRecall, turnIntent)
+		modelVisibleTools, toolRecallObs := modelVisibleToolsForSessionWithRecallObservationAndSkillsAndIntentWithOptions(session, availableTools, skillMetas, latestQuery, m.config.ToolRecall, turnIntent, toolVisibilityOptions{
+			FastPath:             m.config.FirstToken.FastPathEnabled,
+			MaxModelVisibleTools: m.config.MaxModelVisibleTools,
+		})
 		toolVisibilityMs := time.Since(toolVisibilityStart).Milliseconds()
 
 		llmRequestBuildStart := time.Now()
@@ -514,6 +517,8 @@ func (m *Master) runReActLoop(
 			zap.Int("messages_before", len(msgsCopy)),
 			zap.Int("messages_prepared", len(preparedMessages)),
 			zap.Int("tools_available", len(modelVisibleTools)),
+			zap.Int("tools_trimmed", toolRecallObs.VisibleTrimmedCount),
+			zap.Int("max_visible_tools", toolRecallObs.MaxVisibleTools),
 		)
 		if beforeModelErr != nil {
 			m.emitQualityEvent(sessionTraceID, sessionSpanID, session.ID, agentquality.Event{

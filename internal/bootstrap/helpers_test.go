@@ -95,6 +95,9 @@ func TestLoadAllConfigFromDB_FirstTokenDefaultsAndCanBeDisabled(t *testing.T) {
 	if cfg.Agent.FirstToken.PreflightClassifierTimeout != 300*time.Millisecond {
 		t.Fatalf("test precondition: timeout = %v, want 300ms", cfg.Agent.FirstToken.PreflightClassifierTimeout)
 	}
+	if cfg.Agent.MaxModelVisibleTools != 8 {
+		t.Fatalf("test precondition: max_model_visible_tools = %d, want 8", cfg.Agent.MaxModelVisibleTools)
+	}
 
 	LoadAllConfigFromDB(fakeConfigStore{cfg: map[string]string{
 		"agent.timeout": "10m",
@@ -106,10 +109,14 @@ func TestLoadAllConfigFromDB_FirstTokenDefaultsAndCanBeDisabled(t *testing.T) {
 	if cfg.Agent.FirstToken.PreflightClassifierTimeout != 300*time.Millisecond {
 		t.Fatalf("Agent.FirstToken.PreflightClassifierTimeout = %v, want missing DB key to preserve 300ms", cfg.Agent.FirstToken.PreflightClassifierTimeout)
 	}
+	if cfg.Agent.MaxModelVisibleTools != 8 {
+		t.Fatalf("Agent.MaxModelVisibleTools = %d, want missing DB key to preserve 8", cfg.Agent.MaxModelVisibleTools)
+	}
 
 	LoadAllConfigFromDB(fakeConfigStore{cfg: map[string]string{
 		"agent.first_token.fast_path_enabled":            "false",
 		"agent.first_token.preflight_classifier_timeout": "75ms",
+		"agent.max_model_visible_tools":                  "0",
 	}}, cfg, zap.NewNop())
 
 	if cfg.Agent.FirstToken.FastPathEnabled {
@@ -117,6 +124,9 @@ func TestLoadAllConfigFromDB_FirstTokenDefaultsAndCanBeDisabled(t *testing.T) {
 	}
 	if cfg.Agent.FirstToken.PreflightClassifierTimeout != 75*time.Millisecond {
 		t.Fatalf("Agent.FirstToken.PreflightClassifierTimeout = %v, want DB config 75ms", cfg.Agent.FirstToken.PreflightClassifierTimeout)
+	}
+	if cfg.Agent.MaxModelVisibleTools != 0 {
+		t.Fatalf("Agent.MaxModelVisibleTools = %d, want DB rollback config 0", cfg.Agent.MaxModelVisibleTools)
 	}
 }
 

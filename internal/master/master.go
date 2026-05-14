@@ -76,6 +76,7 @@ type Config struct {
 	ToolRecall                  config.ToolRecallConfig    // 每轮隐藏工具召回配置
 	FirstToken                  config.FirstTokenConfig    // 首 token 快路径配置
 	ActionGuardEnabled          bool                       // ActionGuard 防护开关
+	MaxModelVisibleTools        int                        // 首 token 快路径模型可见工具预算，0 表示回滚到旧行为
 	MaxSessionCost              float64                    // P0-3: per-session 成本预算上限（USD），<=0 表示不限制（需要 PostgreSQL 成本追踪启用）
 	SpecDriven                  config.SpecDrivenConfig    // Spec-driven Phase 2 总开关（默认 mode=legacy，零成本短路 session_loop intake hook）
 	PlanRuntime                 config.PlanRuntimeConfig   // session 级 plan/todos runtime 配置

@@ -58,7 +58,7 @@ func InferToolProfile(def mcphost.ToolDefinition, hint ProfileHint) ToolProfile 
 		applyBuiltinToolRule(&profile, nameLower)
 	case strings.Contains(nameLower, "__"):
 		if def.Trusted || strings.TrimSpace(def.SourceServer) != "" {
-			profile = TrustedMCPToolProfile(def, name, desc)
+			profile = TrustedRemoteToolProfile(def, name, desc)
 		} else {
 			profile = UnknownMCPToolProfile(name)
 		}

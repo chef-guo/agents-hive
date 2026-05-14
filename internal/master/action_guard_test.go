@@ -50,7 +50,7 @@ func TestActionGuardReadFileAllow(t *testing.T) {
 	}
 }
 
-func TestActionGuardExternalSendAsks(t *testing.T) {
+func TestActionGuardPlainTextIMSendAllow(t *testing.T) {
 	guard := newDeterministicActionGuard()
 
 	tests := []struct {
@@ -59,12 +59,35 @@ func TestActionGuardExternalSendAsks(t *testing.T) {
 		raw  string
 	}{
 		{name: "feishu send message", tool: "feishu_api", raw: `{"action":"send_message","content":"hi"}`},
+		{name: "send im message", tool: "send_im_message", raw: `{"platform":"feishu","content":"hi"}`},
+		{name: "im api send", tool: "im_api", raw: `{"action":"send_message","platform":"feishu","content":"hi"}`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			decision := guard.Decide(context.Background(), ActionGuardInput{
+				ToolName:  tt.tool,
+				Arguments: json.RawMessage(tt.raw),
+			})
+			if decision.Action != ActionGuardAllow {
+				t.Fatalf("decision = %q, want %q, full=%+v", decision.Action, ActionGuardAllow, decision)
+			}
+		})
+	}
+}
+
+func TestActionGuardExternalSendMediaAndUploadAsk(t *testing.T) {
+	guard := newDeterministicActionGuard()
+
+	tests := []struct {
+		name string
+		tool string
+		raw  string
+	}{
 		{name: "feishu send file", tool: "feishu_api", raw: `{"action":"send_file","file_key":"file"}`},
 		{name: "feishu send image", tool: "feishu_api", raw: `{"action":"send_image","image_key":"img"}`},
 		{name: "feishu upload file", tool: "feishu_api", raw: `{"action":"upload_file","data":"base64","filename":"a.txt"}`},
 		{name: "feishu upload image", tool: "feishu_api", raw: `{"action":"upload_image","data":"base64"}`},
-		{name: "send im message", tool: "send_im_message", raw: `{"platform":"feishu","content":"hi"}`},
-		{name: "im api send", tool: "im_api", raw: `{"action":"send_message","content":"hi"}`},
 	}
 
 	for _, tt := range tests {
@@ -110,7 +133,7 @@ func TestActionGuardConcurrencySafeCustomToolAllow(t *testing.T) {
 	}
 }
 
-func TestActionGuardTrustedMCPReadOnlyAllow(t *testing.T) {
+func TestActionGuardTrustedRemoteReadOnlyAllow(t *testing.T) {
 	guard := newDeterministicActionGuard()
 	def := mcphost.ToolDefinition{
 		Name:         "metamcp__query_prometheus",
@@ -129,7 +152,7 @@ func TestActionGuardTrustedMCPReadOnlyAllow(t *testing.T) {
 	}
 }
 
-func TestActionGuardTrustedMCPSideEffectAsk(t *testing.T) {
+func TestActionGuardTrustedRemoteSideEffectAsk(t *testing.T) {
 	guard := newDeterministicActionGuard()
 	def := mcphost.ToolDefinition{
 		Name:         "metamcp__create_annotation",
@@ -148,7 +171,7 @@ func TestActionGuardTrustedMCPSideEffectAsk(t *testing.T) {
 	}
 }
 
-func TestActionGuardTrustedMCPSQLWriteAsk(t *testing.T) {
+func TestActionGuardTrustedRemoteSQLWriteAsk(t *testing.T) {
 	guard := newDeterministicActionGuard()
 	def := mcphost.ToolDefinition{
 		Name:         "metamcp__dbhub__execute_sql",
@@ -167,7 +190,7 @@ func TestActionGuardTrustedMCPSQLWriteAsk(t *testing.T) {
 	}
 }
 
-func TestActionGuardTrustedMCPReadSQLAllow(t *testing.T) {
+func TestActionGuardTrustedRemoteReadSQLAllow(t *testing.T) {
 	guard := newDeterministicActionGuard()
 	def := mcphost.ToolDefinition{
 		Name:         "metamcp__dbhub__execute_sql",
@@ -186,7 +209,7 @@ func TestActionGuardTrustedMCPReadSQLAllow(t *testing.T) {
 	}
 }
 
-func TestActionGuardTrustedMCPArgumentScannerIgnoresNonActionSubstrings(t *testing.T) {
+func TestActionGuardTrustedRemoteArgumentScannerIgnoresNonActionSubstrings(t *testing.T) {
 	guard := newDeterministicActionGuard()
 	def := mcphost.ToolDefinition{
 		Name:         "metamcp__query_postgres_rows",
@@ -205,7 +228,7 @@ func TestActionGuardTrustedMCPArgumentScannerIgnoresNonActionSubstrings(t *testi
 	}
 }
 
-func TestActionGuardTrustedMCPActionFieldAsksForDangerousOperation(t *testing.T) {
+func TestActionGuardTrustedRemoteActionFieldAsksForDangerousOperation(t *testing.T) {
 	guard := newDeterministicActionGuard()
 	def := mcphost.ToolDefinition{
 		Name:         "metamcp__query_prometheus",
@@ -224,7 +247,7 @@ func TestActionGuardTrustedMCPActionFieldAsksForDangerousOperation(t *testing.T)
 	}
 }
 
-func TestActionGuardTrustedMCPDestructiveDeny(t *testing.T) {
+func TestActionGuardTrustedRemoteDestructiveDeny(t *testing.T) {
 	guard := newDeterministicActionGuard()
 	def := mcphost.ToolDefinition{
 		Name:         "metamcp__delete_dashboard",
@@ -252,6 +275,65 @@ func TestActionGuardMemoryDeleteAsk(t *testing.T) {
 	})
 	if decision.Action != ActionGuardAsk {
 		t.Fatalf("decision = %q, want %q, full=%+v", decision.Action, ActionGuardAsk, decision)
+	}
+}
+
+func TestActionGuardUnifiedPolicyForAllToolSources(t *testing.T) {
+	guard := newDeterministicActionGuard()
+	tests := []struct {
+		name string
+		def  mcphost.ToolDefinition
+		raw  json.RawMessage
+		want string
+	}{
+		{
+			name: "safe custom allow",
+			def:  mcphost.ToolDefinition{Name: "project_status", Description: "查询项目状态", IsConcurrencySafe: true},
+			raw:  json.RawMessage(`{"project":"agents-hive"}`),
+			want: ActionGuardAllow,
+		},
+		{
+			name: "unknown custom deny",
+			def:  mcphost.ToolDefinition{Name: "opaque_candidate", Description: "opaque extension"},
+			raw:  json.RawMessage(`{"x":true}`),
+			want: ActionGuardDeny,
+		},
+		{
+			name: "trusted remote read allow",
+			def:  mcphost.ToolDefinition{Name: "metamcp__query_prometheus", Description: "Query Prometheus metrics", SourceServer: "metamcp", Trusted: true},
+			raw:  json.RawMessage(`{"query":"up"}`),
+			want: ActionGuardAllow,
+		},
+		{
+			name: "trusted remote write ask",
+			def:  mcphost.ToolDefinition{Name: "metamcp__create_annotation", Description: "Create Grafana annotation", SourceServer: "metamcp", Trusted: true},
+			raw:  json.RawMessage(`{"text":"deploy started"}`),
+			want: ActionGuardAsk,
+		},
+		{
+			name: "destructive profile remains deny even with dangerous args",
+			def:  mcphost.ToolDefinition{Name: "metamcp__delete_dashboard", Description: "Delete Grafana dashboard", SourceServer: "metamcp", Trusted: true},
+			raw:  json.RawMessage(`{"action":"delete","uid":"abc"}`),
+			want: ActionGuardDeny,
+		},
+		{
+			name: "feishu upload asks through unified mixed policy",
+			def:  mcphost.ToolDefinition{Name: "feishu_api", Core: true, Description: "飞书应用 API 工具"},
+			raw:  json.RawMessage(`{"action":"upload_file","data":"base64","filename":"a.txt"}`),
+			want: ActionGuardAsk,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			decision := guard.Decide(context.Background(), ActionGuardInput{
+				ToolName:  tt.def.Name,
+				Arguments: tt.raw,
+				ToolDef:   &tt.def,
+			})
+			if decision.Action != tt.want {
+				t.Fatalf("decision = %q, want %q, full=%+v", decision.Action, tt.want, decision)
+			}
+		})
 	}
 }
 

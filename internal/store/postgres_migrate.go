@@ -976,7 +976,8 @@ ON CONFLICT (key) DO NOTHING;
 const pgSeedFirstTokenConfigs = `
 INSERT INTO configs (key, value) VALUES
   ('agent.first_token.fast_path_enabled',            'true'),
-  ('agent.first_token.preflight_classifier_timeout', '300ms')
+  ('agent.first_token.preflight_classifier_timeout', '300ms'),
+  ('agent.max_model_visible_tools',                  '8')
 ON CONFLICT (key) DO NOTHING;
 `
 

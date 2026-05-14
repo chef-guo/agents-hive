@@ -96,6 +96,115 @@ func TestModelVisibleTools_ReturnsStableOrderWithRecalledTool(t *testing.T) {
 	}
 }
 
+func TestModelVisibleTools_FastPathIgnoresCoreAndAppliesBudget(t *testing.T) {
+	session := &SessionState{ID: "s-fast-path-budget"}
+	catalog := []mcphost.ToolDefinition{
+		{Name: "write_file", Core: true},
+		{Name: "bash", Core: true},
+		{Name: "read_file", Core: true},
+		{Name: "grep", Core: true},
+		{Name: "glob", Core: true},
+		{Name: "tool_search", Core: true},
+		{Name: "question", Core: true},
+		{Name: "memory"},
+		{Name: "skill"},
+		{Name: "todo_write", Core: true},
+		{Name: "browser_interact", Core: true},
+	}
+
+	visible, obs := modelVisibleToolsForSessionWithRecallObservationAndSkillsAndIntentWithOptions(
+		session,
+		catalog,
+		nil,
+		"普通聊天",
+		config.DefaultToolRecallConfig(),
+		router.IntentFrame{Kind: router.IntentAnswer},
+		toolVisibilityOptions{FastPath: true, MaxModelVisibleTools: 8},
+	)
+
+	got := toolNamesForTest(visible)
+	want := []string{"glob", "grep", "memory", "question", "read_file", "skill", "tool_search"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("fast path visible tools = %v, want %v", got, want)
+	}
+	for _, name := range []string{"bash", "browser_interact", "todo_write", "write_file"} {
+		if hasTool(visible, name) {
+			t.Fatalf("fast path must ignore Core-only write/control tool %q, visible=%v", name, got)
+		}
+	}
+	if obs.VisibleBeforeCount != len(want) || obs.VisibleAfterCount != len(want) {
+		t.Fatalf("visible counts = %d/%d, want %d/%d", obs.VisibleBeforeCount, obs.VisibleAfterCount, len(want), len(want))
+	}
+	if obs.MaxVisibleTools != 8 {
+		t.Fatalf("MaxVisibleTools = %d, want 8", obs.MaxVisibleTools)
+	}
+}
+
+func TestModelVisibleTools_FastPathMaxVisibleToolsTrimsWithStablePriority(t *testing.T) {
+	session := &SessionState{ID: "s-fast-path-trim"}
+	catalog := []mcphost.ToolDefinition{
+		{Name: "websearch", Description: "网络搜索"},
+		{Name: "read_file", Core: true},
+		{Name: "grep", Core: true},
+		{Name: "glob", Core: true},
+		{Name: "tool_search", Core: true},
+		{Name: "question", Core: true},
+		{Name: "memory"},
+		{Name: "skill"},
+	}
+
+	visible, obs := modelVisibleToolsForSessionWithRecallObservationAndSkillsAndIntentWithOptions(
+		session,
+		catalog,
+		nil,
+		"网络搜索一下状态",
+		config.DefaultToolRecallConfig(),
+		router.IntentFrame{Kind: router.IntentRead},
+		toolVisibilityOptions{FastPath: true, MaxModelVisibleTools: 5},
+	)
+
+	got := toolNamesForTest(visible)
+	want := []string{"memory", "question", "skill", "tool_search", "websearch"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("trimmed visible tools = %v, want %v", got, want)
+	}
+	if obs.VisibleTrimmedCount != 3 {
+		t.Fatalf("VisibleTrimmedCount = %d, want 3", obs.VisibleTrimmedCount)
+	}
+	if obs.VisibleAfterCount > 5 {
+		t.Fatalf("VisibleAfterCount = %d, want <= 5", obs.VisibleAfterCount)
+	}
+	if !hasTool(visible, "tool_search") {
+		t.Fatalf("tool_search must survive trimming, visible=%v", got)
+	}
+}
+
+func TestModelVisibleTools_MaxVisibleToolsZeroRestoresCoreVisibility(t *testing.T) {
+	session := &SessionState{ID: "s-fast-path-rollback"}
+	catalog := []mcphost.ToolDefinition{
+		{Name: "bash", Core: true},
+		{Name: "read_file", Core: true},
+		{Name: "tool_search", Core: true},
+	}
+
+	visible, obs := modelVisibleToolsForSessionWithRecallObservationAndSkillsAndIntentWithOptions(
+		session,
+		catalog,
+		nil,
+		"普通聊天",
+		config.DefaultToolRecallConfig(),
+		router.IntentFrame{Kind: router.IntentAnswer},
+		toolVisibilityOptions{FastPath: true, MaxModelVisibleTools: 0},
+	)
+
+	if !hasTool(visible, "bash") {
+		t.Fatalf("max_model_visible_tools=0 should restore Core visibility, visible=%v", toolNamesForTest(visible))
+	}
+	if obs.VisibleTrimmedCount != 0 || obs.MaxVisibleTools != 0 {
+		t.Fatalf("rollback should not trim or report budget, obs=%+v", obs)
+	}
+}
+
 func TestModelVisibleTools_DefaultVisibleSetDoesNotExposeExecutionEntrypoints(t *testing.T) {
 	session := &SessionState{ID: "s-default-entrypoints"}
 	catalog := []mcphost.ToolDefinition{
@@ -184,7 +293,7 @@ func TestModelVisibleTools_DiscoveredReadOnlyToolEntersNextTurnCandidates(t *tes
 	}
 }
 
-func TestModelVisibleTools_TrustedMCPReadToolCanEnterCandidates(t *testing.T) {
+func TestModelVisibleTools_TrustedRemoteReadToolCanEnterCandidates(t *testing.T) {
 	session := &SessionState{ID: "s-trusted-mcp-read"}
 	session.RecordDiscoveredTools([]string{"metamcp__query_prometheus"})
 	catalog := []mcphost.ToolDefinition{
@@ -207,18 +316,18 @@ func TestModelVisibleTools_TrustedMCPReadToolCanEnterCandidates(t *testing.T) {
 	)
 
 	if !hasTool(visible, "metamcp__query_prometheus") {
-		t.Fatalf("trusted MCP read tool should be model-visible after discovery/recall: %v", toolNamesForTest(visible))
+		t.Fatalf("trusted remote read tool should be model-visible after discovery/recall: %v", toolNamesForTest(visible))
 	}
 	if !session.IsAllowedTool("metamcp__query_prometheus") {
-		t.Fatalf("trusted MCP read tool should be runtime-allowed, allowed=%v", session.AllowedToolsSnapshot())
+		t.Fatalf("trusted remote read tool should be runtime-allowed, allowed=%v", session.AllowedToolsSnapshot())
 	}
 	entry := obs.Entries["metamcp__query_prometheus"]
 	if !entry.TaskCallable || entry.MayRequireApproval || entry.DiscoveryOnly {
-		t.Fatalf("trusted MCP read admission should be callable without approval: %+v", entry)
+		t.Fatalf("trusted remote read admission should be callable without approval: %+v", entry)
 	}
 }
 
-func TestModelVisibleTools_TrustedMCPDangerousToolNeedsRouteBlock(t *testing.T) {
+func TestModelVisibleTools_TrustedRemoteDangerousToolNeedsRouteBlock(t *testing.T) {
 	session := &SessionState{ID: "s-trusted-mcp-danger"}
 	session.RecordDiscoveredTools([]string{"metamcp__delete_dashboard"})
 	catalog := []mcphost.ToolDefinition{
@@ -246,6 +355,32 @@ func TestModelVisibleTools_TrustedMCPDangerousToolNeedsRouteBlock(t *testing.T) 
 	entry := obs.Entries["metamcp__delete_dashboard"]
 	if !entry.MayRequireApproval || entry.TaskCallable {
 		t.Fatalf("trusted destructive MCP admission should require approval and not be task-callable: %+v", entry)
+	}
+}
+
+func TestAdmissionEntriesUseUnifiedPolicyForSafeTools(t *testing.T) {
+	session := &SessionState{ID: "s-unified-policy-admission"}
+	session.RecordDiscoveredTools([]string{"project_status", "metamcp__query_prometheus"})
+	catalog := []mcphost.ToolDefinition{
+		{Name: "tool_search", Core: true},
+		{Name: "project_status", Description: "查询项目状态", IsConcurrencySafe: true},
+		{Name: "metamcp__query_prometheus", Description: "Query Prometheus metrics", SourceServer: "metamcp", Trusted: true},
+	}
+
+	_, obs := modelVisibleToolsForSessionWithRecallObservationAndSkillsAndIntent(
+		session,
+		catalog,
+		nil,
+		"查询状态和 prometheus 指标",
+		config.DefaultToolRecallConfig(),
+		router.IntentFrame{Kind: router.IntentExternalRead, RequiresExternal: true},
+	)
+
+	for _, name := range []string{"project_status", "metamcp__query_prometheus"} {
+		entry := obs.Entries[name]
+		if !entry.TaskCallable || entry.MayRequireApproval || entry.DiscoveryOnly {
+			t.Fatalf("%s should be callable safe admission, got %+v", name, entry)
+		}
 	}
 }
 

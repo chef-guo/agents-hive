@@ -93,12 +93,13 @@ func handleToolSearch(host *mcphost.Host, raw json.RawMessage) (*mcphost.ToolRes
 	for _, recall := range recalls {
 		def := recall.Tool
 		profile := router.InferToolProfile(def, router.ProfileHint{})
-		kind, domain, source, invocation, routeStatus, callableNow, executionNote := inferToolSearchMetadata(profile, qLower)
+		policy := router.EvaluateToolPolicy(profile, toolSearchPolicyContext())
+		kind, domain, source, invocation, routeStatus, callableNow, executionNote := inferToolSearchMetadata(profile, policy, qLower)
 		hits = append(hits, toolSearchHit{
 			Name:                def.Name,
 			Description:         def.Description,
 			DangerLevel:         inferToolDangerLevel(profile),
-			RequiresApproval:    router.ProfileRequiresApproval(profile) && !def.IsConcurrencySafe,
+			RequiresApproval:    policy.RequiresApproval || policy.Action == router.ToolPolicyDeny,
 			DangerousActions:    router.StructuredDangerousActions(profile.Name),
 			ActionField:         router.MixedActionField(profile.Name),
 			ReadOnlyActions:     router.MixedReadOnlyActions(profile.Name),
@@ -146,39 +147,25 @@ func inferToolDangerLevel(profile router.ToolProfile) string {
 	return "unknown"
 }
 
-func inferToolSearchMetadata(profile router.ToolProfile, queryLower string) (kind, domain, source, invocation, routeStatus string, callableNow bool, executionNote string) {
+func toolSearchPolicyContext() router.ToolPolicyContext {
+	return router.ToolPolicyContext{
+		Intent:   router.IntentFrame{Kind: router.IntentRead},
+		ForRoute: true,
+	}
+}
+
+func inferToolSearchMetadata(profile router.ToolProfile, policy router.ToolPolicyDecision, queryLower string) (kind, domain, source, invocation, routeStatus string, callableNow bool, executionNote string) {
 	kind = string(profile.Kind)
 	domain = profile.Domain
 	source = string(profile.Source)
 	invocation = string(profile.Invocation)
-	routeStatus, callableNow = inferToolRouteStatus(profile)
+	routeStatus, callableNow = inferToolRouteStatus(policy)
 	executionNote = toolSearchExecutionNote(routeStatus, callableNow)
 	return kind, domain, source, invocation, routeStatus, callableNow, executionNote
 }
 
-func inferToolRouteStatus(profile router.ToolProfile) (string, bool) {
-	if profile.Name == "tool_search" || profile.Invocation == router.InvocationDiscoveryOnly {
-		return "discovery_only", false
-	}
-	if profile.OpenWorld || profile.Destructive || profile.Risk == router.RiskRuntimeExec || profile.Risk == router.RiskDestructive || profile.Risk == router.RiskUnknown {
-		return "blocked_dangerous", false
-	}
-	if router.IsMixedReadWriteTool(profile.Name) {
-		if len(router.MixedReadOnlyActions(profile.Name)) > 0 {
-			return "callable_with_action_constraints", true
-		}
-		return "requires_side_effect_intent", false
-	}
-	if profile.ReadOnly && !router.ProfileHasSideEffect(profile) && profile.Risk == router.RiskReadOnly {
-		return "callable_read_only", true
-	}
-	if profile.Invocation == router.InvocationSkillTool {
-		return "requires_matching_intent", false
-	}
-	if profile.Risk == router.RiskLocalWrite || profile.Risk == router.RiskExternalWrite {
-		return "requires_side_effect_intent", false
-	}
-	return "blocked_unknown", false
+func inferToolRouteStatus(policy router.ToolPolicyDecision) (string, bool) {
+	return string(policy.RouteStatus), policy.CallableNow
 }
 
 func toolSearchExecutionNote(routeStatus string, callableNow bool) string {

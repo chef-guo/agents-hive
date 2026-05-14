@@ -312,26 +312,27 @@ type SkillsConfig struct {
 
 // AgentConfig 配置 Agent 行为
 type AgentConfig struct {
-	Timeout             time.Duration             `json:"timeout"`
-	MaxConcurrentAgents int                       `json:"max_concurrent_agents"`
-	HealthInterval      time.Duration             `json:"health_interval"`
-	ShellTimeout        time.Duration             `json:"shell_timeout"`                   // Shell 命令执行超时，默认 10s
-	ScriptTimeout       time.Duration             `json:"script_timeout"`                  // 脚本执行超时，默认 30s
-	WSPingInterval      time.Duration             `json:"ws_ping_interval"`                // WebSocket ping 间隔，默认 30s
-	SyncInterval        time.Duration             `json:"sync_interval"`                   // 后台会话同步间隔，默认 5m
-	ContextCompression  CompactionConfig          `json:"context_compression,omitempty"`   // 上下文压缩配置
-	Skills              SkillsConfig              `json:"skills,omitempty"`                // 远程/本地 skill 配置
-	ToolPolicy          ToolPolicyConfig          `json:"tool_policy,omitempty"`           // 工具过滤策略配置
-	ToolRecall          ToolRecallConfig          `json:"tool_recall,omitempty"`           // 每轮隐藏工具召回配置
-	FirstToken          FirstTokenConfig          `json:"first_token,omitempty"`           // 首 token 快路径配置
-	ActionGuardEnabled  bool                      `json:"action_guard_enabled,omitempty"`  // ActionGuard 防护开关，默认启用
-	IMAPI               IMAPIConfig               `json:"im_api,omitempty"`                // 统一 IM 工具配置
-	MaxSessionCost      float64                   `json:"max_session_cost,omitempty"`      // per-session 成本预算上限（USD），<=0 不限制（需要 PostgreSQL 成本追踪启用）
-	QualityGuards       QualityGuardsConfig       `json:"quality_guards,omitempty"`        // 质量护栏灰度开关（见 docs/计划与路线/Agent-质量护栏治理计划.md）
-	PlanRuntime         PlanRuntimeConfig         `json:"plan_runtime,omitempty"`          // session 级 plan/todos runtime，默认开启；可显式配置关闭
-	Reflection          ReflectionConfig          `json:"reflection,omitempty"`            // 运行时反思 note，默认开启；shadow 能力默认关闭
-	ReasoningEffortAuto ReasoningEffortAutoConfig `json:"reasoning_effort_auto,omitempty"` // 推理努力级别自动分类，默认开启
-	Observability       ObservabilityConfig       `json:"observability,omitempty"`         // agent 运行时可观测配置
+	Timeout              time.Duration             `json:"timeout"`
+	MaxConcurrentAgents  int                       `json:"max_concurrent_agents"`
+	HealthInterval       time.Duration             `json:"health_interval"`
+	ShellTimeout         time.Duration             `json:"shell_timeout"`                     // Shell 命令执行超时，默认 10s
+	ScriptTimeout        time.Duration             `json:"script_timeout"`                    // 脚本执行超时，默认 30s
+	WSPingInterval       time.Duration             `json:"ws_ping_interval"`                  // WebSocket ping 间隔，默认 30s
+	SyncInterval         time.Duration             `json:"sync_interval"`                     // 后台会话同步间隔，默认 5m
+	ContextCompression   CompactionConfig          `json:"context_compression,omitempty"`     // 上下文压缩配置
+	Skills               SkillsConfig              `json:"skills,omitempty"`                  // 远程/本地 skill 配置
+	ToolPolicy           ToolPolicyConfig          `json:"tool_policy,omitempty"`             // 工具过滤策略配置
+	ToolRecall           ToolRecallConfig          `json:"tool_recall,omitempty"`             // 每轮隐藏工具召回配置
+	MaxModelVisibleTools int                       `json:"max_model_visible_tools,omitempty"` // 首 token 快路径模型可见工具预算，0 表示回滚到旧行为
+	FirstToken           FirstTokenConfig          `json:"first_token,omitempty"`             // 首 token 快路径配置
+	ActionGuardEnabled   bool                      `json:"action_guard_enabled,omitempty"`    // ActionGuard 防护开关，默认启用
+	IMAPI                IMAPIConfig               `json:"im_api,omitempty"`                  // 统一 IM 工具配置
+	MaxSessionCost       float64                   `json:"max_session_cost,omitempty"`        // per-session 成本预算上限（USD），<=0 不限制（需要 PostgreSQL 成本追踪启用）
+	QualityGuards        QualityGuardsConfig       `json:"quality_guards,omitempty"`          // 质量护栏灰度开关（见 docs/计划与路线/Agent-质量护栏治理计划.md）
+	PlanRuntime          PlanRuntimeConfig         `json:"plan_runtime,omitempty"`            // session 级 plan/todos runtime，默认开启；可显式配置关闭
+	Reflection           ReflectionConfig          `json:"reflection,omitempty"`              // 运行时反思 note，默认开启；shadow 能力默认关闭
+	ReasoningEffortAuto  ReasoningEffortAutoConfig `json:"reasoning_effort_auto,omitempty"`   // 推理努力级别自动分类，默认开启
+	Observability        ObservabilityConfig       `json:"observability,omitempty"`           // agent 运行时可观测配置
 }
 
 // FirstTokenConfig 控制首 token 关键路径上的低延迟策略。
@@ -467,10 +468,11 @@ func Default() *Config {
 		},
 		SpecDriven: DefaultSpecDrivenConfig,
 		Agent: AgentConfig{
-			ToolRecall:         DefaultToolRecallConfigValue,
-			FirstToken:         DefaultFirstTokenConfig,
-			ActionGuardEnabled: DefaultActionGuardEnabled,
-			IMAPI:              DefaultIMAPIConfig,
+			ToolRecall:           DefaultToolRecallConfigValue,
+			MaxModelVisibleTools: DefaultMaxModelVisibleTools,
+			FirstToken:           DefaultFirstTokenConfig,
+			ActionGuardEnabled:   DefaultActionGuardEnabled,
+			IMAPI:                DefaultIMAPIConfig,
 			PlanRuntime: PlanRuntimeConfig{
 				Enabled: true,
 			},
@@ -525,9 +527,10 @@ func (c *Config) CLIDefaults() {
 			PipelineStages:      DefaultCompactionPipelineStages,
 			ToolOutputMaxTokens: DefaultCompactionToolOutputMaxTokens,
 		},
-		IMAPI:              DefaultIMAPIConfig,
-		FirstToken:         DefaultFirstTokenConfig,
-		ActionGuardEnabled: DefaultActionGuardEnabled,
+		IMAPI:                DefaultIMAPIConfig,
+		MaxModelVisibleTools: DefaultMaxModelVisibleTools,
+		FirstToken:           DefaultFirstTokenConfig,
+		ActionGuardEnabled:   DefaultActionGuardEnabled,
 		PlanRuntime: PlanRuntimeConfig{
 			Enabled: true,
 		},
@@ -571,6 +574,7 @@ func (c *Config) CLIDefaults() {
 	c.CustomToolsDir = DefaultCustomToolsDir
 	c.Agent.ToolPolicy = DefaultToolPolicyConfig
 	c.Agent.ToolRecall = DefaultToolRecallConfigValue
+	c.Agent.MaxModelVisibleTools = DefaultMaxModelVisibleTools
 	c.Agent.ActionGuardEnabled = DefaultActionGuardEnabled
 	c.SessionsDir = DefaultSessionsDir
 	c.SpecDriven = DefaultSpecDrivenConfig

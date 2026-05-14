@@ -45,7 +45,7 @@ type ActionGuard interface {
 
 type deterministicActionGuard struct{}
 
-var trustedMCPUnsafeSQLPattern = regexp.MustCompile(`(?i)\b(insert|update|delete|drop|truncate|alter|create|replace|merge|grant|revoke|vacuum|copy|call|exec|execute)\b`)
+var unsafeSQLPattern = regexp.MustCompile(`(?i)\b(insert|update|delete|drop|truncate|alter|create|replace|merge|grant|revoke|vacuum|copy|call|exec|execute)\b`)
 
 func newDeterministicActionGuard() ActionGuard {
 	return deterministicActionGuard{}
@@ -61,36 +61,34 @@ func (deterministicActionGuard) Decide(_ context.Context, input ActionGuardInput
 		return decideShellAction(input)
 	}
 
-	if isExternalSendAction(toolName, input.Arguments) {
-		return actionGuardDecision(ActionGuardAsk, "external_send", "policy", "")
-	}
-
-	if router.StructuredDangerousOperation(toolName, input.Arguments) {
-		return actionGuardDecision(ActionGuardAsk, "structured_dangerous_operation", "policy", "")
-	}
-
 	if input.ToolDef != nil {
 		profile := router.InferToolProfile(*input.ToolDef, router.ProfileHint{})
-		if profile.Kind == router.CapabilityKindMCPTool && profile.Trust == router.TrustTrusted {
-			if trustedMCPArgumentsRequireApproval(input.Arguments) {
-				return actionGuardDecision(ActionGuardAsk, "trusted_mcp_argument_side_effect", "policy", "")
-			}
-			if profile.ReadOnly && !router.ProfileHasSideEffect(profile) {
-				return actionGuardDecision(ActionGuardAllow, "trusted_mcp_read_only", "policy", "")
-			}
-			if profile.OpenWorld || profile.Destructive || profile.Risk == router.RiskRuntimeExec || profile.Risk == router.RiskDestructive {
-				return actionGuardDecision(ActionGuardDeny, "trusted_mcp_dangerous", "policy", "")
-			}
-			return actionGuardDecision(ActionGuardAsk, "trusted_mcp_side_effect", "policy", "")
+		policy := router.EvaluateToolPolicy(profile, router.ToolPolicyContext{
+			Input:     input.Arguments,
+			ForAction: true,
+		})
+		if policy.Action == router.ToolPolicyDeny {
+			return actionGuardDecision(ActionGuardDeny, policy.Reason, "tool_policy", "")
 		}
-		if profile.ReadOnly && !router.ProfileHasSideEffect(profile) {
-			return actionGuardDecision(ActionGuardAllow, "profile_read_only", "policy", "")
+		if isPlainTextIMSendAction(toolName, input.Arguments) {
+			return actionGuardDecision(ActionGuardAllow, "plain_text_im_send", "tool_policy", "")
 		}
-		if profile.Risk == router.RiskUnknown {
-			return actionGuardDecision(ActionGuardDeny, "unknown_tool", "policy", "")
+		if externalSendActionRequiresApproval(toolName, input.Arguments) {
+			return actionGuardDecision(ActionGuardAsk, "external_send", "tool_policy", "")
 		}
-		if profile.OpenWorld || profile.Destructive || profile.Risk == router.RiskRuntimeExec || profile.Risk == router.RiskDestructive || profile.Risk == router.RiskUnknown {
-			return actionGuardDecision(ActionGuardDeny, "profile_dangerous_or_unknown", "policy", "")
+		if toolArgumentsRequireApproval(input.Arguments) {
+			return actionGuardDecision(ActionGuardAsk, "argument_side_effect", "tool_policy", "")
+		}
+		if router.StructuredDangerousOperation(toolName, input.Arguments) {
+			return actionGuardDecision(ActionGuardAsk, "structured_dangerous_operation", "tool_policy", "")
+		}
+		switch policy.Action {
+		case router.ToolPolicyAllow:
+			return actionGuardDecision(ActionGuardAllow, policy.Reason, "tool_policy", "")
+		case router.ToolPolicyAsk:
+			return actionGuardDecision(ActionGuardAsk, policy.Reason, "tool_policy", "")
+		default:
+			return actionGuardDecision(ActionGuardDeny, policy.Reason, "tool_policy", "")
 		}
 	}
 
@@ -99,15 +97,33 @@ func (deterministicActionGuard) Decide(_ context.Context, input ActionGuardInput
 		return actionGuardDecision(ActionGuardDeny, "unknown_tool", "policy", "")
 	}
 
-	if profile.ReadOnly && !router.ProfileHasSideEffect(profile) {
-		return actionGuardDecision(ActionGuardAllow, "builtin_read_only", "policy", "")
+	policy := router.EvaluateToolPolicy(profile, router.ToolPolicyContext{
+		Input:     input.Arguments,
+		ForAction: true,
+	})
+	if policy.Action == router.ToolPolicyDeny {
+		return actionGuardDecision(ActionGuardDeny, policy.Reason, "tool_policy", "")
 	}
-
-	if profile.OpenWorld || profile.Destructive {
-		return actionGuardDecision(ActionGuardDeny, "builtin_open_world_or_destructive", "policy", "")
+	if isPlainTextIMSendAction(toolName, input.Arguments) {
+		return actionGuardDecision(ActionGuardAllow, "plain_text_im_send", "tool_policy", "")
 	}
-
-	return actionGuardDecision(ActionGuardAllow, "builtin_local_side_effect", "policy", "")
+	if externalSendActionRequiresApproval(toolName, input.Arguments) {
+		return actionGuardDecision(ActionGuardAsk, "external_send", "tool_policy", "")
+	}
+	if toolArgumentsRequireApproval(input.Arguments) {
+		return actionGuardDecision(ActionGuardAsk, "argument_side_effect", "tool_policy", "")
+	}
+	if router.StructuredDangerousOperation(toolName, input.Arguments) {
+		return actionGuardDecision(ActionGuardAsk, "structured_dangerous_operation", "tool_policy", "")
+	}
+	switch policy.Action {
+	case router.ToolPolicyAllow:
+		return actionGuardDecision(ActionGuardAllow, policy.Reason, "tool_policy", "")
+	case router.ToolPolicyAsk:
+		return actionGuardDecision(ActionGuardAsk, policy.Reason, "tool_policy", "")
+	default:
+		return actionGuardDecision(ActionGuardDeny, policy.Reason, "tool_policy", "")
+	}
 }
 
 func decideShellAction(input ActionGuardInput) ActionGuardDecision {
@@ -132,7 +148,7 @@ func decideShellAction(input ActionGuardInput) ActionGuardDecision {
 	}
 }
 
-func trustedMCPArgumentsRequireApproval(input json.RawMessage) bool {
+func toolArgumentsRequireApproval(input json.RawMessage) bool {
 	if len(input) == 0 {
 		return false
 	}
@@ -140,21 +156,21 @@ func trustedMCPArgumentsRequireApproval(input json.RawMessage) bool {
 	if err := json.Unmarshal(input, &payload); err != nil {
 		return false
 	}
-	return trustedMCPValueRequiresApproval("", payload)
+	return toolValueRequiresApproval("", payload)
 }
 
-func trustedMCPValueRequiresApproval(key string, value any) bool {
+func toolValueRequiresApproval(key string, value any) bool {
 	keyLower := strings.ToLower(strings.TrimSpace(key))
 	switch v := value.(type) {
 	case map[string]any:
 		for k, child := range v {
-			if trustedMCPValueRequiresApproval(k, child) {
+			if toolValueRequiresApproval(k, child) {
 				return true
 			}
 		}
 	case []any:
 		for _, child := range v {
-			if trustedMCPValueRequiresApproval(keyLower, child) {
+			if toolValueRequiresApproval(keyLower, child) {
 				return true
 			}
 		}
@@ -164,17 +180,17 @@ func trustedMCPValueRequiresApproval(key string, value any) bool {
 			return false
 		}
 		if keyLower == "sql" || strings.Contains(keyLower, "query") || strings.Contains(keyLower, "statement") {
-			return trustedMCPUnsafeSQLPattern.MatchString(text)
+			return unsafeSQLPattern.MatchString(text)
 		}
-		if trustedMCPActionKeyRequiresApproval(keyLower) {
+		if toolActionKeyRequiresApproval(keyLower) {
 			action := strings.ToLower(text)
-			return router.StructuredDangerousAction("trusted_mcp", action) || trustedMCPActionLooksDangerous(action)
+			return router.StructuredDangerousAction("tool_policy", action) || toolActionLooksDangerous(action)
 		}
 	}
 	return false
 }
 
-func trustedMCPActionKeyRequiresApproval(key string) bool {
+func toolActionKeyRequiresApproval(key string) bool {
 	switch key {
 	case "action", "operation", "op", "command", "cmd", "method", "mutation":
 		return true
@@ -183,7 +199,7 @@ func trustedMCPActionKeyRequiresApproval(key string) bool {
 	}
 }
 
-func trustedMCPActionLooksDangerous(action string) bool {
+func toolActionLooksDangerous(action string) bool {
 	tokens := strings.FieldsFunc(strings.ToLower(action), func(r rune) bool {
 		return (r < 'a' || r > 'z') && (r < '0' || r > '9')
 	})
@@ -199,18 +215,54 @@ func trustedMCPActionLooksDangerous(action string) bool {
 	return false
 }
 
-func isExternalSendAction(toolName string, input json.RawMessage) bool {
+func isPlainTextIMSendAction(toolName string, input json.RawMessage) bool {
 	switch toolName {
 	case "send_im_message":
-		return true
+		return hasPlainTextIMSendContent(input)
 	case "feishu_api":
-		action := actionGuardStructuredAction(input)
-		return action == "send_message" || action == "send_file" || action == "send_image" || action == "upload_file" || action == "upload_image"
+		return actionGuardStructuredAction(input) == "send_message" && hasPlainTextIMSendContent(input)
 	case "im_api":
-		return actionGuardStructuredAction(input) == "send_message"
+		return actionGuardStructuredAction(input) == "send_message" && hasPlainTextIMSendContent(input)
 	default:
 		return false
 	}
+}
+
+func externalSendActionRequiresApproval(toolName string, input json.RawMessage) bool {
+	switch toolName {
+	case "send_im_message":
+		return !hasPlainTextIMSendContent(input)
+	case "feishu_api":
+		action := actionGuardStructuredAction(input)
+		switch action {
+		case "send_message":
+			return !hasPlainTextIMSendContent(input)
+		case "send_file", "send_image", "upload_file", "upload_image":
+			return true
+		default:
+			return false
+		}
+	case "im_api":
+		return actionGuardStructuredAction(input) == "send_message" && !hasPlainTextIMSendContent(input)
+	default:
+		return false
+	}
+}
+
+func hasPlainTextIMSendContent(input json.RawMessage) bool {
+	if len(input) == 0 {
+		return false
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(input, &payload); err != nil {
+		return false
+	}
+	for _, key := range []string{"content", "text", "message"} {
+		if value, ok := payload[key].(string); ok && strings.TrimSpace(value) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func actionGuardStructuredAction(input json.RawMessage) string {

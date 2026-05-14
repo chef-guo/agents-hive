@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -361,5 +362,134 @@ func assertIMAPIAuditLogDoesNotContain(t *testing.T, entry observer.LoggedEntry,
 		if strings.Contains(field.String, raw) {
 			t.Fatalf("audit field %q leaked raw identifier %q", field.Key, raw)
 		}
+	}
+}
+
+// TestIMAPI_AuditDoesNotLeakPII 是 G8 grep gate：遍历所有 action 路径与已知 PII 模式，
+// 任意 audit 字段值（含 message）出现 raw recipient/conversation/content/query/phone/
+// email/wxid/open_id 哨兵字符串即视为 PII 泄漏。新增 audit 字段时必须先确保不会触发
+// 黑名单，否则审计日志会暴露平台 raw ID 或用户内容。
+func TestIMAPI_AuditDoesNotLeakPII(t *testing.T) {
+	const (
+		piiOpenID         = "ou_pii_leak_canary_zzz"
+		piiChatID         = "oc_pii_leak_canary_zzz"
+		piiWxid           = "wxid_pii_leak_canary_zzz"
+		piiFeishuUserID   = "afde2a69-pii-leak-canary"
+		piiPhone          = "+8613800138000"
+		piiPhoneLocal     = "13800138000"
+		piiEmail          = "leak.canary@example.com"
+		piiSensitiveText  = "极其敏感的消息内容PII泄漏哨兵 with phone +8613800138000 and email leak.canary@example.com"
+		piiSensitiveQuery = "敏感查询关键字PII哨兵 wxid_pii_leak_canary_zzz"
+	)
+	piiBlacklist := []string{
+		piiOpenID, piiChatID, piiWxid, piiFeishuUserID,
+		piiPhone, piiPhoneLocal, piiEmail,
+		piiSensitiveText, piiSensitiveQuery,
+	}
+
+	authedCtx := auth.WithUser(context.Background(), &auth.User{ID: "alice", Role: "user", Status: "active"})
+
+	cases := []struct {
+		name    string
+		ctx     context.Context
+		input   map[string]any
+		wantErr bool
+	}{
+		{
+			name: "search_recipients",
+			ctx:  context.Background(),
+			input: map[string]any{
+				"action":   "search_recipients",
+				"platform": "feishu",
+				"query":    piiSensitiveQuery,
+			},
+		},
+		{
+			name: "list_recent_conversations",
+			ctx:  authedCtx,
+			input: map[string]any{
+				"action":   "list_recent_conversations",
+				"platform": "wechatbot",
+			},
+		},
+		{
+			name: "resolve_recipient",
+			ctx:  context.Background(),
+			input: map[string]any{
+				"action":       "resolve_recipient",
+				"platform":     "feishu",
+				"recipient_id": piiOpenID,
+			},
+		},
+		{
+			name: "send_message_recipient",
+			ctx:  context.Background(),
+			input: map[string]any{
+				"action":       "send_message",
+				"platform":     "feishu",
+				"recipient_id": piiOpenID,
+				"content":      piiSensitiveText,
+				"dry_run":      true,
+			},
+		},
+		{
+			name: "send_message_conversation",
+			ctx:  authedCtx,
+			input: map[string]any{
+				"action":          "send_message",
+				"platform":        "wechatbot",
+				"conversation_id": piiChatID,
+				"content":         piiSensitiveText,
+				"dry_run":         true,
+			},
+		},
+		{
+			name: "send_message_unconfigured_platform_error_path",
+			ctx:  context.Background(),
+			input: map[string]any{
+				"action":       "send_message",
+				"platform":     "dingtalk",
+				"recipient_id": piiFeishuUserID,
+				"content":      piiSensitiveText,
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			core, logs := observer.New(zapcore.DebugLevel)
+			logger := zap.New(core)
+			host := newIMAPITestHostWithLogger(logger,
+				&fakeIMAdapter{platform: imcore.PlatformFeishu},
+				&fakeIMAdapter{platform: imcore.PlatformWeChatBot},
+			)
+
+			result := executeIMAPITestTool(t, host, tc.ctx, tc.input)
+			if tc.wantErr && !result.IsError {
+				t.Fatalf("预期失败但成功: %s", result.DecodeContent())
+			}
+			if !tc.wantErr && result.IsError {
+				t.Fatalf("预期成功但失败: %s", result.DecodeContent())
+			}
+
+			entry := requireIMAPIAuditLog(t, logs)
+			for _, pii := range piiBlacklist {
+				if strings.Contains(entry.Entry.Message, pii) {
+					t.Fatalf("audit message leaked PII canary %q in %q", pii, entry.Entry.Message)
+				}
+				for _, field := range entry.Context {
+					values := []string{field.String}
+					if field.Interface != nil {
+						values = append(values, fmt.Sprintf("%v", field.Interface))
+					}
+					for _, v := range values {
+						if v != "" && strings.Contains(v, pii) {
+							t.Fatalf("audit field %q leaked PII canary %q (value=%q)", field.Key, pii, v)
+						}
+					}
+				}
+			}
+		})
 	}
 }
