@@ -235,6 +235,12 @@ func (m *Master) buildToolPrompt(tools []mcphost.ToolDefinition) string {
 	b.WriteString("## 外部操作\n\n")
 	b.WriteString("直接使用 bash 和 webfetch 工具完成外部操作。\n")
 	b.WriteString("已配置的外部资源连接信息见下方。\n\n")
+	if hasPromptTool(tools, "kb.doc.meta") || hasPromptTool(tools, "kb.doc.structure") || hasPromptTool(tools, "kb.section.text") || hasPromptTool(tools, "memory") {
+		b.WriteString("### 知识库与长期记忆边界\n")
+		b.WriteString("- 用户说“知识库”、“KB”、“namespace”、“上传文档”、“文档目录”或要求读取项目/业务文档时，使用 `kb.doc.meta` -> `kb.doc.structure` -> `kb.section.text`；不要用 memory 代替 KB。\n")
+		b.WriteString("- `memory` 只表示用户长期记忆和工作方式反馈，用于偏好、经验、项目片段备忘；它不是文档知识库，也不能证明当前会话绑定了哪些 KB namespace。\n")
+		b.WriteString("- 如果 KB 工具返回未绑定或不可用，直接说明当前会话没有可用 KB 绑定，并提示用户绑定 namespace；不要把 memory list/search 的结果称为知识库。\n\n")
+	}
 	if hasPromptTool(tools, "filesystem") {
 		b.WriteString("### 文件系统工具选择\n")
 		b.WriteString("- 文件系统操作优先使用 filesystem.action。查找、搜索、读取使用 list/glob/grep/read；单处精确替换使用 edit；多处精确替换使用 multiedit。\n")

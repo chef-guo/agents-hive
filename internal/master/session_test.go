@@ -70,6 +70,47 @@ func TestShouldRecordMemoryInjectionIncludesFilteredOnly(t *testing.T) {
 	}))
 }
 
+func TestMemoryRuntimeContextUsesSessionKBDomainAndOwner(t *testing.T) {
+	session := &SessionState{ID: "s-memory-domain", UserID: "session-user"}
+	session.SetKBDomainID("support")
+
+	ctx := (&Master{}).memoryRuntimeContext(context.Background(), session, "react")
+	rctx := memory.RuntimeContextFromContext(ctx)
+
+	assert.Equal(t, "session-user", rctx.UserID)
+	assert.Equal(t, "s-memory-domain", rctx.SessionID)
+	assert.Equal(t, "support", rctx.DomainID)
+	assert.Equal(t, "master", rctx.AgentName)
+	assert.Equal(t, "react", rctx.SourceName)
+}
+
+func TestMemoryRuntimeContextFallsBackToRouteDomain(t *testing.T) {
+	session := &SessionState{ID: "s-memory-route", UserID: "session-user"}
+	session.SetRouteDecision(router.RouteDecision{
+		Intent: router.IntentFrame{DomainID: "customer_service"},
+	})
+
+	ctx := (&Master{}).memoryRuntimeContext(context.Background(), session, "react")
+	rctx := memory.RuntimeContextFromContext(ctx)
+
+	assert.Equal(t, "session-user", rctx.UserID)
+	assert.Equal(t, "customer_service", rctx.DomainID)
+}
+
+func TestMemoryRuntimeContextPrefersExplicitKBDomainOverRouteDomain(t *testing.T) {
+	session := &SessionState{ID: "s-memory-explicit", UserID: "session-user"}
+	session.SetRouteDecision(router.RouteDecision{
+		Intent: router.IntentFrame{DomainID: "generic"},
+	})
+	session.SetKBDomainID("support")
+
+	ctx := (&Master{}).memoryRuntimeContext(context.Background(), session, "react")
+	rctx := memory.RuntimeContextFromContext(ctx)
+
+	assert.Equal(t, "session-user", rctx.UserID)
+	assert.Equal(t, "support", rctx.DomainID)
+}
+
 func TestSessionReflectionBlockLRUAndFailureKindFilter(t *testing.T) {
 	session := &SessionState{ID: "s-reflection"}
 

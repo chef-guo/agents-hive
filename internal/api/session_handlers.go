@@ -992,9 +992,14 @@ func (s *Server) handleRegenerateMessage(w http.ResponseWriter, r *http.Request)
 		})
 		return
 	}
+	s.logger.Info("重新生成请求进入",
+		zap.String("session_id", sessionID))
 
 	sess, err := s.master.GetSessionByID(r.Context(), sessionID)
 	if err != nil {
+		s.logger.Warn("重新生成失败：会话不存在或无权访问",
+			zap.String("session_id", sessionID),
+			zap.Error(err))
 		writeJSON(w, http.StatusNotFound, ErrorResponse{Error: "会话不存在或无权访问", Code: errs.CodeNotFound})
 		return
 	}
@@ -1005,6 +1010,9 @@ func (s *Server) handleRegenerateMessage(w http.ResponseWriter, r *http.Request)
 	// 获取 session 消息列表，找到最后一条用户消息
 	messages, err := s.master.GetSessionMessages(r.Context(), sessionID, 0)
 	if err != nil {
+		s.logger.Warn("重新生成失败：获取消息失败",
+			zap.String("session_id", sessionID),
+			zap.Error(err))
 		writeJSON(w, http.StatusInternalServerError, ErrorResponse{
 			Error: "获取消息失败: " + err.Error(),
 			Code:  errs.CodeInternal,
@@ -1023,12 +1031,19 @@ func (s *Server) handleRegenerateMessage(w http.ResponseWriter, r *http.Request)
 	}
 
 	if lastUserIdx < 0 {
+		s.logger.Warn("重新生成失败：未找到用户消息",
+			zap.String("session_id", sessionID),
+			zap.Int("message_count", len(messages)))
 		writeJSON(w, http.StatusBadRequest, ErrorResponse{
 			Error: "未找到用户消息",
 			Code:  errs.CodeBadRequest,
 		})
 		return
 	}
+	s.logger.Info("重新生成定位到最后一条用户消息",
+		zap.String("session_id", sessionID),
+		zap.Int("message_count", len(messages)),
+		zap.Int("last_user_index", lastUserIdx))
 
 	// 回滚 session 到最后一条用户消息之后（保留用户消息，只删除 AI 回复）
 	revertCtx, revertCancel := context.WithTimeout(r.Context(), 30*time.Second)
@@ -1040,6 +1055,9 @@ func (s *Server) handleRegenerateMessage(w http.ResponseWriter, r *http.Request)
 		Args:      []string{fmt.Sprintf("%d", lastUserIdx+1)},
 	})
 	if err != nil {
+		s.logger.Warn("重新生成失败：内存会话回滚超时",
+			zap.String("session_id", sessionID),
+			zap.Error(err))
 		writeJSON(w, http.StatusRequestTimeout, ErrorResponse{
 			Error: "回滚超时",
 			Code:  errs.CodeTimeout,
@@ -1047,6 +1065,9 @@ func (s *Server) handleRegenerateMessage(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if revertResp.Error != "" {
+		s.logger.Warn("重新生成失败：内存会话回滚失败",
+			zap.String("session_id", sessionID),
+			zap.String("error", revertResp.Error))
 		writeJSON(w, http.StatusInternalServerError, ErrorResponse{
 			Error: revertResp.Error,
 			Code:  errs.CodeInternal,
@@ -1060,11 +1081,21 @@ func (s *Server) handleRegenerateMessage(w http.ResponseWriter, r *http.Request)
 			zap.String("session_id", sessionID),
 			zap.Error(err))
 	}
+	s.logger.Info("重新生成回滚完成",
+		zap.String("session_id", sessionID),
+		zap.Int("revert_to", lastUserIdx+1),
+		zap.Int("removed", len(messages)-lastUserIdx-1))
 
 	// 重新处理该用户消息（流式响应通过 WebSocket 发送）
 	// WithSkipUserMessage：用户消息已保留在 DB/内存，跳过重复写入，避免 timestamp 不一致
+	s.logger.Info("重新生成开始调用 Agent",
+		zap.String("session_id", sessionID),
+		zap.Int("content_len", len(lastUserContent)))
 	resp, err := s.master.ProcessMessageWithOptions(r.Context(), sessionID, lastUserContent, master.WithSkipUserMessage())
 	if err != nil {
+		s.logger.Warn("重新生成失败：Agent 调用超时或中断",
+			zap.String("session_id", sessionID),
+			zap.Error(err))
 		writeJSON(w, http.StatusRequestTimeout, ErrorResponse{
 			Error: "请求超时: " + err.Error(),
 			Code:  errs.CodeTimeout,
@@ -1073,12 +1104,19 @@ func (s *Server) handleRegenerateMessage(w http.ResponseWriter, r *http.Request)
 	}
 
 	if resp.Error != "" {
+		s.logger.Warn("重新生成失败：Agent 返回错误",
+			zap.String("session_id", sessionID),
+			zap.String("error", resp.Error))
 		writeJSON(w, http.StatusInternalServerError, ErrorResponse{
 			Error: resp.Error,
 			Code:  errs.CodeInternal,
 		})
 		return
 	}
+	s.logger.Info("重新生成完成",
+		zap.String("session_id", sessionID),
+		zap.Bool("completed", resp.Completed),
+		zap.Int("content_len", len(resp.Content)))
 
 	writeJSON(w, http.StatusOK, SendMessageResponse{
 		Content:   resp.Content,

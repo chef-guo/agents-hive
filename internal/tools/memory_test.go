@@ -3,10 +3,13 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/chef-guo/agents-hive/internal/auth"
+	"github.com/chef-guo/agents-hive/internal/mcphost"
 	"github.com/chef-guo/agents-hive/internal/memory"
+	"go.uber.org/zap"
 )
 
 func TestMemorySaveWritesGovernanceMetadata(t *testing.T) {
@@ -55,6 +58,22 @@ func TestMemorySaveWritesGovernanceMetadata(t *testing.T) {
 	}
 	if body.Governance["source"] != "memory_tool" {
 		t.Fatalf("result governance = %+v", body.Governance)
+	}
+}
+
+func TestMemoryToolDescriptionSeparatesKnowledgeBase(t *testing.T) {
+	logger := zap.NewNop()
+	host := mcphost.NewHost(logger)
+	registerMemory(host, logger, nil)
+
+	def, err := host.GetTool("memory")
+	if err != nil {
+		t.Fatalf("GetTool(memory): %v", err)
+	}
+	for _, want := range []string{"不是项目知识库", "kb.doc.meta", "kb.doc.structure", "kb.section.text"} {
+		if !strings.Contains(def.Description, want) {
+			t.Fatalf("memory description should contain %q, got %q", want, def.Description)
+		}
 	}
 }
 

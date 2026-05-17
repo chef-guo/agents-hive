@@ -83,7 +83,8 @@ func (m *Master) prepareDirectExecParams(ctx context.Context, session *SessionSt
 		}
 		session.mu.RUnlock()
 		if lastUserMsg != "" {
-			userID := auth.UserIDFrom(ctx)
+			userID := ownerIDForSessionRuntime(session, auth.UserIDFrom(ctx))
+			domainID := domainIDForSessionRuntime(session)
 			memCtx := m.memoryRuntimeContext(ctx, session, "react")
 			memResult, err := m.memoryInjector.InjectContextWithTarget(memCtx, memory.InjectionRequest{
 				Query:     lastUserMsg,
@@ -94,7 +95,7 @@ func (m *Master) prepareDirectExecParams(ctx context.Context, session *SessionSt
 					UserID:     userID,
 					SessionID:  session.ID,
 					AgentName:  "master",
-					DomainID:   "generic",
+					DomainID:   domainID,
 					SourceKind: "master",
 					SourceName: "react",
 				},
@@ -212,10 +213,10 @@ func (m *Master) getModelOverrideLLM(modelOverride string) *llm.Client {
 
 func (m *Master) memoryRuntimeContext(ctx context.Context, session *SessionState, taskType string) context.Context {
 	rc := memory.RuntimeContext{
-		UserID:     auth.UserIDFrom(ctx),
+		UserID:     ownerIDForSessionRuntime(session, auth.UserIDFrom(ctx)),
 		TaskType:   taskType,
 		AgentName:  "master",
-		DomainID:   "generic",
+		DomainID:   domainIDForSessionRuntime(session),
 		SourceKind: "master",
 		SourceName: taskType,
 	}
@@ -228,6 +229,40 @@ func (m *Master) memoryRuntimeContext(ctx context.Context, session *SessionState
 		}
 	}
 	return memory.WithRuntimeContext(ctx, rc)
+}
+
+func ownerIDForSessionRuntime(session *SessionState, userID string) string {
+	ownerID := strings.TrimSpace(userID)
+	if session == nil {
+		return ownerID
+	}
+	session.mu.RLock()
+	defer session.mu.RUnlock()
+	if strings.TrimSpace(session.UserID) != "" {
+		ownerID = strings.TrimSpace(session.UserID)
+	}
+	return ownerID
+}
+
+func domainIDForSessionRuntime(session *SessionState) string {
+	domainID := "generic"
+	if session == nil {
+		return domainID
+	}
+	session.mu.RLock()
+	defer session.mu.RUnlock()
+	if d := strings.TrimSpace(session.pendingKBDomainID); d != "" {
+		return d
+	}
+	if d := strings.TrimSpace(session.KBDomainID); d != "" {
+		return d
+	}
+	if session.routeDecisionSet {
+		if d := strings.TrimSpace(session.routeDecision.Intent.DomainID); d != "" {
+			return d
+		}
+	}
+	return domainID
 }
 
 // processTaskDirectExec 使用 ReAct Tool-Use 循环处理任务。
@@ -3794,24 +3829,12 @@ func (m *Master) executeToolsConcurrent(
 }
 
 func kbRuntimeContextForTool(session *SessionState, userID string) tools.KBRuntimeContext {
-	ownerID := strings.TrimSpace(userID)
-	domainID := "generic"
+	ownerID := ownerIDForSessionRuntime(session, userID)
+	domainID := domainIDForSessionRuntime(session)
 	sessionID := ""
 	if session != nil {
 		session.mu.RLock()
 		sessionID = strings.TrimSpace(session.ID)
-		if strings.TrimSpace(session.UserID) != "" {
-			ownerID = strings.TrimSpace(session.UserID)
-		}
-		if d := strings.TrimSpace(session.pendingKBDomainID); d != "" {
-			domainID = d
-		} else if d := strings.TrimSpace(session.KBDomainID); d != "" {
-			domainID = d
-		} else if session.routeDecisionSet {
-			if d := strings.TrimSpace(session.routeDecision.Intent.DomainID); d != "" {
-				domainID = d
-			}
-		}
 		session.mu.RUnlock()
 	}
 	return tools.KBRuntimeContext{

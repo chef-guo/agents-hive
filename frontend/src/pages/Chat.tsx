@@ -1,7 +1,7 @@
-import { useEffect, useCallback, useMemo, useState } from 'react';
+import { useEffect, useCallback, useMemo, useRef, useState } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { BookOpenText, X } from 'lucide-react';
+import { BookOpenText, Check, ChevronDown, Plus, X } from 'lucide-react';
 import { ApiRequestError } from '../api/client';
 import { useSessionStore } from '../store/session';
 import { useChatStore } from '../store/chat';
@@ -17,6 +17,8 @@ import { shouldShowTodosPanel, useTodosStore } from '../store/todos';
 import { TodosList } from '../components/todos/TodosList';
 import { calculateMessageTotalTokens } from '../utils/tokenUsage';
 import type { KBBinding, KBNamespace } from '../types/api';
+import { buildSessionKBNamespaceIDs } from './chatKBUtils';
+import { messagesAfterRegenerateSuccess, messagesForRegenerateStart } from './chatRegenerate';
 
 export function Chat() {
   const { t } = useTranslation();
@@ -52,7 +54,7 @@ export function Chat() {
   const workspaceWidthClass = canvasOpen ? 'md:w-1/2' : 'md:w-80';
   const [kbNamespaces, setKBNamespace] = useState<KBNamespace[]>([]);
   const [kbBindings, setKBBindings] = useState<KBBinding[]>([]);
-  const [kbSelection, setKBSelection] = useState('');
+  const [kbSelection, setKBSelection] = useState<string[]>([]);
   const [kbDomainId, setKBDomainId] = useState('generic');
   const [kbBusy, setKBBusy] = useState(false);
 
@@ -63,11 +65,17 @@ export function Chat() {
         client.listKBNamespaces({ domainId, limit: 100 }),
         client.getSessionKBBindings(sessionId, domainId),
       ]);
-      setKBNamespace(namespacesRes.namespaces ?? []);
-      setKBBindings(bindingsRes.bindings ?? []);
+      const namespaces = namespacesRes.namespaces ?? [];
+      const bindings = bindingsRes.bindings ?? [];
+      const boundIDs = new Set(bindings.map((binding) => binding.namespace_id));
+      const availableIDs = new Set(namespaces.map((namespace) => namespace.id));
+      setKBNamespace(namespaces);
+      setKBBindings(bindings);
+      setKBSelection((current) => current.filter((namespaceID) => availableIDs.has(namespaceID) && !boundIDs.has(namespaceID)));
     } catch {
       setKBNamespace([]);
       setKBBindings([]);
+      setKBSelection([]);
     }
   }, [client]);
 
@@ -159,10 +167,11 @@ export function Chat() {
   const handleRegenerate = useCallback(async () => {
     if (!id) return;
 
+    const previousMessages = messages;
     // 乐观 UI：找最后一条用户消息，保留它，删掉其后的所有内容（含 tool call / tool result 等）
-    const lastUserMsgIdx = [...messages].map((m, i) => ({ role: m.role, i })).reverse().find(m => m.role === 'user')?.i;
-    if (lastUserMsgIdx !== undefined) {
-      useChatStore.getState().setMessages(messages.slice(0, lastUserMsgIdx + 1));
+    const pendingRegenerate = messagesForRegenerateStart(messages);
+    if (pendingRegenerate.lastUserMsgIdx !== undefined) {
+      useChatStore.getState().setMessages(pendingRegenerate.messages);
     }
 
     // 立即显示"思考中"状态，避免等待 WebSocket 事件的时间窗口内无反馈
@@ -170,10 +179,23 @@ export function Chat() {
 
     // 后端统一完成：回滚旧数据 + 重新生成 AI 回复（通过 WebSocket 流式返回）
     try {
-      await client.regenerateMessage(id);
-    } catch {
+      const resp = await client.regenerateMessage(id);
+      useChatStore.setState((state) => ({
+        messages: messagesAfterRegenerateSuccess(state.messages, pendingRegenerate.lastUserMsgIdx, resp),
+        streaming: false,
+        streamingMessageId: null,
+        agentStatus: null,
+      }));
+    } catch (e: unknown) {
+      const errorMsg = e instanceof Error ? e.message : '重新生成失败';
       // 清理 streaming 状态，避免卡在"思考中"
-      useChatStore.setState({ streaming: false, streamingMessageId: null, agentStatus: null });
+      useChatStore.setState({
+        messages: previousMessages,
+        error: errorMsg,
+        streaming: false,
+        streamingMessageId: null,
+        agentStatus: null,
+      });
     }
   }, [id, messages, client]);
 
@@ -182,13 +204,13 @@ export function Chat() {
   }, [id, client, stopTask]);
 
   const handleAddKB = useCallback(async () => {
-    if (!id || !kbSelection) return;
+    if (!id || kbSelection.length === 0) return;
     setKBBusy(true);
     try {
       const domainId = normalizeKBDomain(kbDomainId);
-      const nextNamespaceIds = Array.from(new Set([...kbBindings.map((binding) => binding.namespace_id), kbSelection]));
+      const nextNamespaceIds = buildSessionKBNamespaceIDs(kbBindings, kbSelection);
       await client.setSessionKBBindings(id, nextNamespaceIds, domainId);
-      setKBSelection('');
+      setKBSelection([]);
       await loadKBState(id, domainId);
     } finally {
       setKBBusy(false);
@@ -206,6 +228,11 @@ export function Chat() {
       setKBBusy(false);
     }
   }, [id, kbDomainId, client, loadKBState]);
+
+  const handleKBDomainChange = useCallback((domainId: string) => {
+    setKBDomainId(domainId);
+    setKBSelection([]);
+  }, []);
 
   // 注入全局 Header 的 slots（会话名 + 消息统计）
   const setSlots = useHeaderStore((s) => s.setSlots);
@@ -290,7 +317,7 @@ export function Chat() {
             domainId={kbDomainId}
             busy={kbBusy}
             onChange={setKBSelection}
-            onDomainChange={setKBDomainId}
+            onDomainChange={handleKBDomainChange}
             onReload={() => { if (id) void loadKBState(id, kbDomainId); }}
             onAdd={handleAddKB}
             onRemove={handleRemoveKB}
@@ -324,21 +351,41 @@ function normalizeKBDomain(value: string | undefined) {
   return value?.trim() || 'generic';
 }
 
-function SessionKBBar(props: {
+function toggleKBNamespaceSelection(current: string[], namespaceID: string) {
+  if (current.includes(namespaceID)) {
+    return current.filter((item) => item !== namespaceID);
+  }
+  return [...current, namespaceID];
+}
+
+export function SessionKBBar(props: {
   namespaces: KBNamespace[];
   bindings: KBBinding[];
-  value: string;
+  value: string[];
   domainId: string;
   busy: boolean;
-  onChange: (value: string) => void;
+  onChange: (value: string[]) => void;
   onDomainChange: (value: string) => void;
   onReload: () => void;
   onAdd: () => void;
   onRemove: (namespaceId: string) => void;
 }) {
+  const pickerRef = useRef<HTMLDivElement>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const boundNamespaceIDs = new Set(props.bindings.map((binding) => binding.namespace_id));
   const available = props.namespaces.filter((namespace) => !boundNamespaceIDs.has(namespace.id));
   const nameByID = new Map(props.namespaces.map((namespace) => [namespace.id, namespace.name]));
+  const selectedCount = props.value.length;
+
+  useEffect(() => {
+    const handleClick = (event: MouseEvent) => {
+      if (pickerRef.current && !pickerRef.current.contains(event.target as Node)) {
+        setPickerOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, []);
 
   return (
     <div className="border-t border-[var(--border-color)] bg-[var(--bg-card)] px-4 py-2">
@@ -370,23 +417,63 @@ function SessionKBBar(props: {
             <X className="h-3 w-3" />
           </button>
         ))}
-        <select
-          value={props.value}
-          onChange={(e) => props.onChange(e.target.value)}
-          disabled={props.busy || available.length === 0}
-          className="ml-auto min-w-[160px] rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] px-2 py-1 text-[var(--text-primary)] disabled:opacity-50"
-        >
-          <option value="">{available.length === 0 ? '无可添加 KB' : '选择知识库'}</option>
-          {available.map((namespace) => (
-            <option key={namespace.id} value={namespace.id}>{namespace.name}</option>
-          ))}
-        </select>
+        <div ref={pickerRef} className="relative ml-auto">
+          <button
+            type="button"
+            onClick={() => {
+              if (!props.busy && available.length > 0) {
+                setPickerOpen((open) => !open);
+              }
+            }}
+            disabled={props.busy || available.length === 0}
+            aria-haspopup="listbox"
+            aria-expanded={pickerOpen && !props.busy && available.length > 0}
+            className="inline-flex min-w-[160px] items-center justify-between gap-2 rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] px-2 py-1 text-left text-[var(--text-primary)] hover:bg-[var(--bg-secondary)] disabled:opacity-50"
+          >
+            <span className="truncate">
+              {available.length === 0 ? '无可添加 KB' : selectedCount > 0 ? `已选 ${selectedCount} 个` : '选择知识库'}
+            </span>
+            <ChevronDown className="h-3.5 w-3.5 shrink-0" />
+          </button>
+          {pickerOpen && !props.busy && available.length > 0 && (
+            <div
+              role="listbox"
+              aria-multiselectable="true"
+              className="absolute bottom-full right-0 z-20 mb-2 max-h-60 w-64 overflow-auto rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] p-1 shadow-lg"
+            >
+              {available.map((namespace) => {
+                const checked = props.value.includes(namespace.id);
+                return (
+                  <label
+                    key={namespace.id}
+                    role="option"
+                    aria-selected={checked}
+                    className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-[var(--text-primary)] hover:bg-[var(--bg-secondary)]"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => props.onChange(toggleKBNamespaceSelection(props.value, namespace.id))}
+                      disabled={props.busy}
+                      className="sr-only"
+                    />
+                    <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded border border-[var(--border-color)] bg-[var(--bg-card)]">
+                      {checked && <Check className="h-3 w-3" />}
+                    </span>
+                    <span className="truncate">{namespace.name}</span>
+                  </label>
+                );
+              })}
+            </div>
+          )}
+        </div>
         <button
           type="button"
           onClick={props.onAdd}
-          disabled={props.busy || !props.value}
-          className="rounded-lg border border-[var(--border-color)] px-2 py-1 text-[var(--text-primary)] hover:bg-[var(--bg-secondary)] disabled:opacity-50"
+          disabled={props.busy || selectedCount === 0}
+          className="inline-flex items-center gap-1 rounded-lg border border-[var(--border-color)] px-2 py-1 text-[var(--text-primary)] hover:bg-[var(--bg-secondary)] disabled:opacity-50"
         >
+          <Plus className="h-3.5 w-3.5" />
           绑定
         </button>
       </div>

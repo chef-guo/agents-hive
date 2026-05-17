@@ -194,7 +194,7 @@ func isDefaultVisibleToolWithOptions(tool mcphost.ToolDefinition, opts toolVisib
 
 func isFastPathDefaultVisibleTool(name string) bool {
 	switch strings.TrimSpace(name) {
-	case "filesystem", "ls", "memory", "question", "skill", "tool_search", "read_file", "grep", "glob":
+	case "filesystem", "ls", "memory", "question", "skill", "tool_search", "read_file", "grep", "glob", "kb.doc.meta", "kb.doc.structure", "kb.section.text":
 		return true
 	default:
 		return false
@@ -237,7 +237,7 @@ func trimModelVisibleTools(tools []mcphost.ToolDefinition, opts toolVisibilityOp
 		}
 		addSelected(name)
 	}
-	for _, priority := range []string{"question", "memory", "skill", "filesystem", "read_file", "grep", "glob", "ls"} {
+	for _, priority := range []string{"question", "kb.doc.meta", "kb.doc.structure", "kb.section.text", "memory", "skill", "filesystem", "read_file", "grep", "glob", "ls"} {
 		for _, tool := range tools {
 			if len(selected) >= opts.MaxModelVisibleTools {
 				break

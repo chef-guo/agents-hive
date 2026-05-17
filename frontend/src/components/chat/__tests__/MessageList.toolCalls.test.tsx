@@ -1,5 +1,5 @@
 import { beforeEach, describe, it, expect, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MessageList } from '../MessageList';
 import { useChatStore } from '../../../store/chat';
 import type { Message } from '../../../types/api';
@@ -25,6 +25,7 @@ vi.mock('react-i18next', () => ({
         'tools.truncated': '(truncated)',
         'chat.welcomeTitle': 'Welcome',
         'chat.emptyHint': 'Start chatting',
+        'chat.regenerate': 'Regenerate',
         'nav.replay': 'Replay',
       };
       return map[key] ?? defaultValue ?? key;
@@ -98,6 +99,28 @@ describe('MessageList tool call rendering', () => {
     expect(screen.queryByText('Completed')).toBeNull();
     expect(document.querySelectorAll('[data-slot="collapsible"]').length).toBe(0);
     expect(screen.queryByText(/已写入 5 字节到/)).toBeNull();
+  });
+
+  it('wires regenerate action on the last user message', () => {
+    const onRegenerate = vi.fn();
+    const messages: Message[] = [
+      {
+        role: 'user',
+        content: 'old prompt',
+        timestamp: '2026-05-04T01:00:00.000Z',
+      },
+      {
+        role: 'assistant',
+        content: 'old answer',
+        timestamp: '2026-05-04T01:00:01.000Z',
+      },
+    ];
+
+    render(<MessageList messages={messages} onRegenerate={onRegenerate} sessionId="sess-1" />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Regenerate' }));
+
+    expect(onRegenerate).toHaveBeenCalledTimes(1);
   });
 
   it('keeps failed tool calls expanded in chat while successful calls stay compact', () => {

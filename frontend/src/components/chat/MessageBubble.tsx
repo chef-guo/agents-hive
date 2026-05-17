@@ -547,6 +547,7 @@ function ActionBtn({ icon, label, onClick, active, danger }: {
 }) {
   return (
     <button
+      type="button"
       onClick={onClick}
       aria-label={label}
       className={`action-btn relative p-1.5 rounded-full transition-all duration-150 ${

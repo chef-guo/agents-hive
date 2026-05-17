@@ -157,6 +157,17 @@ describe('LocalNodeClient admin capability endpoints', () => {
     });
   });
 
+  it('returns regenerate response from an encoded session endpoint', async () => {
+    const api = createApiClientMock();
+    api.postLong.mockResolvedValue({ content: 'new answer', completed: true });
+    const client = new LocalNodeClient(api);
+
+    const resp = await client.regenerateMessage('sess/1');
+
+    expect(api.postLong).toHaveBeenCalledWith('/api/v1/sessions/sess%2F1/regenerate');
+    expect(resp).toEqual({ content: 'new answer', completed: true });
+  });
+
   it('resolves asset URLs through the asset API with KB runtime context', async () => {
     const api = createApiClientMock();
     api.get.mockResolvedValue({ url: '/api/v1/assets/proxy?x=1', expires_in: 300, mime_type: 'image/png', size: 3 });

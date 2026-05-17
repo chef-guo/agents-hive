@@ -211,6 +211,21 @@ func TestBuildToolPrompt_ToolSearchDoesNotPromiseAuthorization(t *testing.T) {
 	assert.NotContains(t, prompt, "发现后的工具会在后续轮次进入可调用列表")
 }
 
+func TestBuildToolPrompt_KnowledgeBaseDoesNotUseMemory(t *testing.T) {
+	m, _ := newTestMaster(t)
+	prompt := m.buildToolPrompt([]mcphost.ToolDefinition{
+		{Name: "kb.doc.meta", Description: "列出 KB 文档", Core: true},
+		{Name: "kb.doc.structure", Description: "读取 KB 结构", Core: true},
+		{Name: "kb.section.text", Description: "读取 KB 原文", Core: true},
+		{Name: "memory", Description: "长期记忆"},
+	})
+
+	assert.Contains(t, prompt, "知识库与长期记忆边界")
+	assert.Contains(t, prompt, "使用 `kb.doc.meta` -> `kb.doc.structure` -> `kb.section.text`")
+	assert.Contains(t, prompt, "不要用 memory 代替 KB")
+	assert.Contains(t, prompt, "不要把 memory list/search 的结果称为知识库")
+}
+
 func TestBuildSystemPrompt_IncludesIMAPIPriorityGuidanceWhenVisible(t *testing.T) {
 	m, _ := newTestMaster(t)
 	prompt := m.buildSystemPrompt([]mcphost.ToolDefinition{

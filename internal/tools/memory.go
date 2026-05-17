@@ -71,7 +71,7 @@ func registerMemory(host *mcphost.Host, logger *zap.Logger, store memory.MemoryS
 	host.RegisterTool(
 		mcphost.ToolDefinition{
 			Name:        "memory",
-			Description: "管理持久化记忆：保存用户偏好、项目信息、反馈和参考资料。记忆跨会话持久保存。",
+			Description: "管理用户长期记忆：保存用户偏好、工作方式反馈、项目信息片段和参考备注。memory 不是项目知识库/KB 文档库；用户询问知识库、KB、namespace、上传文档或文档目录时，应使用 kb.doc.meta / kb.doc.structure / kb.section.text。",
 			InputSchema: schema,
 		},
 		func(ctx context.Context, input json.RawMessage) (*mcphost.ToolResult, error) {

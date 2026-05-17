@@ -83,7 +83,7 @@ func registerKBDocMeta(host *mcphost.Host, logger *zap.Logger, service KBService
 	})
 	host.RegisterTool(mcphost.ToolDefinition{
 		Name:              "kb.doc.meta",
-		Description:       "列出当前会话已授权 KB 中的 active 文档元数据。namespace_id 只能收窄已绑定 namespace，不能授权新 namespace。",
+		Description:       "列出当前会话已授权知识库（KB）中的 active 文档元数据。用于回答用户关于项目知识库、业务知识库、上传文档、namespace 或文档目录的问题。namespace_id 只能收窄已绑定 namespace，不能授权新 namespace。",
 		InputSchema:       schema,
 		Core:              true,
 		IsConcurrencySafe: true,
@@ -120,7 +120,7 @@ func registerKBDocStructure(host *mcphost.Host, logger *zap.Logger, service KBSe
 	})
 	host.RegisterTool(mcphost.ToolDefinition{
 		Name:              "kb.doc.structure",
-		Description:       "读取当前会话已授权 KB 文档的树结构，不返回节点原文。使用节点 ID 继续调用 kb.section.text 取证。",
+		Description:       "读取当前会话已授权知识库（KB）文档的树结构，不返回节点原文。使用节点 ID 继续调用 kb.section.text 取证。",
 		InputSchema:       schema,
 		Core:              true,
 		IsConcurrencySafe: true,
@@ -169,7 +169,7 @@ func registerKBSectionText(host *mcphost.Host, logger *zap.Logger, service KBSer
 	})
 	host.RegisterTool(mcphost.ToolDefinition{
 		Name:              "kb.section.text",
-		Description:       "读取当前会话已授权 KB 文档节点或 PDF 页范围原文，并返回服务端 evidence token 用于 citation。使用流程：先 kb.doc.meta，再 kb.doc.structure，根据标题/摘要/页锚选择少量 node_ids 或 tight page_ranges。",
+		Description:       "读取当前会话已授权知识库（KB）文档节点或 PDF 页范围原文，并返回服务端 evidence token 用于 citation。使用流程：先 kb.doc.meta，再 kb.doc.structure，根据标题/摘要/页锚选择少量 node_ids 或 tight page_ranges。",
 		InputSchema:       schema,
 		Core:              true,
 		IsConcurrencySafe: true,

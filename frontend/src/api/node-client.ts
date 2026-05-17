@@ -126,7 +126,7 @@ export interface NodeClient {
   deleteSession(id: string): Promise<void>;
   clearSession(id: string): Promise<void>;
   revertSession(sessionId: string, revertTo: number): Promise<void>;
-  regenerateMessage(sessionId: string): Promise<void>;
+  regenerateMessage(sessionId: string): Promise<SendMessageResponse>;
   stopTask(sessionId: string): Promise<{ stopped: boolean }>;
   // 消息
   sendMessage(sessionId: string, content: string, options?: { attachments?: FileAttachment[]; deepThinking?: boolean; kbDomainId?: string }): Promise<SendMessageResponse>;
@@ -318,8 +318,8 @@ export class LocalNodeClient implements NodeClient {
     return this.client.post(`/api/v1/sessions/${sessionId}/revert`, { revert_to: revertTo });
   }
 
-  regenerateMessage(sessionId: string): Promise<void> {
-    return this.client.postLong(`/api/v1/sessions/${sessionId}/regenerate`);
+  regenerateMessage(sessionId: string): Promise<SendMessageResponse> {
+    return this.client.postLong(`/api/v1/sessions/${encodeURIComponent(sessionId)}/regenerate`);
   }
 
   stopTask(sessionId: string): Promise<{ stopped: boolean }> {

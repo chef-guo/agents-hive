@@ -703,6 +703,42 @@ func TestToolSearchFindsToolsBySchemaEnumValues(t *testing.T) {
 	}
 }
 
+func TestToolSearchKnowledgeBaseQueryPrefersKBTools(t *testing.T) {
+	logger := zap.NewNop()
+	host := mcphost.NewHost(logger)
+	registerKBTools(host, logger, nil)
+	registerMemory(host, logger, nil)
+	registerToolSearch(host, logger)
+
+	result, err := host.ExecuteTool(context.Background(), "tool_search", json.RawMessage(`{"query":"列出当前知识库","limit":3}`))
+	if err != nil {
+		t.Fatalf("ExecuteTool(tool_search): %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("unexpected tool_search error: %s", result.DecodeContent())
+	}
+
+	var out struct {
+		Results []struct {
+			Name string `json:"name"`
+		} `json:"results"`
+	}
+	if err := json.Unmarshal([]byte(result.DecodeContent()), &out); err != nil {
+		t.Fatalf("decode tool_search output: %v; content=%s", err, result.DecodeContent())
+	}
+	if len(out.Results) == 0 {
+		t.Fatalf("expected KB tool hit, got content=%s", result.DecodeContent())
+	}
+	if out.Results[0].Name != "kb.doc.meta" {
+		t.Fatalf("knowledge base query should prefer kb.doc.meta, got %q content=%s", out.Results[0].Name, result.DecodeContent())
+	}
+	for _, hit := range out.Results {
+		if hit.Name == "memory" {
+			t.Fatalf("knowledge base top results should not prefer memory over KB tools: %+v", out.Results)
+		}
+	}
+}
+
 func TestToolSearchFindsToolsBySchemaFieldName(t *testing.T) {
 	logger := zap.NewNop()
 	host := mcphost.NewHost(logger)

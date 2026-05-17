@@ -141,6 +141,36 @@ func TestModelVisibleTools_FastPathIgnoresCoreAndAppliesBudget(t *testing.T) {
 	}
 }
 
+func TestModelVisibleTools_FastPathKeepsKnowledgeBaseTools(t *testing.T) {
+	session := &SessionState{ID: "s-fast-path-kb"}
+	catalog := []mcphost.ToolDefinition{
+		{Name: "tool_search", Core: true},
+		{Name: "question", Core: true},
+		{Name: "memory"},
+		{Name: "skill"},
+		{Name: "filesystem", Core: true},
+		{Name: "kb.doc.meta", Core: true},
+		{Name: "kb.doc.structure", Core: true},
+		{Name: "kb.section.text", Core: true},
+	}
+
+	visible, _ := modelVisibleToolsForSessionWithRecallObservationAndSkillsAndIntentWithOptions(
+		session,
+		catalog,
+		nil,
+		"列出当前知识库",
+		config.DefaultToolRecallConfig(),
+		router.IntentFrame{Kind: router.IntentRead},
+		toolVisibilityOptions{FastPath: true, MaxModelVisibleTools: 8},
+	)
+
+	for _, name := range []string{"kb.doc.meta", "kb.doc.structure", "kb.section.text"} {
+		if !hasTool(visible, name) {
+			t.Fatalf("fast path should keep KB tool %q visible, visible=%v", name, toolNamesForTest(visible))
+		}
+	}
+}
+
 func TestModelVisibleTools_FastPathMaxVisibleToolsTrimsWithStablePriority(t *testing.T) {
 	session := &SessionState{ID: "s-fast-path-trim"}
 	catalog := []mcphost.ToolDefinition{

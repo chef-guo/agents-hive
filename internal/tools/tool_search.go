@@ -373,7 +373,7 @@ func matchesToolSearchQuery(qLower string, def mcphost.ToolDefinition, schemaTer
 func scoreToolSearchHit(qLower string, def mcphost.ToolDefinition, schemaTerms []string) float64 {
 	score := scoreHit(qLower, def.Name, def.Description, nil, false, 0)
 	if qLower == "" {
-		return score + scoreToolSearchTerms(qLower, schemaTerms)
+		return score + scoreToolSearchTerms(qLower, schemaTerms) + scoreToolSearchIntentBoost(qLower, def.Name)
 	}
 	score += scoreToolSearchTerms(qLower, schemaTerms)
 	for _, term := range toolSearchQueryTerms(qLower) {
@@ -383,7 +383,7 @@ func scoreToolSearchHit(qLower string, def mcphost.ToolDefinition, schemaTerms [
 		score += 0.65 * scoreHit(term, def.Name, def.Description, nil, false, 0)
 		score += 0.65 * scoreToolSearchTerms(term, schemaTerms)
 	}
-	return score
+	return score + scoreToolSearchIntentBoost(qLower, def.Name)
 }
 
 func matchesToolSearchTerms(qLower string, terms []string) bool {
@@ -415,9 +415,69 @@ func scoreToolSearchTerms(qLower string, terms []string) float64 {
 	return score
 }
 
+func scoreToolSearchIntentBoost(query, toolName string) float64 {
+	normalizedQuery := normalizeToolSearchTerm(query)
+	toolName = strings.TrimSpace(toolName)
+	if normalizedQuery == "" || !queryMentionsKnowledgeBase(normalizedQuery) {
+		return 0
+	}
+	switch toolName {
+	case "kb.doc.meta":
+		if queryMentionsKBSectionText(normalizedQuery) || queryMentionsKBStructure(normalizedQuery) {
+			return 0.5
+		}
+		return 5
+	case "kb.doc.structure":
+		if queryMentionsKBStructure(normalizedQuery) {
+			return 5
+		}
+	case "kb.section.text":
+		if queryMentionsKBSectionText(normalizedQuery) {
+			return 5
+		}
+	}
+	return 0
+}
+
+func queryMentionsKnowledgeBase(normalized string) bool {
+	for _, term := range []string{"kb", "知识库", "文档库", "namespace", "上传文档"} {
+		if strings.Contains(normalized, normalizeToolSearchTerm(term)) {
+			return true
+		}
+	}
+	return false
+}
+
+func queryMentionsKBStructure(normalized string) bool {
+	for _, term := range []string{"目录", "结构", "tree", "structure"} {
+		if strings.Contains(normalized, normalizeToolSearchTerm(term)) {
+			return true
+		}
+	}
+	return false
+}
+
+func queryMentionsKBSectionText(normalized string) bool {
+	for _, term := range []string{"原文", "正文", "内容", "取证", "引用", "section", "text"} {
+		if strings.Contains(normalized, normalizeToolSearchTerm(term)) {
+			return true
+		}
+	}
+	return false
+}
+
 var toolSearchTermSeparator = regexp.MustCompile(`[^a-z0-9\p{Han}]+`)
 
 var toolSearchQueryAliases = map[string][]string{
+	"kb":   {"知识库", "文档库", "namespace", "document", "doc", "meta"},
+	"知识库":  {"kb", "文档库", "namespace", "document", "doc", "meta"},
+	"文档库":  {"kb", "知识库", "namespace", "document", "doc", "meta"},
+	"上传文档": {"kb", "知识库", "document", "doc", "meta"},
+	"目录":   {"structure"},
+	"结构":   {"structure"},
+	"文档目录": {"kb", "知识库", "structure"},
+	"原文":   {"section"},
+	"取证":   {"section"},
 	"发送":   {"send"},
 	"发给":   {"send"},
 	"消息":   {"message", "im"},
