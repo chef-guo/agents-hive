@@ -38,11 +38,7 @@ bin/.worktrees/
 ~/.claw/
 config.json
 .gstack/
-docs/*
-!docs/计划与路线/
-!docs/计划与路线/2026-05-16-PPT生成工具与HTML预览实施计划.md
-!docs/计划与路线/2026-05-16-PPT生成工具与HTML预览实施计划/
-!docs/计划与路线/2026-05-16-PPT生成工具与HTML预览实施计划/**
+docs/
 TODOs.md
 MEMORY.md
 DESIGN.md
