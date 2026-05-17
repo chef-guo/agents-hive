@@ -15,6 +15,7 @@ import (
 	"github.com/chef-guo/agents-hive/internal/auth"
 	"github.com/chef-guo/agents-hive/internal/errs"
 	"github.com/chef-guo/agents-hive/internal/journal"
+	"github.com/chef-guo/agents-hive/internal/kb"
 	"github.com/chef-guo/agents-hive/internal/llm"
 	"github.com/chef-guo/agents-hive/internal/plugin"
 	"github.com/chef-guo/agents-hive/internal/store"
@@ -35,6 +36,7 @@ type SessionManager struct {
 	logger           *zap.Logger
 	journal          journal.Journal // 开发日志（可选，删除会话时级联清理）
 	pluginMgr        *plugin.Manager // 插件管理器（可选，删除会话时触发 SessionEnd hook）
+	kbBindingHints   KBActiveBindingHintReader
 }
 
 // NewSessionManager 创建新的会话管理器
@@ -761,12 +763,48 @@ func (sm *SessionManager) SaveSession(ctx context.Context, st store.SessionStore
 		UserID:         session.UserID,
 	}
 	session.mu.RUnlock()
+	record.KBDomainID = sm.resolveSessionKBDomainForSave(ctx, record)
 
 	if err := st.SaveSession(ctx, record); err != nil {
 		return errs.Wrap(errs.CodeStoreWriteFailed, "保存会话记录失败", err)
 	}
 
 	return nil
+}
+
+func (sm *SessionManager) resolveSessionKBDomainForSave(ctx context.Context, record *store.SessionRecord) string {
+	if record == nil {
+		return ""
+	}
+	if d := strings.TrimSpace(record.KBDomainID); d != "" {
+		return d
+	}
+	if sm == nil || sm.kbBindingHints == nil {
+		return ""
+	}
+	domainID, ok, err := sm.kbBindingHints.ActiveBindingHint(ctx, kb.ActiveBindingHintInput{
+		OwnerScope:    kb.OwnerScopeUser,
+		OwnerID:       strings.TrimSpace(record.UserID),
+		BindingType:   kb.BindingTypeSession,
+		BindingTarget: strings.TrimSpace(record.ID),
+		Now:           time.Now(),
+	})
+	if err != nil {
+		if sm.logger != nil {
+			sm.logger.Warn("保存会话前恢复 KB domain 失败",
+				zap.String("session_id", record.ID),
+				zap.String("user_id", record.UserID),
+				zap.Error(err))
+		}
+		return ""
+	}
+	if !ok || strings.TrimSpace(domainID) == "" {
+		return ""
+	}
+	if session := sm.GetSession(record.ID); session != nil {
+		session.SetKBDomainID(domainID)
+	}
+	return strings.TrimSpace(domainID)
 }
 
 // SaveAllSessions 保存所有会话

@@ -219,6 +219,177 @@
     "deleteError": "删除 skill 失败",
     "confirmDelete": "删除 \"{{name}}\" 的 DB 覆盖？若 FS 中有同名 skill 将自动恢复。"
   },
+  "knowledgeBase": {
+    "title": "知识库管理",
+    "subtitle": "管理树状章节文档、命名空间和 Agent 运行时绑定。",
+    "domain": "业务域",
+    "tabs": {
+      "namespaces": "命名空间",
+      "documents": "文档",
+      "bindings": "绑定"
+    },
+    "actions": {
+      "archive": "归档",
+      "addImageAssets": "添加图片资产",
+      "create": "创建",
+      "createBinding": "新建绑定",
+      "createNamespace": "新建命名空间",
+      "disable": "禁用",
+      "edit": "编辑",
+      "import": "导入",
+      "importDocument": "导入文档",
+      "insertAsset": "插入 {{asset}}",
+      "openDocuments": "进入文档",
+      "preview": "预览",
+      "selectDocumentFile": "选择文档文件",
+      "viewStructure": "查看结构"
+    },
+    "columns": {
+      "actions": "操作",
+      "effectiveAt": "生效时间",
+      "effectiveExpires": "生效/过期",
+      "id": "ID",
+      "longSectionSummary": "长章节保护/摘要",
+      "name": "名称",
+      "namespace": "命名空间",
+      "source": "来源",
+      "status": "状态",
+      "strategy": "策略",
+      "target": "目标",
+      "title": "标题",
+      "type": "类型",
+      "version": "版本"
+    },
+    "filters": {
+      "allNamespaces": "全部命名空间",
+      "allStatuses": "全部状态"
+    },
+    "placeholders": {
+      "searchDocuments": "搜索文档...",
+      "searchNamespaces": "搜索命名空间...",
+      "selectNamespace": "选择命名空间"
+    },
+    "namespace": {
+      "longSectionDisabled": "长章节保护关闭",
+      "longSectionThreshold": "长章节阈值 {{count}}",
+      "summaryThreshold": "摘要阈值 {{count}}"
+    },
+    "status": {
+      "bound": "已绑定",
+      "disabled": "禁用",
+      "enabled": "启用",
+      "longTerm": "长期",
+      "unbound": "未绑定"
+    },
+    "documentStatuses": {
+      "active": "生效中",
+      "archived": "已归档",
+      "draft": "草稿",
+      "revoked": "已撤销"
+    },
+    "bindingTypes": {
+      "agent": "Agent",
+      "domain": "业务域",
+      "session_template": "会话模板",
+      "session": "会话",
+      "tenant": "租户",
+      "user": "用户",
+      "system": "系统"
+    },
+    "runtimeFields": {
+      "agentId": "Agent ID",
+      "domainId": "业务域 ID",
+      "sessionTemplateId": "会话模板 ID",
+      "sessionId": "会话 ID",
+      "tenantId": "租户 ID"
+    },
+    "empty": {
+      "bindings": "暂无绑定",
+      "documents": "暂无文档",
+      "effectiveBindings": "暂无生效绑定",
+      "markdown": "暂无 Markdown 内容",
+      "namespaces": "暂无命名空间",
+      "selectNamespaceFirst": "请先选择命名空间",
+      "tree": "暂无结构数据"
+    },
+    "effective": {
+      "title": "生效绑定预览",
+      "subtitle": "按运行时上下文解析最终可用命名空间，来源显示为绑定类型和目标。"
+    },
+    "tree": {
+      "lines": "行 {{start}}-{{end}}",
+      "path": "路径",
+      "selectHint": "选择文档后查看树结构",
+      "title": "文档结构",
+      "tokens": "{{count}} 个 token"
+    },
+    "fields": {
+      "bindingTarget": "绑定目标",
+      "bindingType": "绑定类型",
+      "enableLongSectionProtection": "启用长章节保护",
+      "longSectionThreshold": "长章节阈值",
+      "name": "名称",
+      "sourceURI": "来源 URI",
+      "summaryThreshold": "摘要阈值",
+      "title": "标题",
+      "version": "版本"
+    },
+    "ingest": {
+      "converting": "正在转换文档并提取图片...",
+      "defaultMarkdown": "# 新文档\n\n",
+      "documentFileHint": "文档文件：{{filename}}。已先转换为可编辑 Markdown；修改图片行的位置后再导入，后端会按图片语法所在行绑定到章节。",
+      "editableFileHint": "已载入可编辑文档：{{filename}}。图片资产可通过下方按钮插入到当前光标位置。",
+      "imageAssets": "图片资产：{{assets}}",
+      "markdown": "Markdown",
+      "modalTitle": "导入文档 · {{namespace}}",
+      "renderedPreview": "效果预览"
+    },
+    "report": {
+      "assetColumns": {
+        "boundSection": "绑定章节",
+        "image": "图片"
+      },
+      "line": "第 {{line}} 行",
+      "metrics": {
+        "boundAssets": "已绑定图片",
+        "convertedAssets": "转换提图",
+        "durationMs": "耗时 ms",
+        "imageRefs": "图片引用",
+        "markdownLines": "Markdown 行",
+        "sections": "章节",
+        "unboundAssets": "未绑定图片",
+        "uploadedAssets": "上传图片"
+      },
+      "notInSection": "未落到章节范围",
+      "page": "第 {{page}} 页",
+      "provider": "转换器：{{provider}}",
+      "quality": "质量：{{quality}}",
+      "title": "最近一次导入报告",
+      "warningSeparator": "；"
+    },
+    "confirm": {
+      "archiveDocument": "归档文档 \"{{title}}\"？",
+      "disableBinding": "禁用 {{type}}:{{target}}？"
+    },
+    "toasts": {
+      "bindingCreated": "绑定已创建",
+      "bindingDisabled": "绑定已禁用",
+      "documentArchived": "文档已归档",
+      "documentImported": "文档已导入",
+      "documentImportedWithWarnings": "文档已导入，警告：{{warnings}}",
+      "namespaceCreated": "命名空间已创建"
+    },
+    "errors": {
+      "archiveDocument": "归档文档失败",
+      "disableBinding": "禁用绑定失败",
+      "loadBindings": "加载知识库绑定失败",
+      "loadDocuments": "加载知识库文档失败",
+      "loadNamespaces": "加载知识库命名空间失败",
+      "loadTree": "加载文档结构失败",
+      "previewEffectiveBindings": "预览生效绑定失败",
+      "previewMarkdown": "文档转换预览失败"
+    }
+  },
   "common": {
     "connected": "已连接",
     "disconnected": "已断开",

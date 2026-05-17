@@ -353,6 +353,53 @@ html.dark .markdown-prose :not(pre) > code {
   margin-bottom: 0.5em !important;
 }
 
+.kb-markdown-preview {
+  background-image:
+    linear-gradient(var(--bg-card), var(--bg-card)),
+    linear-gradient(to bottom, color-mix(in srgb, var(--accent) 10%, transparent), transparent 24%);
+  background-origin: border-box;
+}
+
+.kb-markdown-preview > :first-child {
+  margin-top: 0;
+}
+
+.kb-markdown-preview > :last-child {
+  margin-bottom: 0;
+}
+
+.kb-markdown-preview h1 {
+  font-size: 1.45rem;
+  line-height: 1.25;
+  margin-bottom: 0.8em;
+}
+
+.kb-markdown-preview h2 {
+  font-size: 1.22rem;
+  line-height: 1.3;
+  margin-top: 1.35em;
+  margin-bottom: 0.65em;
+}
+
+.kb-markdown-preview img {
+  display: block;
+  max-width: min(100%, 720px);
+  max-height: 520px;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  margin: 1.2em auto;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: var(--bg-primary);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+}
+
+.kb-markdown-preview p:has(> img:only-child) {
+  margin: 1.25em 0;
+  text-align: center;
+}
+
 .prose pre {
   position: relative;
   background: var(--bg-secondary) !important;

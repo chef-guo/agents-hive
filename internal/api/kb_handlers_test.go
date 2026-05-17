@@ -140,7 +140,15 @@ func (f *fakeKBManagementService) ListBindingsForManagement(ctx context.Context,
 	if f.listBindingsFn != nil {
 		return f.listBindingsFn(ctx, scope, query)
 	}
-	return []kb.Binding{{ID: "bind-1", NamespaceID: "ns-1", DomainID: scope.DomainID, OwnerScope: scope.OwnerScope, OwnerID: scope.OwnerID, BindingType: kb.BindingTypeAgent, BindingTarget: "master", Enabled: true, EffectiveAt: time.Now()}}, nil
+	bindingType := query.BindingType
+	if bindingType == "" {
+		bindingType = kb.BindingTypeAgent
+	}
+	bindingTarget := query.BindingTarget
+	if bindingTarget == "" {
+		bindingTarget = "master"
+	}
+	return []kb.Binding{{ID: "bind-1", NamespaceID: "ns-1", DomainID: scope.DomainID, OwnerScope: scope.OwnerScope, OwnerID: scope.OwnerID, BindingType: bindingType, BindingTarget: bindingTarget, Enabled: true, EffectiveAt: time.Now()}}, nil
 }
 
 func (f *fakeKBManagementService) UpdateBinding(ctx context.Context, scope kb.ManagementScope, bindingID string, input kb.UpdateBindingInput) (*kb.Binding, error) {
@@ -161,6 +169,10 @@ func (f *fakeKBManagementService) DisableBinding(ctx context.Context, scope kb.M
 		return f.disableBindingFn(ctx, scope, bindingID)
 	}
 	return &kb.Binding{ID: bindingID, NamespaceID: "ns-1", DomainID: scope.DomainID, OwnerScope: scope.OwnerScope, OwnerID: scope.OwnerID, BindingType: kb.BindingTypeAgent, BindingTarget: "master", Enabled: false, EffectiveAt: time.Now()}, nil
+}
+
+func (f *fakeKBManagementService) ActiveBindingHint(context.Context, kb.ActiveBindingHintInput) (string, bool, error) {
+	return "", false, nil
 }
 
 func (f *fakeKBManagementService) EffectiveBindings(ctx context.Context, input kb.BindingResolveInput) ([]kb.EffectiveBinding, error) {
@@ -819,6 +831,9 @@ func TestSessionKBBindingsPutReplacesCurrentDomainBindings(t *testing.T) {
 	require.Len(t, got.Bindings, 1)
 	require.Equal(t, "ns-new", got.Bindings[0].NamespaceID)
 	require.Equal(t, "support", m.GetCachedSession(sessionID).KBDomainIDSnapshot())
+	record, err := appStore.LoadSession(ctx, sessionID)
+	require.NoError(t, err)
+	require.Equal(t, "support", record.KBDomainID)
 	bindings, err := kbService.ListBindingsForManagement(ctx, kb.ManagementScope{
 		DomainID:   "support",
 		OwnerScope: kb.OwnerScopeUser,

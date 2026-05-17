@@ -35,6 +35,7 @@ type kbManagementService interface {
 	ListBindingsForManagement(ctx context.Context, scope kb.ManagementScope, query kb.BindingQuery) ([]kb.Binding, error)
 	UpdateBinding(ctx context.Context, scope kb.ManagementScope, bindingID string, input kb.UpdateBindingInput) (*kb.Binding, error)
 	DisableBinding(ctx context.Context, scope kb.ManagementScope, bindingID string) (*kb.Binding, error)
+	ActiveBindingHint(ctx context.Context, input kb.ActiveBindingHintInput) (string, bool, error)
 	EffectiveBindings(ctx context.Context, input kb.BindingResolveInput) ([]kb.EffectiveBinding, error)
 	DocMeta(ctx context.Context, scope kb.Scope, input kb.DocMetaInput) (*kb.DocMetaResult, error)
 	DocStructure(ctx context.Context, scope kb.Scope, input kb.DocStructureInput) (*kb.DocStructureResult, error)

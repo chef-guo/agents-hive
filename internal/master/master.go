@@ -333,6 +333,10 @@ type KBEvidenceReader interface {
 	CurrentTurnEvidence(context.Context, kb.EvidenceScope) ([]kb.EvidenceRef, error)
 }
 
+type KBActiveBindingHintReader interface {
+	ActiveBindingHint(context.Context, kb.ActiveBindingHintInput) (string, bool, error)
+}
+
 func (m *Master) evaluatePermissionPolicy(ctx context.Context, toolName string, input json.RawMessage) router.ToolPolicyDecision {
 	toolName = strings.TrimSpace(toolName)
 	if toolName == "" {
@@ -765,6 +769,9 @@ func (m *Master) SetAssetService(service *asset.AssetService) {
 
 func (m *Master) SetKBEvidenceReader(reader KBEvidenceReader) {
 	m.kbEvidenceReader = reader
+	if hintReader, ok := reader.(KBActiveBindingHintReader); ok {
+		m.sessionMgr.kbBindingHints = hintReader
+	}
 }
 
 // SetFeedbackExtractor 设置 feedback 记忆提取器，使质量反馈能进入记忆闭环。

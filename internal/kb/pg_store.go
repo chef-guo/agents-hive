@@ -553,11 +553,24 @@ func (s *PGStore) ListBindingsForManagement(ctx context.Context, query BindingQu
 	if query.DomainID == "" || query.OwnerScope == "" || query.OwnerID == "" {
 		return nil, ErrInvalidScope
 	}
+	bindingTypeFilter := ""
+	bindingTargetFilter := ""
 	enabledFilter := ""
-	var enabledValue bool
+	argPos := 5
+	args := []any{query.DomainID, string(query.OwnerScope), query.OwnerID, strings.TrimSpace(query.NamespaceID)}
+	if query.BindingType != "" {
+		bindingTypeFilter = fmt.Sprintf("AND binding_type = $%d", argPos)
+		args = append(args, string(query.BindingType))
+		argPos++
+	}
+	if strings.TrimSpace(query.BindingTarget) != "" {
+		bindingTargetFilter = fmt.Sprintf("AND binding_target = $%d", argPos)
+		args = append(args, strings.TrimSpace(query.BindingTarget))
+		argPos++
+	}
 	if query.Enabled != nil {
-		enabledFilter = "AND enabled = $5"
-		enabledValue = *query.Enabled
+		enabledFilter = fmt.Sprintf("AND enabled = $%d", argPos)
+		args = append(args, *query.Enabled)
 	}
 	sql := fmt.Sprintf(`
 		SELECT id, domain_id, owner_scope, owner_id, namespace_id, binding_type,
@@ -569,14 +582,10 @@ func (s *PGStore) ListBindingsForManagement(ctx context.Context, query BindingQu
 		  AND owner_id = $3
 		  AND ($4 = '' OR namespace_id = $4)
 		  %s
-		ORDER BY updated_at DESC, id`, enabledFilter)
-	var rows pgx.Rows
-	var err error
-	if query.Enabled != nil {
-		rows, err = s.pool.Query(ctx, sql, query.DomainID, string(query.OwnerScope), query.OwnerID, strings.TrimSpace(query.NamespaceID), enabledValue)
-	} else {
-		rows, err = s.pool.Query(ctx, sql, query.DomainID, string(query.OwnerScope), query.OwnerID, strings.TrimSpace(query.NamespaceID))
-	}
+		  %s
+		  %s
+		ORDER BY updated_at DESC, id`, bindingTypeFilter, bindingTargetFilter, enabledFilter)
+	rows, err := s.pool.Query(ctx, sql, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -590,6 +599,51 @@ func (s *PGStore) ListBindingsForManagement(ctx context.Context, query BindingQu
 		out = append(out, binding)
 	}
 	return out, rows.Err()
+}
+
+func (s *PGStore) FindActiveBindingDomains(ctx context.Context, query BindingQuery, now time.Time) ([]string, error) {
+	if s == nil || s.pool == nil {
+		return nil, ErrInvalidInput
+	}
+	if query.OwnerScope == "" || query.OwnerID == "" || query.BindingType == "" || strings.TrimSpace(query.BindingTarget) == "" {
+		return nil, ErrInvalidScope
+	}
+	if now.IsZero() {
+		now = time.Now()
+	}
+	args := []any{string(query.OwnerScope), query.OwnerID, string(query.BindingType), strings.TrimSpace(query.BindingTarget), now}
+	domainFilter := ""
+	if strings.TrimSpace(query.DomainID) != "" {
+		domainFilter = "AND domain_id = $6"
+		args = append(args, strings.TrimSpace(query.DomainID))
+	}
+	rows, err := s.pool.Query(ctx, fmt.Sprintf(`
+		SELECT DISTINCT domain_id
+		FROM kb_bindings
+		WHERE owner_scope = $1
+		  AND owner_id = $2
+		  AND binding_type = $3
+		  AND binding_target = $4
+		  AND enabled = TRUE
+		  AND effective_at <= $5
+		  AND (expires_at IS NULL OR expires_at > $5)
+		  %s
+		ORDER BY domain_id`, domainFilter), args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var domains []string
+	for rows.Next() {
+		var domain string
+		if err := rows.Scan(&domain); err != nil {
+			return nil, err
+		}
+		if strings.TrimSpace(domain) != "" {
+			domains = append(domains, domain)
+		}
+	}
+	return domains, rows.Err()
 }
 
 func (s *PGStore) SaveEvidenceEvent(ctx context.Context, event EvidenceEvent) error {

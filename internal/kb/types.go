@@ -199,11 +199,13 @@ type DocumentQuery struct {
 }
 
 type BindingQuery struct {
-	DomainID    string
-	OwnerScope  OwnerScope
-	OwnerID     string
-	NamespaceID string
-	Enabled     *bool
+	DomainID      string
+	OwnerScope    OwnerScope
+	OwnerID       string
+	NamespaceID   string
+	BindingType   BindingType
+	BindingTarget string
+	Enabled       *bool
 }
 
 type NodeAsset struct {

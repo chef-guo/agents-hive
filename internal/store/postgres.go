@@ -208,7 +208,7 @@ func (s *PostgresStore) SaveSession(ctx context.Context, record *SessionRecord) 
 			name=EXCLUDED.name, updated_at=EXCLUDED.updated_at,
 			last_accessed_at=EXCLUDED.last_accessed_at,
 			selected_model=CASE WHEN EXCLUDED.selected_model != '' THEN EXCLUDED.selected_model ELSE sessions.selected_model END,
-			kb_domain_id=EXCLUDED.kb_domain_id,
+			kb_domain_id=CASE WHEN EXCLUDED.kb_domain_id != '' THEN EXCLUDED.kb_domain_id ELSE sessions.kb_domain_id END,
 			total_tokens=EXCLUDED.total_tokens,
 			profile_name=EXCLUDED.profile_name, deleted=EXCLUDED.deleted,
 			parent_id=EXCLUDED.parent_id,

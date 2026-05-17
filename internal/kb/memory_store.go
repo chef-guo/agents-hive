@@ -455,6 +455,12 @@ func (s *MemoryStore) ListBindingsForManagement(ctx context.Context, query Bindi
 		if query.NamespaceID != "" && binding.NamespaceID != query.NamespaceID {
 			continue
 		}
+		if query.BindingType != "" && binding.BindingType != query.BindingType {
+			continue
+		}
+		if query.BindingTarget != "" && binding.BindingTarget != query.BindingTarget {
+			continue
+		}
 		if query.Enabled != nil && binding.Enabled != *query.Enabled {
 			continue
 		}
@@ -467,6 +473,43 @@ func (s *MemoryStore) ListBindingsForManagement(ctx context.Context, query Bindi
 		return bindings[i].UpdatedAt.After(bindings[j].UpdatedAt)
 	})
 	return bindings, nil
+}
+
+func (s *MemoryStore) FindActiveBindingDomains(ctx context.Context, query BindingQuery, now time.Time) ([]string, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if query.OwnerScope == "" || query.OwnerID == "" || query.BindingType == "" || strings.TrimSpace(query.BindingTarget) == "" {
+		return nil, ErrInvalidScope
+	}
+	if now.IsZero() {
+		now = time.Now()
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	seen := map[string]struct{}{}
+	var domains []string
+	for _, binding := range s.bindings {
+		if binding.OwnerScope != query.OwnerScope || binding.OwnerID != query.OwnerID {
+			continue
+		}
+		if query.DomainID != "" && binding.DomainID != query.DomainID {
+			continue
+		}
+		if binding.BindingType != query.BindingType || binding.BindingTarget != strings.TrimSpace(query.BindingTarget) {
+			continue
+		}
+		if !binding.Active(now) {
+			continue
+		}
+		if _, ok := seen[binding.DomainID]; ok {
+			continue
+		}
+		seen[binding.DomainID] = struct{}{}
+		domains = append(domains, binding.DomainID)
+	}
+	sort.Strings(domains)
+	return domains, nil
 }
 
 func (s *MemoryStore) SaveEvidenceEvent(ctx context.Context, event EvidenceEvent) error {

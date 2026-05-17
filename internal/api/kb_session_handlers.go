@@ -21,8 +21,9 @@ func (s *Server) handleGetSessionKBBindings(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	bindings, err := s.kbService.ListBindingsForManagement(r.Context(), scope, kb.BindingQuery{
-		NamespaceID: "",
-		Enabled:     boolPtr(true),
+		BindingType:   kb.BindingTypeSession,
+		BindingTarget: sessionID,
+		Enabled:       boolPtr(true),
 	})
 	if err != nil {
 		s.writeKBError(w, err)
@@ -49,7 +50,9 @@ func (s *Server) handlePutSessionKBBindings(w http.ResponseWriter, r *http.Reque
 	}
 	namespaceIDs := uniqueKBStrings(req.NamespaceIDs)
 	existing, err := s.kbService.ListBindingsForManagement(r.Context(), scope, kb.BindingQuery{
-		Enabled: boolPtr(true),
+		BindingType:   kb.BindingTypeSession,
+		BindingTarget: sessionID,
+		Enabled:       boolPtr(true),
 	})
 	if err != nil {
 		s.writeKBError(w, err)
@@ -113,8 +116,10 @@ func (s *Server) handleDeleteSessionKBBinding(w http.ResponseWriter, r *http.Req
 		return
 	}
 	bindings, err := s.kbService.ListBindingsForManagement(r.Context(), scope, kb.BindingQuery{
-		NamespaceID: namespaceID,
-		Enabled:     boolPtr(true),
+		NamespaceID:   namespaceID,
+		BindingType:   kb.BindingTypeSession,
+		BindingTarget: sessionID,
+		Enabled:       boolPtr(true),
 	})
 	if err != nil {
 		s.writeKBError(w, err)
@@ -145,7 +150,9 @@ func (s *Server) handleDeleteSessionKBBinding(w http.ResponseWriter, r *http.Req
 
 func (s *Server) listActiveSessionKBBindings(ctx context.Context, scope kb.ManagementScope, sessionID string) ([]kbBindingResponse, error) {
 	bindings, err := s.kbService.ListBindingsForManagement(ctx, scope, kb.BindingQuery{
-		Enabled: boolPtr(true),
+		BindingType:   kb.BindingTypeSession,
+		BindingTarget: sessionID,
+		Enabled:       boolPtr(true),
 	})
 	if err != nil {
 		return nil, err

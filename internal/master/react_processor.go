@@ -376,6 +376,7 @@ func (m *Master) runReActLoop(
 
 	for i := 0; ; i++ {
 		preModelStart := time.Now()
+		sessionHasActiveKBBinding := m.recoverSessionKBDomainFromBinding(ctx, session, userID)
 
 		// P0-3 Phase 5.3: per-session 成本预算检查（每轮检查，防止 fan-out turn 耗尽预算后无感知）
 		if costErr := m.checkCostBudget(ctx, session.ID); costErr != nil {
@@ -437,6 +438,7 @@ func (m *Master) runReActLoop(
 		// 使用新的上下文压缩机制（在锁外执行，避免长时间持锁）
 		contextCompressionStart := time.Now()
 		preparedMessages := m.prepareMessagesWithCompression(ctx, session, msgsCopy)
+		preparedMessages = removeStaleKBNoBindingResults(preparedMessages, sessionHasActiveKBBinding, m.logger)
 		// 移除孤立的 tool result（压缩可能导致 assistant tool_call 被截断而 tool result 保留）
 		preparedMessages = removeOrphanedToolResults(preparedMessages, m.logger)
 		contextCompressionMs := time.Since(contextCompressionStart).Milliseconds()
@@ -2967,6 +2969,55 @@ func removeOrphanedToolResults(messages []llm.MessageWithTools, logger *zap.Logg
 	return messages
 }
 
+func removeStaleKBNoBindingResults(messages []llm.MessageWithTools, hasActiveKBBinding bool, logger *zap.Logger) []llm.MessageWithTools {
+	if !hasActiveKBBinding || len(messages) == 0 {
+		return messages
+	}
+	staleCalls := map[string]struct{}{}
+	for _, msg := range messages {
+		if msg.Role != "tool" || msg.ToolName != "kb.doc.meta" || msg.ToolCallID == "" {
+			continue
+		}
+		if msg.Metadata["error_kind"] != "kb_unavailable_or_not_bound" && !strings.Contains(msg.Content.Text(), "kb_unavailable_or_not_bound") {
+			continue
+		}
+		staleCalls[msg.ToolCallID] = struct{}{}
+	}
+	if len(staleCalls) == 0 {
+		return messages
+	}
+	out := make([]llm.MessageWithTools, 0, len(messages))
+	removed := 0
+	for _, msg := range messages {
+		if msg.Role == "tool" {
+			if _, ok := staleCalls[msg.ToolCallID]; ok {
+				removed++
+				continue
+			}
+		}
+		if msg.Role == "assistant" && len(msg.ToolCalls) > 0 {
+			filtered := make([]llm.ToolCall, 0, len(msg.ToolCalls))
+			for _, call := range msg.ToolCalls {
+				if _, ok := staleCalls[call.ID]; ok && call.Name == "kb.doc.meta" {
+					removed++
+					continue
+				}
+				filtered = append(filtered, call)
+			}
+			msg.ToolCalls = filtered
+			if msg.Content.Text() == "" && msg.ReasoningContent == "" && len(msg.ToolCalls) == 0 {
+				continue
+			}
+		}
+		out = append(out, msg)
+	}
+	if removed > 0 && logger != nil {
+		logger.Info("已移除历史 KB 未绑定工具结果，当前会话已有 active KB binding",
+			zap.Int("removed", removed))
+	}
+	return out
+}
+
 // hasImageAttachments 检查附件列表中是否包含图片
 func hasImageAttachments(attachments []FileAttachment) bool {
 	for _, a := range attachments {
@@ -3879,6 +3930,39 @@ func (m *Master) kbCitationsForCurrentTurn(ctx context.Context, session *Session
 		return ""
 	}
 	return string(data)
+}
+
+func (m *Master) recoverSessionKBDomainFromBinding(ctx context.Context, session *SessionState, userID string) bool {
+	if m == nil || session == nil || m.sessionMgr == nil || m.sessionMgr.kbBindingHints == nil {
+		return false
+	}
+	if strings.TrimSpace(session.KBDomainIDSnapshot()) != "" {
+		return true
+	}
+	ownerID := ownerIDForSessionRuntime(session, userID)
+	sessionID := strings.TrimSpace(session.ID)
+	if ownerID == "" || sessionID == "" {
+		return false
+	}
+	domainID, ok, err := m.sessionMgr.kbBindingHints.ActiveBindingHint(ctx, kb.ActiveBindingHintInput{
+		OwnerScope:    kb.OwnerScopeUser,
+		OwnerID:       ownerID,
+		BindingType:   kb.BindingTypeSession,
+		BindingTarget: sessionID,
+		Now:           time.Now(),
+	})
+	if err != nil {
+		m.logger.Warn("恢复会话 KB domain 失败",
+			zap.String("session_id", sessionID),
+			zap.String("owner_id", ownerID),
+			zap.Error(err))
+		return false
+	}
+	if !ok || strings.TrimSpace(domainID) == "" {
+		return false
+	}
+	session.SetKBDomainID(domainID)
+	return true
 }
 
 func (m *Master) recordKBCitationMissing(session *SessionState, userID, traceID, reason, errText string) {

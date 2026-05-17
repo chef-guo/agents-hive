@@ -330,6 +330,38 @@ func TestHandleGetSessionIncludesKBDomainID(t *testing.T) {
 	}
 }
 
+func TestHandleUpdateSessionPersistsKBDomainID(t *testing.T) {
+	handler, _, st, cleanup := newTestServerForSessionsWithStore(t)
+	defer cleanup()
+
+	now := time.Now().Format(time.RFC3339)
+	sessionID := "kb-domain-update-session"
+	if err := st.SaveSession(context.Background(), &store.SessionRecord{
+		ID:             sessionID,
+		Name:           "kb domain",
+		CreatedAt:      now,
+		UpdatedAt:      now,
+		LastAccessedAt: now,
+	}); err != nil {
+		t.Fatalf("save session: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/sessions/"+sessionID, strings.NewReader(`{"kb_domain_id":"support"}`))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d; body: %s", rec.Code, rec.Body.String())
+	}
+	record, err := st.LoadSession(context.Background(), sessionID)
+	if err != nil {
+		t.Fatalf("load session: %v", err)
+	}
+	if record.KBDomainID != "support" {
+		t.Fatalf("kb_domain_id = %q, want support", record.KBDomainID)
+	}
+}
+
 func TestHandleGetSession_NotFound(t *testing.T) {
 	handler, _, cleanup := newTestServerForSessions(t)
 	defer cleanup()

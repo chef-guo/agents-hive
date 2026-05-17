@@ -21,6 +21,36 @@ func TestBindingResolverNoBindingFailsClosed(t *testing.T) {
 	require.ErrorIs(t, err, ErrNoKBBinding)
 }
 
+func TestActiveBindingHintFindsSessionBindingAcrossDomains(t *testing.T) {
+	now := time.Now()
+	store := NewMemoryStore()
+	require.NoError(t, store.SaveBinding(context.Background(), Binding{
+		ID:            "binding-support-session",
+		DomainID:      "support",
+		OwnerScope:    OwnerScopeUser,
+		OwnerID:       "user-1",
+		NamespaceID:   "ns-support",
+		BindingType:   BindingTypeSession,
+		BindingTarget: "session-1",
+		Enabled:       true,
+		EffectiveAt:   now.Add(-time.Minute),
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	}))
+
+	domainID, ok, err := NewService(store).ActiveBindingHint(context.Background(), ActiveBindingHintInput{
+		OwnerScope:    OwnerScopeUser,
+		OwnerID:       "user-1",
+		BindingType:   BindingTypeSession,
+		BindingTarget: "session-1",
+		Now:           now,
+	})
+
+	require.NoError(t, err)
+	require.True(t, ok)
+	assert.Equal(t, "support", domainID)
+}
+
 func TestBindingResolverUnionsEffectiveBindings(t *testing.T) {
 	now := time.Now()
 	store := NewMemoryStore()

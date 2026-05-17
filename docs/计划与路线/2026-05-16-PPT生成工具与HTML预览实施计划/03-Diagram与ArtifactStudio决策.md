@@ -44,12 +44,12 @@ Mermaid 示例：
 - `generate_ppt` 只负责 presentation。
 - `generate_diagram` 负责 `mermaid/mindmap/flowchart/sequence/architecture` 等非 PPT 可视化产物。
 - `DiagramSpec` 是事实源，SVG/PNG/HTML 是派生产物。
-- Canvas 使用 `DiagramRenderer` 路由到 `MermaidRenderer` 或 `MindMapRenderer`。
+- Canvas 使用 `DiagramRenderer` 路由到 `MermaidRenderer`；`MindMapRenderer` 默认 M3 或产品确认前移后启用。
 - 下载按钮按类型提供：
   - Mermaid：`.mmd`、`.svg`，M3 可加 `.png`。
   - Mindmap：`.mm.json`、`.md`、`.svg`，M3 可加 `.png`。
   - 普通 diagram：`.json`、`.svg`。
-- 资产标签使用 `source_kind=generated_diagram`、`diagram_run_id`、`diagram_type`、`diagram_format=source|svg|png|html`。
+- 资产使用 run-scoped namespace，例如 `diagrams/user/<owner_id>/run/<run_id>`，并附带 `source_kind=generated_diagram`、`diagram_run_id`、`diagram_type`、`diagram_format=source|svg|png|html` tags。当前 Hive asset 层会按 namespace/content hash/owner 早返回去重，tag 不能作为唯一事实源。
 - 权限规则复用 presentation asset resolver 的 owner/purpose/session 边界，但 purpose 使用 `diagram_preview` / `diagram_download` / `diagram_audit`。
 
 里程碑范围锁定：
@@ -60,7 +60,7 @@ Mermaid 示例：
 
 ### 决策 D1：DiagramRun 是脑图/Mermaid 的审计和下载单位
 
-`DiagramSpec` 不能只存在于聊天消息里。每次 `generate_diagram` 都必须创建 `DiagramRun`，并把 source/SVG/PNG/HTML 资产和 run id 绑定，确保预览、下载、权限、重试、历史恢复和审计可闭合。
+`DiagramSpec` 不能只存在于聊天消息里。每次 `generate_diagram` 都必须创建 `DiagramRun`，并把 source/SVG/PNG/HTML 资产和 run id 绑定，确保预览、下载、权限、重试、历史恢复和审计可闭合。`diagram_runs` 是 canonical truth；asset tags 只是辅助索引。
 
 固定字段：
 
@@ -78,8 +78,8 @@ Mermaid 示例：
   "user_id": "user_...",
   "session_id": "sess_...",
   "turn_id": "trace_...",
-  "source_asset_uri": "asset://diagrams/....mmd",
-  "svg_asset_uri": "asset://diagrams/....svg",
+  "source_asset_uri": "asset://diagrams/user/user_.../run/drun_.../....mmd",
+  "svg_asset_uri": "asset://diagrams/user/user_.../run/drun_.../....svg",
   "png_asset_uri": "",
   "html_asset_uri": "",
   "created_at": "2026-05-16T00:00:00Z"
@@ -187,6 +187,7 @@ GET /api/v1/diagram/runs/{run_id}
 - `source_format='mindmap-markdown'` 只表示输入源是 Markdown outline；归档时必须同时保存规范化后的 `MindMapSpec JSON`，否则后续编辑和审计困难。
 - Mermaid/Mindmap 的 run 不写入 `presentation_runs`，但共享 RuntimeContext、asset resolver、quota、GC、observability 的实现模式。
 - M2 Mermaid 可以同步等待 SVG 导出，但仍必须先创建 `diagram_runs`；超出 `diagram.sync_timeout_seconds` 后返回 `status:"running"` 并由 `DiagramRunWorker` 接管。
+- GC、历史恢复和授权必须以 `diagram_runs` 的 asset URI 字段为准；如果未来要按 tags 查找/更新 diagram assets，必须先扩展 `AssetMetaStore` 的 tag query/update 能力。
 
 ### 决策 E：扩展能力统一为 AI Artifact Studio，不做工具超市
 
@@ -194,7 +195,7 @@ GET /api/v1/diagram/runs/{run_id}
 
 | Artifact | Tool | Spec | Run Store | 首批下载 | 进入阶段 | 产品价值 |
 |---|---|---|---|---|---|---|
-| Presentation | `generate_ppt` | `DeckSpec` | `presentation_runs` | `.pptx/.html` | M1-M2 | 汇报交付 |
+| Presentation | `generate_ppt` | `DeckSpec` | `presentation_runs` | `.pptx`；HTML 为 preview asset，公开 attachment 下载后置 | M1-M2 | 汇报交付 |
 | Diagram/Mindmap | `generate_diagram` | `DiagramSpec` | `diagram_runs` | `.mmd/.mm.json/.svg/.png` | M1-M3 | 结构化图解 |
 | Chart | `generate_chart` | `ChartSpec` | `chart_runs` | `.vl.json/.svg/.png` | M3 | 数据洞察和 PPT 图表 |
 | Table | `generate_table` | `TableSpec` | `table_runs` | `.xlsx/.csv/.json` | M3 | 数据底座和 Excel 交付 |
@@ -206,7 +207,7 @@ GET /api/v1/diagram/runs/{run_id}
 
 - 每类 artifact 都必须有强类型 Spec，不能让模型直接输出任意 HTML/JS/option object 后执行。
 - 每次生成都必须有 run id、status、stage、metrics、warnings、error_kind、recoverable_by。
-- 每类 artifact 都必须有 asset tags：`source_kind=generated_<artifact>`、`<artifact>_run_id`、`<artifact>_format`、`session_id`、`turn_id`、`domain_id`。
+- 每类 artifact 都必须有 run-scoped namespace 和 asset tags：`source_kind=generated_<artifact>`、`<artifact>_run_id`、`<artifact>_format`、`session_id`、`turn_id`、`domain_id`。run store 永远是 canonical truth，tags 只做排查/宽松索引。
 - 每类 artifact 都必须定义 purpose：`<artifact>_preview`、`<artifact>_download`、`<artifact>_audit`。
 - Canvas renderer 必须按 artifact type 分派，不能把所有扩展都塞进 `HtmlRenderer`。
 - PPT 和 Report 可以引用其他 artifact 的 asset URI，但引用必须记录 provenance，不能复制成无来源的图片。

@@ -25,6 +25,7 @@ export interface CreateSessionRequest {
 
 export interface UpdateSessionRequest {
   name?: string;
+  kb_domain_id?: string;
   tags?: string[];
 }
 

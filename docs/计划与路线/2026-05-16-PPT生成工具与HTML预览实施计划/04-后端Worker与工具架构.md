@@ -23,6 +23,12 @@ internal/presentation/
     renderer.go
     swiss.go
     renderer_test.go
+  templates/
+    swiss/
+      layouts.json
+      themes.json
+      fonts.json
+      icons.json
   pptx/
     exporter.go
     exporter_test.go
@@ -50,12 +56,26 @@ internal/diagram/
 - `outline.go/planner.go`：定义 `OutlineSpec` 和 `LayoutPlanner` 接口，首发可不暴露给模型，但为后续一句话/大纲生成保留稳定入口。
 - `runtime`：从 `context.Context` 提取服务端派生的 user/session/domain/tenant/turn/run facts，拒绝模型传入 owner。
 - `renderhtml`：把 `DeckSpec` 渲染为安全 HTML。所有用户文本必须 escape；只允许 renderer 生成 HTML tag。
+- `templates/swiss/fonts.json`：记录系统字体栈、自托管字体候选、PPTX fallback 和 license；首发即使不内置字体，也必须有该合同文件。
+- `templates/swiss/icons.json`：记录允许使用的 inline SVG path id；renderer/exporter 只能引用 registry 内图标，不能消费模型传入的 SVG。
 - `pptx`：Go 侧封装 PPTX exporter。首发用 Node worker + PptxGenJS 输出 `.pptx` bytes。
-- `assets`：把 HTML/PPTX 上传到 asset 服务，设置 namespace/tags/mime。
+- `assets`：把 HTML/PPTX 上传到 asset 服务，设置 run-scoped namespace/tags/mime。当前 Hive asset 上传会按 namespace/content hash/owner 早返回去重，所以首发 namespace 必须包含 run id，run 表是 canonical truth。
 - `service.go`：编排 validate、image resolve、HTML render、PPTX export、asset upload、run report。
 - `internal/diagram/spec`：定义 `DiagramSpec`、`MindMapSpec`、Mermaid source 限制和 JSON Schema。
 - `internal/diagram/render`：封装 Mermaid/Mindmap 的 source -> SVG/HTML/PNG 导出。
 - `internal/diagram/service.go`：编排 validate、render/export、asset upload、run report，复用 presentation 的 RuntimeContext/asset policy 模式。
+
+### 4.1.0 当前 Hive 代码适配闸门
+
+实现前必须先补齐当前 Hive 的真实集成点，而不是只新增孤立模块：
+
+- `internal/bootstrap/server.go` 的 `ServerComponents` 增加 `PresentationService`、`DiagramService` 或统一 artifact service 字段。
+- `internal/api/server.go` 增加 presentation/diagram service 窄接口字段和 setter。
+- `cmd/server/main.go` 在创建 API server 后注入新 service。
+- `internal/api/routes.go` 注册 `GET /api/v1/presentation/runs/{run_id}` 和 `GET /api/v1/diagram/runs/{run_id}`。
+- `internal/bootstrap/asset.go` 的 `initAssetAccessResolver` 接收 presentation/diagram run reader，或通过 service 提供窄授权查询；不能另建 resolver chain。
+- `internal/config/config.go`、`defaults.go`、`Resolve/Normalize`、`config.example.json` 增加 presentation/diagram 配置。
+- Dockerfile runtime stage 必须复制并安装 `tools/presentation-exporter` / `tools/diagram-exporter`，因为当前镜像只有 node/npm/chromium，没有 worker 源码和依赖。
 
 ### 4.1.1 Runtime Context 合同
 
@@ -84,7 +104,7 @@ type RuntimeContext struct {
 - `SessionID` 从 `toolctx.GetSessionID(ctx)` 读取。
 - `TraceID/TurnID/ToolCallID` 从 `toolctx.GetToolContext(ctx)` 读取；若仍走 Master-local trace bridge，也必须统一适配。
 - `OwnerScope/OwnerID/DomainID/AgentID` 优先复用 `tools.KBRuntimeContextFromContext(ctx)`，因为 Master 已在 `executeTool` 里注入服务端事实。
-- `UserID` 从 `auth.UserIDFrom(ctx)` 读取；如果为空，再使用 KB runtime 的 `OwnerID` 作为 user-owned CLI fallback，但必须记录 warning。
+- `UserID` 从 `auth.UserIDFrom(ctx)` 读取；如果为空，再使用 KB runtime 的 `OwnerID` 或 session.UserID 作为 user-owned CLI/dev fallback，但必须记录 warning。不能假设 auth middleware 总是存在。
 - 模型输入中的 `owner_id/owner_scope/session_id/domain_id` 一律忽略或校验拒绝。
 
 失败规则：
@@ -236,15 +256,16 @@ Go 侧约束：
 
 - `presentation.enabled` 默认 `false`，开发/内测环境显式打开；M2 首发前再改为按部署环境配置打开。
 - `async_enabled` 默认 `true`，但如果 store 不可用，工具必须返回 `exporter_unavailable` 或 `asset_unavailable`，不能退化成不可追踪同步生成。
-- `sync_timeout_seconds` 必须小于 `timeout_seconds`，默认 12s；非法配置启动时记录 error 并使用默认值。
+- `sync_timeout_seconds` 必须小于 `timeout_seconds`，默认 12s；同时必须小于 `RuntimePolicy.ToolTimeout`。当前本地 built-in tool 的直接超时主要来自 `Master.executeTool` 的 tool timeout，默认 2 分钟；`mcpOperationTimeout=30s` 主要约束远程 MCP client，不应被当作本地工具的唯一超时来源。
 - `max_concurrent_workers` 默认 3；Go exporter 必须用 semaphore 控制同时运行的 Node worker 数量。
 - `max_slides/max_output_mb/max_image_mb` 同时用于 schema、service 和 worker request，不能前后端各写一套不同限制。
 - `temp_dir` 为空时使用 `os.MkdirTemp("", "hive-presentation-*")`；非空时启动自检目录存在、可写且不在仓库目录内。
+- 配置 normalize/validate 必须覆盖 worker script 存在、temp dir 可写、`max_concurrent_workers > 0`、`sync_timeout_seconds < timeout_seconds`、`sync_timeout_seconds < RuntimePolicy.ToolTimeout`。
 
 部署任务必须包含：
 
 - `tools/presentation-exporter/package-lock.json` 提交到仓库。
-- server Dockerfile 或部署镜像安装 Node LTS，并运行 `npm ci --omit=dev` 或构建 worker bundle。
+- server Dockerfile 或部署镜像安装 Node LTS，并运行 `npm ci --omit=dev` 或构建 worker bundle。当前 Dockerfile runtime 只复制 `/hive` 和 config，不会自动包含顶层 `tools/`，必须显式 `COPY tools/presentation-exporter /app/tools/presentation-exporter`。
 - server 启动时执行 presentation health check：Node 可执行、worker script 存在、`--health` 返回 protocol version。
 - health check 失败时，如果 `presentation.enabled=true`，工具可见但调用返回 `exporter_unavailable`；不要影响 server 启动和其他工具。
 - worker 临时目录必须按 run id 创建，成功或失败都清理；清理失败只记录 warning，不能影响错误返回。
@@ -401,13 +422,13 @@ Go 侧约束：
 - `enable_png_export` 默认 `false`，M3 验证 Playwright PNG 稳定性后再开放。
 - `enable_mindmap` 默认 `true` 仅表示工具 schema 可接受 mindmap；若 worker 依赖未就绪，health check 必须把 mindmap 标记为 unavailable。
 - `max_source_kb/max_nodes/max_depth` 同时用于 tool schema、Go validator 和 worker request。
-- `sync_timeout_seconds` 必须小于 `timeout_seconds`，默认 8s；非法配置启动时记录 error 并使用默认值。
+- `sync_timeout_seconds` 必须小于 `timeout_seconds`，默认 8s；同时必须小于 `RuntimePolicy.ToolTimeout`。非法配置启动时记录 error 并使用默认值。
 - `temp_dir` 为空时使用 `os.MkdirTemp("", "hive-diagram-*")`；非空时启动自检目录存在、可写且不在仓库目录内。
 
 部署任务必须包含：
 
 - `tools/diagram-exporter/package-lock.json` 提交到仓库。
-- server Dockerfile 或部署镜像复用 presentation worker 的 Node LTS/Chromium 安装策略。
+- server Dockerfile 或部署镜像复用 presentation worker 的 Node LTS/Chromium 安装策略，并显式复制 `tools/diagram-exporter` 到 runtime 镜像。
 - server 启动时执行 diagram health check：Node 可执行、worker script 存在、`--health` 返回 protocol version、Mermaid/Markmap 版本和可用 outputs。
 - `diagram.enabled=true` 但 health check 失败时，`generate_diagram` 调用返回 `diagram_exporter_unavailable`，不能影响 server 启动和其他工具。
 - 首发必须跑 `npm audit --omit=dev --audit-level=high`；若 Mermaid/Markmap/Playwright 链路出现 high/critical 且无可接受例外，不得发布。
@@ -415,6 +436,41 @@ Go 侧约束：
 ### 4.3 内置工具
 
 新增工具：`generate_ppt`
+
+注册方式：
+
+- 使用独立顶层注册函数 `tools.RegisterPPTGen(sc.MCPHost, sc.AssetService, presentationService, logger)`，对齐现有 `tools.RegisterImageGen` / `tools.RegisterVideoGen` 模式。
+- 不把 `PresentationService` 追加进 `RegisterBuiltinTools` 的 variadic optional 参数。该函数现有 optional 依赖已经过多，继续扩展会让工具依赖注入不可维护。
+- `generate_diagram` 同理使用 `tools.RegisterDiagramGen(sc.MCPHost, sc.AssetService, diagramService, logger)`。
+- 工具注册失败只影响对应工具可用性，不能影响其他内置工具注册。
+
+Bootstrap 初始化顺序固定为：
+
+```text
+pgPool
+  -> initAssetService
+  -> NewPresentationRunStore / NewDiagramRunStore
+  -> NewPresentationService / NewDiagramService
+  -> initAssetAccessResolver 内部 source_kind 分支覆盖 presentation/diagram 授权
+  -> RegisterBuiltinTools
+  -> RegisterPPTGen / RegisterDiagramGen
+```
+
+约束：
+
+- `PresentationRunStore` 和 `DiagramRunStore` 依赖 pgPool；pgPool 不可用时工具必须返回 `asset_unavailable` / `exporter_unavailable`，不能退化为不可追踪同步生成。
+- `PresentationService` 必须在 `initAssetService` 之后创建，因为 DeckSpec/HTML/PPTX 都要上传 asset。
+- `initAssetAccessResolver` 当前返回单个 resolver 对象，不能新增“resolver 链”。实现时在 `assetAccessResolver.CanResolveAsset` 中先判断 `source_kind=generated_presentation|generated_diagram`，再落回现有 KB/agent artifact 逻辑。
+- Asset proxy 的 disposition/filename 支持修改现有 `/api/v1/assets/proxy` handler，不能新增绕过现有签名、ttl、owner 校验的平行下载端点。
+- `internal/router/capability_registry.go` 增加 `generate_ppt` / `generate_diagram` 的 builtin tool rule；如果 action guard 默认权限规则需要显式允许 media local write，也必须同步测试。
+- `internal/master/tool_choice_detector.go` 或等价 host intent guard 增加 artifact 生成意图：用户明确请求 PPT/演示文稿/slide deck/下载 PPTX 时返回 `tool_choice=required`，用户明确请求 Mermaid/脑图/流程图/架构图/可下载 SVG/PNG 时返回 `tool_choice=required`。只靠系统 prompt “优先调用工具”不够，当前 broad heuristic 在 `ToolChoiceForce` 关闭时不会覆盖普通“帮我做一份 PPT”。
+
+工具结果合同：
+
+- output schema 只能作为描述，不作为强校验依赖。当前 Host 只做轻量 JSON/required 诊断，前端也不会自动理解 output schema。
+- `generate_ppt` / `generate_diagram` executor 必须用 Go 结构体 marshal 结果，返回前做强校验。
+- 前端必须用 runtime parser 严格解析 `kind/status/run_id/asset_uri`，不能因为 output schema 存在就信任字符串。
+- 工具 input schema 如果使用 `$defs/$ref/oneOf/const`，必须对项目实际 LLM provider 做兼容验证；必要时在注册前扁平化 schema。
 
 固定输入 schema：
 
@@ -452,7 +508,12 @@ Go 侧约束：
         "title": { "type": "string", "minLength": 1, "maxLength": 80 },
         "language": { "type": "string", "enum": ["zh-CN", "en-US"] },
         "style": { "type": "string", "enum": ["swiss"] },
-        "theme": { "type": "string", "enum": ["ikb", "lemon", "lemon_green", "safety_orange"] },
+        "theme": { "type": "string", "enum": ["ikb", "lemon", "lemon_green", "safety_orange", "custom"] },
+        "custom_accent": {
+          "type": "string",
+          "pattern": "^#[0-9A-Fa-f]{6}$",
+          "description": "仅当 theme=custom 时允许，用作企业品牌 accent 色。"
+        },
         "aspect": { "type": "string", "enum": ["16:9"] },
         "slides": {
           "type": "array",
@@ -508,7 +569,7 @@ Go 侧约束：
 }
 ```
 
-上面只展示两个 layout 的 schema 片段；真实实现必须由 layout registry 覆盖首发 8 个 Swiss layout，并在测试里断言工具注册 schema 和 Go validator 使用同一套 layout 定义。
+上面只展示两个 layout 的 schema 片段；真实实现必须由 layout registry 覆盖首发 10 个 Swiss layout，并在测试里断言工具注册 schema 和 Go validator 使用同一套 layout 定义。
 
 Schema 来源合同：
 
@@ -530,10 +591,9 @@ Schema 来源合同：
   "theme": "ikb",
   "slide_count": 8,
   "mode": "editable",
-  "deck_spec_asset_uri": "asset://presentations/....json",
-  "html_asset_uri": "asset://presentations/....html",
-  "pptx_asset_uri": "asset://presentations/....pptx",
-  "html_preview": "<!doctype html>...",
+  "deck_spec_asset_uri": "asset://presentations/user/user_.../run/prun_.../....json",
+  "html_asset_uri": "asset://presentations/user/user_.../run/prun_.../....html",
+  "pptx_asset_uri": "asset://presentations/user/user_.../run/prun_.../....pptx",
   "warnings": [],
   "validation": {
     "status": "passed",
@@ -542,13 +602,14 @@ Schema 来源合同：
 }
 ```
 
-`html_preview` 大小限制：
+工具结果大小限制：
 
-- inline `html_preview` 首发最大 100KB。
+- 工具结果只返回轻量 manifest，目标小于 5KB。不要把完整 HTML 放进 tool result。
 - HTML asset 最大 5MB。
-- `html_preview` 不允许包含 data URI 图片；图片必须走 asset/resolved URL 或在后端 renderer 中使用受控引用。
-- 超过 100KB 但不超过 5MB：工具只返回 `html_asset_uri`，前端打开 Canvas 时再 resolve/fetch。
+- HTML 不允许包含 data URI 图片；图片必须走 asset/resolved URL 或在后端 renderer 中使用受控引用。
+- Canvas 打开时通过 `html_asset_uri` resolve/fetch HTML。
 - 超过 5MB：返回 `html_too_large` 结构化错误，模型应缩短内容或减少 slide。
+- 如果为了调试临时保留 `html_preview`，必须 behind dev flag，硬上限 8KB，且前端不得把它作为唯一数据源。首发用户路径默认不返回该字段。
 
 错误输出必须结构化，不能只返回自然语言：
 
@@ -683,11 +744,10 @@ Schema 来源合同：
   "title": "生成链路",
   "diagram_type": "mermaid",
   "source_format": "mermaid",
-  "source_asset_uri": "asset://diagrams/....mmd",
-  "svg_asset_uri": "asset://diagrams/....svg",
+  "source_asset_uri": "asset://diagrams/user/user_.../run/drun_.../....mmd",
+  "svg_asset_uri": "asset://diagrams/user/user_.../run/drun_.../....svg",
   "png_asset_uri": "",
   "html_asset_uri": "",
-  "source_preview": "flowchart LR\nA[Chat] --> B[generate_diagram]",
   "warnings": [],
   "validation": {
     "status": "passed",
@@ -696,13 +756,14 @@ Schema 来源合同：
 }
 ```
 
-`source_preview` 大小限制：
+工具结果大小限制：
 
-- inline `source_preview` 首发最大 32KB。
+- 工具结果只返回轻量 manifest，目标小于 5KB。不要把完整 Mermaid source、MindMapSpec JSON 或 SVG 放进 tool result。
 - Mermaid source asset 最大 100KB。
 - MindMapSpec JSON source asset 最大 512KB，但节点数仍受 `max_nodes` 限制。
-- 超过 inline 但未超过 asset 限制：工具只返回 `source_asset_uri`，前端打开 Canvas 时再 resolve/fetch。
+- Canvas 打开时通过 `source_asset_uri` / `svg_asset_uri` resolve/fetch。
 - SVG asset 首发最大 2MB，PNG asset 首发最大 10MB。
+- 如果为了调试临时保留 `source_preview`，必须 behind dev flag，硬上限 4KB，且前端不得把它作为唯一数据源。
 
 错误输出：
 

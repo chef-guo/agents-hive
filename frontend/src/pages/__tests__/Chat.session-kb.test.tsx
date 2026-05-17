@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { SessionKBBar } from '../Chat';
+import { SessionKBBar } from '../../components/chat/SessionKBBar';
 import { buildSessionKBNamespaceIDs } from '../chatKBUtils';
 import type { KBBinding, KBNamespace } from '../../types/api';
 

@@ -14,7 +14,9 @@ import (
 	"go.uber.org/zap/zaptest"
 
 	"github.com/chef-guo/agents-hive/internal/errs"
+	"github.com/chef-guo/agents-hive/internal/kb"
 	"github.com/chef-guo/agents-hive/internal/llm"
+	"github.com/chef-guo/agents-hive/internal/store"
 )
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -28,6 +30,46 @@ func newTestSessionManager(t *testing.T) *SessionManager {
 	stopCh := make(chan struct{})
 	t.Cleanup(func() { close(stopCh) })
 	return NewSessionManager(stopCh, logger)
+}
+
+type fakeKBActiveBindingHintReader struct {
+	domainID string
+	ok       bool
+	err      error
+	input    kb.ActiveBindingHintInput
+}
+
+func (f *fakeKBActiveBindingHintReader) ActiveBindingHint(_ context.Context, input kb.ActiveBindingHintInput) (string, bool, error) {
+	f.input = input
+	return f.domainID, f.ok, f.err
+}
+
+func TestSaveSessionRestoresKBDomainFromActiveBinding(t *testing.T) {
+	sm := newTestSessionManager(t)
+	hints := &fakeKBActiveBindingHintReader{domainID: "generic", ok: true}
+	sm.kbBindingHints = hints
+	st := store.NewMemoryStore()
+	now := time.Now()
+	session := &SessionState{
+		ID:           "session-kb-restore",
+		Name:         "kb restore",
+		UserID:       "user-1",
+		Messages:     []llm.MessageWithTools{},
+		Created:      now,
+		LastAccessed: now,
+		Tags:         []string{},
+	}
+	sm.SetSession(session)
+
+	require.NoError(t, sm.SaveSession(context.Background(), st, session))
+
+	record, err := st.LoadSession(context.Background(), session.ID)
+	require.NoError(t, err)
+	require.Equal(t, "generic", record.KBDomainID)
+	require.Equal(t, "generic", session.KBDomainIDSnapshot())
+	require.Equal(t, kb.BindingTypeSession, hints.input.BindingType)
+	require.Equal(t, session.ID, hints.input.BindingTarget)
+	require.Equal(t, "user-1", hints.input.OwnerID)
 }
 
 // mustSendResponse 在后台 goroutine 中向 SessionManager 发送响应，用于解除

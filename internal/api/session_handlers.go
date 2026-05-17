@@ -72,8 +72,9 @@ type SessionDetailResponse struct {
 
 // UpdateSessionRequest 更新会话请求
 type UpdateSessionRequest struct {
-	Name string   `json:"name,omitempty"`
-	Tags []string `json:"tags,omitempty"`
+	Name       string   `json:"name,omitempty"`
+	KBDomainID string   `json:"kb_domain_id,omitempty"`
+	Tags       []string `json:"tags,omitempty"`
 }
 
 // SendMessageRequest 发送消息请求
@@ -276,6 +277,15 @@ func (s *Server) handleUpdateSession(w http.ResponseWriter, r *http.Request) {
 		if resp.Error != "" {
 			writeJSON(w, http.StatusInternalServerError, ErrorResponse{
 				Error: resp.Error,
+				Code:  errs.CodeInternal,
+			})
+			return
+		}
+	}
+	if strings.TrimSpace(req.KBDomainID) != "" {
+		if err := s.master.SetSessionKBDomain(r.Context(), sessionID, strings.TrimSpace(req.KBDomainID), true); err != nil {
+			writeJSON(w, http.StatusInternalServerError, ErrorResponse{
+				Error: err.Error(),
 				Code:  errs.CodeInternal,
 			})
 			return

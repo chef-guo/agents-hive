@@ -12,6 +12,8 @@
 
 **Repository:** [GitHub](https://github.com/chef-guo/agents-hive) | [Gitee mirror](https://gitee.com/smart_kitchen/agents-hive)
 
+**Developer Guide:** [DEVELOPER_GUIDE.md](DEVELOPER_GUIDE.md)
+
 agents-hive is an engineering runtime and quality control plane for ReAct agents. It does more than connect models to tools: it brings task ingress, planning, tool calls, human approval, SubAgent collaboration, memory context, IM delivery, execution tracing, quality evaluation, optimization, and rollback into one traceable and governable runtime chain.
 
 The hard production problems are not just "how does the model call a function?" They are: why did the agent make this decision, which capabilities did it call, did it cross a permission boundary, where did the failure happen, can the run be replayed and evaluated, and can the next run avoid the same class of mistake? Hive turns agents from chat assistants with tools into hosted, constrained, auditable, scored, regression-tested, and continuously improving execution units.

@@ -53,6 +53,7 @@ export interface SendOptions {
 interface Props {
   sessionId: string;
   onSend: (content: string, options?: SendOptions) => void;
+  onRequireSession?: () => Promise<string>;
   onStop?: () => void;
   disabled?: boolean;
   placeholder?: string;
@@ -64,6 +65,7 @@ interface Props {
 export function ChatInput({
   sessionId,
   onSend,
+  onRequireSession,
   onStop,
   disabled,
   placeholder,
@@ -116,7 +118,11 @@ export function ChatInput({
 
   const handleSwitchModel = useCallback(async (name: string) => {
     try {
-      await client.switchModel(sessionId, name);
+      const targetSessionId = sessionId || await onRequireSession?.();
+      if (!targetSessionId) {
+        throw new Error(t('sessions.newSession', '新会话'));
+      }
+      await client.switchModel(targetSessionId, name);
       useChatStore.setState((s) => ({
         activeModel: name,
         availableModels: s.availableModels.map((model) => ({
@@ -128,7 +134,7 @@ export function ChatInput({
       addToast('error', e instanceof Error ? e.message : t('common.error'));
     }
     setModelOpen(false);
-  }, [client, sessionId, addToast, t]);
+  }, [client, sessionId, onRequireSession, addToast, t]);
 
   const processFiles = useCallback((inputFiles: globalThis.File[]) => {
     const remaining = MAX_FILE_COUNT - files.length;
@@ -415,6 +421,7 @@ export function ChatInput({
               {disabled && onStop ? (
                 <button
                   onClick={onStop}
+                  aria-label={t('chat.stop', '停止')}
                   className="p-2 rounded-xl transition-all bg-red-500 text-white hover:bg-red-600 shadow-sm"
                   title={t('chat.stop', '停止')}
                 >
@@ -424,6 +431,7 @@ export function ChatInput({
                 <button
                   onClick={handleSubmit}
                   disabled={!canSend}
+                  aria-label={t('chat.send', '发送')}
                   className={`p-2 rounded-xl transition-all ${
                     canSend
                       ? 'bg-[var(--accent-600)] text-white hover:bg-[var(--accent-700)] shadow-sm'

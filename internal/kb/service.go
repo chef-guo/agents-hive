@@ -1,6 +1,12 @@
 package kb
 
-import "github.com/chef-guo/agents-hive/internal/agentquality"
+import (
+	"context"
+	"strings"
+	"time"
+
+	"github.com/chef-guo/agents-hive/internal/agentquality"
+)
 
 type Service struct {
 	store            Store
@@ -15,6 +21,23 @@ type Service struct {
 
 type QualityRecorder interface {
 	RecordKBQualityEvent(sessionID string, event agentquality.Event)
+}
+
+type ActiveBindingHintInput struct {
+	OwnerScope    OwnerScope
+	OwnerID       string
+	BindingType   BindingType
+	BindingTarget string
+	DomainID      string
+	Now           time.Time
+}
+
+func boolPtr(v bool) *bool {
+	return &v
+}
+
+type activeBindingDomainFinder interface {
+	FindActiveBindingDomains(ctx context.Context, query BindingQuery, now time.Time) ([]string, error)
 }
 
 type ServiceOption func(*Service)
@@ -68,6 +91,55 @@ func (s *Service) SetQualityRecorder(recorder QualityRecorder) {
 		return
 	}
 	s.qualityRecorder = recorder
+}
+
+func (s *Service) ActiveBindingHint(ctx context.Context, input ActiveBindingHintInput) (string, bool, error) {
+	if s == nil || s.store == nil {
+		return "", false, ErrInvalidInput
+	}
+	if input.OwnerScope == "" || strings.TrimSpace(input.OwnerID) == "" || input.BindingType == "" || strings.TrimSpace(input.BindingTarget) == "" {
+		return "", false, ErrInvalidScope
+	}
+	now := input.Now
+	if now.IsZero() {
+		now = time.Now()
+	}
+	domainID := strings.TrimSpace(input.DomainID)
+	var domains []string
+	if domainID != "" {
+		domains = []string{domainID}
+	} else if finder, ok := s.store.(activeBindingDomainFinder); ok {
+		found, err := finder.FindActiveBindingDomains(ctx, BindingQuery{
+			OwnerScope:    input.OwnerScope,
+			OwnerID:       strings.TrimSpace(input.OwnerID),
+			BindingType:   input.BindingType,
+			BindingTarget: strings.TrimSpace(input.BindingTarget),
+			Enabled:       boolPtr(true),
+		}, now)
+		if err != nil {
+			return "", false, err
+		}
+		domains = found
+	}
+	for _, d := range domains {
+		bindings, err := s.store.ListBindingsForManagement(ctx, BindingQuery{
+			DomainID:      d,
+			OwnerScope:    input.OwnerScope,
+			OwnerID:       strings.TrimSpace(input.OwnerID),
+			BindingType:   input.BindingType,
+			BindingTarget: strings.TrimSpace(input.BindingTarget),
+			Enabled:       boolPtr(true),
+		})
+		if err != nil {
+			return "", false, err
+		}
+		for _, binding := range bindings {
+			if binding.Active(now) {
+				return binding.DomainID, true, nil
+			}
+		}
+	}
+	return "", false, nil
 }
 
 func WithSectionLimits(maxNodeIDs, maxBytes int) ServiceOption {

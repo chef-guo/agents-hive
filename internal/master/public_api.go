@@ -373,11 +373,7 @@ func (m *Master) SetSessionKBDomain(ctx context.Context, sessionID, domainID str
 		}
 		return err
 	}
-	if enabled {
-		record.KBDomainID = domainID
-	} else if domainID == "" || strings.TrimSpace(record.KBDomainID) == domainID {
-		record.KBDomainID = ""
-	}
+	record.KBDomainID = session.KBDomainIDSnapshot()
 	if record.UpdatedAt == "" {
 		record.UpdatedAt = time.Now().Format(time.RFC3339)
 	}

@@ -2,11 +2,13 @@ package master
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 
 	"github.com/chef-guo/agents-hive/internal/compaction"
@@ -15,6 +17,7 @@ import (
 	"github.com/chef-guo/agents-hive/internal/skills"
 	"github.com/chef-guo/agents-hive/internal/store"
 	"github.com/chef-guo/agents-hive/internal/subagent"
+	"github.com/chef-guo/agents-hive/internal/toolruntime"
 )
 
 func TestCompactMessages_NoCompression(t *testing.T) {
@@ -603,6 +606,31 @@ func TestLazyMode_StatisticsTracking(t *testing.T) {
 	stats = m.GetCompactionStats()
 	assert.Equal(t, uint64(1), stats.TriggerCount, "触发次数不变")
 	assert.Equal(t, uint64(2), stats.SkippedCount, "跳过次数增加")
+}
+
+func TestRemoveStaleKBNoBindingResultsWhenSessionBound(t *testing.T) {
+	staleContent := toolruntime.RecoverableToolCallErrorContent("kb_unavailable_or_not_bound", "kb.doc.meta 未执行: kb: no kb bound")
+	messages := []llm.MessageWithTools{
+		{Role: "user", Content: llm.NewTextContent("知识库有哪些内容")},
+		{Role: "assistant", ToolCalls: []llm.ToolCall{{ID: "call-kb-old", Name: "kb.doc.meta", Arguments: json.RawMessage(`{}`)}}},
+		{Role: "tool", ToolCallID: "call-kb-old", ToolName: "kb.doc.meta", IsError: true, Content: llm.NewTextContent(staleContent), Metadata: map[string]string{"error_kind": "kb_unavailable_or_not_bound"}},
+		{Role: "assistant", ToolCalls: []llm.ToolCall{{ID: "call-read", Name: "read_file", Arguments: json.RawMessage(`{"path":"README.md"}`)}}},
+		{Role: "tool", ToolCallID: "call-read", ToolName: "read_file", Content: llm.NewTextContent("README")},
+		{Role: "user", Content: llm.NewTextContent("再列一下知识库")},
+	}
+
+	got := removeStaleKBNoBindingResults(messages, true, zap.NewNop())
+
+	require.Len(t, got, 4)
+	for _, msg := range got {
+		require.NotContains(t, msg.Content.Text(), "kb_unavailable_or_not_bound")
+		require.NotEqual(t, "call-kb-old", msg.ToolCallID)
+		for _, call := range msg.ToolCalls {
+			require.NotEqual(t, "call-kb-old", call.ID)
+		}
+	}
+	require.Equal(t, "call-read", got[1].ToolCalls[0].ID)
+	require.Equal(t, "call-read", got[2].ToolCallID)
 }
 
 // PruneToolOutputs 测试

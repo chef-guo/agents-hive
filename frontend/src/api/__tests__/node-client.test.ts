@@ -16,6 +16,7 @@ function createApiClientMock() {
     post: vi.fn(),
     postLong: vi.fn(),
     put: vi.fn(),
+    patch: vi.fn(),
     delete: vi.fn(),
     postFormLong: vi.fn(),
   } as unknown as ApiClient & {
@@ -23,6 +24,7 @@ function createApiClientMock() {
     post: ReturnType<typeof vi.fn>;
     postLong: ReturnType<typeof vi.fn>;
     put: ReturnType<typeof vi.fn>;
+    patch: ReturnType<typeof vi.fn>;
     delete: ReturnType<typeof vi.fn>;
     postFormLong: ReturnType<typeof vi.fn>;
   };
@@ -155,6 +157,16 @@ describe('LocalNodeClient admin capability endpoints', () => {
       reasoning_effort: undefined,
       kb_domain_id: 'support',
     });
+  });
+
+  it('persists explicit KB domain on session updates', async () => {
+    const api = createApiClientMock();
+    api.patch.mockResolvedValue(undefined);
+    const client = new LocalNodeClient(api);
+
+    await client.updateSession('sess-1', { kb_domain_id: 'support' });
+
+    expect(api.patch).toHaveBeenCalledWith('/api/v1/sessions/sess-1', { kb_domain_id: 'support' });
   });
 
   it('returns regenerate response from an encoded session endpoint', async () => {

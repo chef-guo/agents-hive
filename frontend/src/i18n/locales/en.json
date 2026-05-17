@@ -219,6 +219,177 @@
     "deleteError": "Failed to delete skill",
     "confirmDelete": "Remove DB override for \"{{name}}\"? The FS version (if any) will be restored."
   },
+  "knowledgeBase": {
+    "title": "Knowledge Base",
+    "subtitle": "Manage tree-structured documents, namespaces, and Agent runtime bindings.",
+    "domain": "Domain",
+    "tabs": {
+      "namespaces": "Namespaces",
+      "documents": "Documents",
+      "bindings": "Bindings"
+    },
+    "actions": {
+      "archive": "Archive",
+      "addImageAssets": "Add Image Assets",
+      "create": "Create",
+      "createBinding": "New Binding",
+      "createNamespace": "New Namespace",
+      "disable": "Disable",
+      "edit": "Edit",
+      "import": "Import",
+      "importDocument": "Import Document",
+      "insertAsset": "Insert {{asset}}",
+      "openDocuments": "Open Documents",
+      "preview": "Preview",
+      "selectDocumentFile": "Select Document File",
+      "viewStructure": "View Structure"
+    },
+    "columns": {
+      "actions": "Actions",
+      "effectiveAt": "Effective At",
+      "effectiveExpires": "Effective/Expires",
+      "id": "ID",
+      "longSectionSummary": "Long Section/Summary",
+      "name": "Name",
+      "namespace": "Namespace",
+      "source": "Source",
+      "status": "Status",
+      "strategy": "Strategy",
+      "target": "Target",
+      "title": "Title",
+      "type": "Type",
+      "version": "Version"
+    },
+    "filters": {
+      "allNamespaces": "All Namespaces",
+      "allStatuses": "All Statuses"
+    },
+    "placeholders": {
+      "searchDocuments": "Search documents...",
+      "searchNamespaces": "Search namespaces...",
+      "selectNamespace": "Select namespace"
+    },
+    "namespace": {
+      "longSectionDisabled": "Long section protection off",
+      "longSectionThreshold": "Long section threshold {{count}}",
+      "summaryThreshold": "Summary threshold {{count}}"
+    },
+    "status": {
+      "bound": "Bound",
+      "disabled": "Disabled",
+      "enabled": "Enabled",
+      "longTerm": "Long-term",
+      "unbound": "Unbound"
+    },
+    "documentStatuses": {
+      "active": "Active",
+      "archived": "Archived",
+      "draft": "Draft",
+      "revoked": "Revoked"
+    },
+    "bindingTypes": {
+      "agent": "Agent",
+      "domain": "Domain",
+      "session_template": "Session Template",
+      "session": "Session",
+      "tenant": "Tenant",
+      "user": "User",
+      "system": "System"
+    },
+    "runtimeFields": {
+      "agentId": "Agent ID",
+      "domainId": "Domain ID",
+      "sessionTemplateId": "Session Template ID",
+      "sessionId": "Session ID",
+      "tenantId": "Tenant ID"
+    },
+    "empty": {
+      "bindings": "No bindings",
+      "documents": "No documents",
+      "effectiveBindings": "No effective bindings",
+      "markdown": "No Markdown content",
+      "namespaces": "No namespaces",
+      "selectNamespaceFirst": "Select a namespace first",
+      "tree": "No structure data"
+    },
+    "effective": {
+      "title": "Effective Bindings Preview",
+      "subtitle": "Resolve the namespaces available for a runtime context. Source shows the binding type and target."
+    },
+    "tree": {
+      "lines": "lines {{start}}-{{end}}",
+      "path": "path",
+      "selectHint": "Select a document to inspect its tree",
+      "title": "Document Structure",
+      "tokens": "{{count}} tokens"
+    },
+    "fields": {
+      "bindingTarget": "Binding Target",
+      "bindingType": "Binding Type",
+      "enableLongSectionProtection": "Enable long section protection",
+      "longSectionThreshold": "Long Section Threshold",
+      "name": "Name",
+      "sourceURI": "Source URI",
+      "summaryThreshold": "Summary Threshold",
+      "title": "Title",
+      "version": "Version"
+    },
+    "ingest": {
+      "converting": "Converting document and extracting images...",
+      "defaultMarkdown": "# New Document\n\n",
+      "documentFileHint": "Document file: {{filename}}. It has been converted to editable Markdown first. Adjust image line positions before importing; the backend binds each image to the section containing its Markdown image syntax.",
+      "editableFileHint": "Loaded editable document: {{filename}}. Use the buttons below to insert image assets at the current cursor position.",
+      "imageAssets": "Image assets: {{assets}}",
+      "markdown": "Markdown",
+      "modalTitle": "Import Document · {{namespace}}",
+      "renderedPreview": "Rendered Preview"
+    },
+    "report": {
+      "assetColumns": {
+        "boundSection": "Bound Section",
+        "image": "Image"
+      },
+      "line": "line {{line}}",
+      "metrics": {
+        "boundAssets": "Bound Images",
+        "convertedAssets": "Converted Images",
+        "durationMs": "Duration ms",
+        "imageRefs": "Image Refs",
+        "markdownLines": "Markdown Lines",
+        "sections": "Sections",
+        "unboundAssets": "Unbound Images",
+        "uploadedAssets": "Uploaded Images"
+      },
+      "notInSection": "Outside any section range",
+      "page": "page {{page}}",
+      "provider": "Converter: {{provider}}",
+      "quality": "Quality: {{quality}}",
+      "title": "Latest Ingest Report",
+      "warningSeparator": "; "
+    },
+    "confirm": {
+      "archiveDocument": "Archive document \"{{title}}\"?",
+      "disableBinding": "Disable {{type}}:{{target}}?"
+    },
+    "toasts": {
+      "bindingCreated": "Binding created",
+      "bindingDisabled": "Binding disabled",
+      "documentArchived": "Document archived",
+      "documentImported": "Document imported",
+      "documentImportedWithWarnings": "Document imported with warnings: {{warnings}}",
+      "namespaceCreated": "Namespace created"
+    },
+    "errors": {
+      "archiveDocument": "Failed to archive document",
+      "disableBinding": "Failed to disable binding",
+      "loadBindings": "Failed to load KB bindings",
+      "loadDocuments": "Failed to load KB documents",
+      "loadNamespaces": "Failed to load KB namespaces",
+      "loadTree": "Failed to load document structure",
+      "previewEffectiveBindings": "Failed to preview effective bindings",
+      "previewMarkdown": "Failed to preview document conversion"
+    }
+  },
   "common": {
     "connected": "Connected",
     "disconnected": "Disconnected",
