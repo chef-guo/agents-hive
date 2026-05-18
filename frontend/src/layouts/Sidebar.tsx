@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { NavLink, useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { BookOpen, Trash2, Plus, MessageSquare, Search, ExternalLink, Star, Tag, Play, Settings as SettingsIcon } from 'lucide-react';
+import { BookOpen, Trash2, Plus, MessageSquare, Search, ExternalLink, Star, Tag, Play, Settings as SettingsIcon, LogIn } from 'lucide-react';
 import { useSessionStore } from '../store/session';
 import { useNodeClient } from '../hooks/useNodeClient';
 import { useAppStore } from '../store/app';
@@ -206,7 +206,6 @@ export function Sidebar() {
   const createSession = useSessionStore((s) => s.createSession);
   const sidebarOpen = useAppStore((s) => s.sidebarOpen);
   const connected = useWsStore((s) => s.connected);
-  const authEnabled = useAuthStore((s) => s.authEnabled);
   const user = useAuthStore((s) => s.user);
   const chatSessionId = useChatStore((s) => s.currentSessionId);
   const isBusy = useChatStore((s) => s.sending || s.streaming);
@@ -368,17 +367,34 @@ export function Sidebar() {
           {BOTTOM_NAV.map((item) => (
             <NavItem key={item.path} item={item} sidebarOpen={sidebarOpen} t={t} />
           ))}
-          {/* 管理后台入口 */}
-          {(authEnabled === false || user?.role === 'admin') && (
+          {!user && (
             <NavLink
-              to="/admin"
-              className="flex items-center gap-3 px-3 py-2 text-sm rounded-lg transition-colors text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-secondary)]"
-              title={!sidebarOpen ? t('nav.admin') : undefined}
+              to="/login"
+              className={({ isActive }) =>
+                `flex items-center gap-3 px-3 py-2 text-sm rounded-lg transition-colors ${
+                  sidebarOpen ? '' : 'justify-center px-0'
+                } ${
+                  isActive
+                    ? 'bg-[var(--bg-secondary)] text-[var(--text-primary)] font-medium'
+                    : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-secondary)]'
+                }`
+              }
+              title={!sidebarOpen ? t('nav.login') : undefined}
+              aria-label={t('nav.login')}
             >
-              <ExternalLink className="w-[18px] h-[18px] shrink-0" />
-              {sidebarOpen && <span>{t('nav.admin')}</span>}
+              <LogIn className="w-[18px] h-[18px] shrink-0 text-[var(--accent-600)]" />
+              {sidebarOpen && <span>{t('nav.login')}</span>}
             </NavLink>
           )}
+          {/* 管理后台入口 */}
+          <NavLink
+            to="/admin"
+            className="flex items-center gap-3 px-3 py-2 text-sm rounded-lg transition-colors text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-secondary)]"
+            title={!sidebarOpen ? t('nav.admin') : undefined}
+          >
+            <ExternalLink className="w-[18px] h-[18px] shrink-0" />
+            {sidebarOpen && <span>{t('nav.admin')}</span>}
+          </NavLink>
         </nav>
 
         {/* 连接状态 */}

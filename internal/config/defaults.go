@@ -13,7 +13,7 @@ func defaultBoolPtr(v bool) *bool {
 
 // 默认配置值
 const (
-	DefaultServerPort          = 8080
+	DefaultServerPort          = 18080
 	DefaultLogLevel            = "info"
 	DefaultLogFile             = "~/.claw/logs/claw.log" // 默认日志文件路径
 	DefaultConsoleLevel        = "error"                 // CLI 模式默认控制台只显示错误

@@ -163,13 +163,13 @@ func (c *acpClientImpl) CreateTerminal(ctx context.Context, req acp.CreateTermin
 	return acp.CreateTerminalResponse{TerminalId: id}, nil
 }
 
-// KillTerminalCommand 远程 Agent 请求终止终端命令。
-func (c *acpClientImpl) KillTerminalCommand(_ context.Context, req acp.KillTerminalCommandRequest) (acp.KillTerminalCommandResponse, error) {
+// KillTerminal 远程 Agent 请求终止终端命令（不释放终端资源）。
+func (c *acpClientImpl) KillTerminal(_ context.Context, req acp.KillTerminalRequest) (acp.KillTerminalResponse, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	term, ok := c.terminals[req.TerminalId]
 	if !ok {
-		return acp.KillTerminalCommandResponse{}, fmt.Errorf("terminal %s 不存在", req.TerminalId)
+		return acp.KillTerminalResponse{}, fmt.Errorf("terminal %s 不存在", req.TerminalId)
 	}
 	signal := "killed"
 	term.signal = &signal
@@ -178,7 +178,7 @@ func (c *acpClientImpl) KillTerminalCommand(_ context.Context, req acp.KillTermi
 		term.exitCode = &code
 	}
 	c.terminals[req.TerminalId] = term
-	return acp.KillTerminalCommandResponse{}, nil
+	return acp.KillTerminalResponse{}, nil
 }
 
 // TerminalOutput 远程 Agent 请求获取终端输出。

@@ -27,6 +27,9 @@ function buildStore(overrides: Partial<ReturnType<typeof useAuthStore>>) {
     token: null,
     loading: false,
     authEnabled: null,
+    allowPublicRegistration: false,
+    inviteErrorWeakDistinction: false,
+    hasLocalRegister: false,
     authError: null,
     checkAuthEnabled: vi.fn().mockResolvedValue(false),
     checkAuth: vi.fn().mockResolvedValue(false),
@@ -60,13 +63,15 @@ function renderGuard(storeState: ReturnType<typeof buildStore>) {
 }
 
 describe('AuthGuard', () => {
-  it('authEnabled=false → 直接渲染 children', async () => {
+  it('authEnabled=false → 显示认证未就绪（不绕过鉴权）', async () => {
     const store = buildStore({ authEnabled: false, loading: false });
     renderGuard(store);
 
     await waitFor(() => {
-      expect(screen.getByText('protected content')).toBeInTheDocument();
+      expect(screen.getByText('服务暂不可用')).toBeInTheDocument();
+      expect(screen.getByText(/认证引擎未就绪/)).toBeInTheDocument();
     });
+    expect(screen.queryByText('protected content')).not.toBeInTheDocument();
   });
 
   it('authEnabled=true + user 有效 → 渲染 children', async () => {

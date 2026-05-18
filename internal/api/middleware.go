@@ -113,7 +113,7 @@ func (s *Server) recoveryMiddleware(next http.Handler) http.Handler {
 }
 
 // defaultDevPorts 未显式配置 CORS 时允许的开发端口白名单
-var defaultDevPorts = []string{"3000", "5173", "8080"}
+var defaultDevPorts = []string{"3000", "5173", "18080"}
 
 func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 	// 构建允许的来源集合

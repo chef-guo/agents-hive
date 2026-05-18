@@ -1,5 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { ensureFreshToken, refreshToken, shouldRefreshToken, useAuthStore } from '../auth';
+import {
+  cancelAuthRefresh,
+  ensureFreshToken,
+  refreshToken,
+  shouldRefreshToken,
+  useAuthStore,
+} from '../auth';
 import { apiClient } from '../../api/client';
 
 // mock apiClient
@@ -174,6 +180,48 @@ describe('refreshToken', () => {
 
     expect(token).toBeNull();
     expect(useAuthStore.getState().token).toBeNull();
+  });
+
+  it('退出登录取消刷新后，进行中的 refresh 不应把 token 写回', async () => {
+    let resolveRefresh: (v: { token: string }) => void;
+    mockPost.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveRefresh = resolve;
+        }),
+    );
+
+    const refreshP = refreshToken();
+    cancelAuthRefresh();
+    useAuthStore.getState().clearAuth();
+
+    resolveRefresh!({ token: 'stale-after-logout' });
+    const token = await refreshP;
+
+    expect(token).toBeNull();
+    expect(localStorage.getItem('auth_token')).toBeNull();
+    expect(useAuthStore.getState().token).toBeNull();
+  });
+});
+
+describe('logout', () => {
+  it('清除凭证并跳转登录页', () => {
+    const replace = vi.fn();
+    vi.stubGlobal('location', { ...window.location, replace });
+
+    localStorage.setItem('auth_token', 't');
+    useAuthStore.setState({
+      token: 't',
+      user: { id: '1', display_name: '', email: '', avatar_url: '', department: '', role: 'user' },
+    });
+
+    useAuthStore.getState().logout();
+
+    expect(localStorage.getItem('auth_token')).toBeNull();
+    expect(useAuthStore.getState().token).toBeNull();
+    expect(replace).toHaveBeenCalledWith('/login');
+
+    vi.unstubAllGlobals();
   });
 });
 

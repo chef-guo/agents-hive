@@ -149,16 +149,52 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusInternalServerError, ErrorResponse{Error: err.Error(), Code: errs.CodeInternal})
 			return
 		}
-		s.authEngine.InvalidateUserCache(targetID)
+		s.authEngine.InvalidateUserCacheCluster(r.Context(), targetID)
 	}
 	if body.Status != nil {
 		if err := s.authEngine.Store().UpdateUserStatus(r.Context(), targetID, *body.Status); err != nil {
 			writeJSON(w, http.StatusInternalServerError, ErrorResponse{Error: err.Error(), Code: errs.CodeInternal})
 			return
 		}
-		s.authEngine.InvalidateUserCache(targetID)
+		s.authEngine.InvalidateUserCacheCluster(r.Context(), targetID)
 	}
 
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// handleDeleteUser DELETE /api/v1/admin/users/{id}
+func (s *Server) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
+	targetID := r.PathValue("id")
+	currentUser := auth.UserFrom(r.Context())
+	if currentUser != nil && currentUser.ID == targetID {
+		writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "不能删除当前登录账号", Code: errs.CodeInvalidInput})
+		return
+	}
+	target, err := s.authEngine.Store().GetUserByID(r.Context(), targetID)
+	if err != nil || target == nil {
+		writeJSON(w, http.StatusNotFound, ErrorResponse{Error: "用户不存在", Code: errs.CodeNotFound})
+		return
+	}
+	if target.Role == "admin" && target.Status == "active" {
+		n, err := s.authEngine.Store().CountActiveAdmins(r.Context())
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, ErrorResponse{Error: err.Error(), Code: errs.CodeInternal})
+			return
+		}
+		if n <= 1 {
+			writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "不能删除最后一个可用管理员", Code: errs.CodeInvalidInput})
+			return
+		}
+	}
+	if err := s.authEngine.Store().DeleteUser(r.Context(), targetID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeJSON(w, http.StatusNotFound, ErrorResponse{Error: "用户不存在", Code: errs.CodeNotFound})
+			return
+		}
+		writeJSON(w, http.StatusInternalServerError, ErrorResponse{Error: err.Error(), Code: errs.CodeInternal})
+		return
+	}
+	s.authEngine.InvalidateUserCacheCluster(r.Context(), targetID)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 

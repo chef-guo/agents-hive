@@ -266,7 +266,7 @@ func InitServer(cfg *config.Config, configPath string, logger *zap.Logger) *Serv
 
 	// 1. Skills (含 Discovery / AdminChecker / SpecSkillResolver 一并装配——§11.2-11.6)
 	sc.SkillReg, sc.SkillFinder, sc.SkillDiscovery = initSkills(cfg, logger)
-	sc.AdminChecker = initAdminChecker(cfg)
+	sc.AdminChecker = skills.NewDenyAllAdminChecker() // 认证引擎就绪后于 initAuthEngine 之后覆盖
 	sc.SpecSkillResolver = initSpecSkillResolver(cfg, sc.SkillReg, sc.SkillDiscovery)
 
 	// 2. 模型注册表
@@ -316,6 +316,7 @@ func InitServer(cfg *config.Config, configPath string, logger *zap.Logger) *Serv
 		pgPool = pgStore.Pool()
 	}
 	sc.AuthEngine = initAuthEngine(context.Background(), cfg, pgPool, logger)
+	sc.AdminChecker = initAdminChecker(sc.AuthEngine)
 	sc.AssetService = initAssetService(cfg, pgPool, logger)
 
 	// 7.0.5 Skill DB 覆盖层（pg 可用时启用热重载）
@@ -709,10 +710,9 @@ func mergeMarketplaceURLs(primary, legacy []string) []string {
 	return out
 }
 
-// initAdminChecker 根据 auth 配置选择 AdminChecker 实现。
-// tasks.md 5.3 + 11.4：auth 启用时用 role-based checker，否则 deny-all 保守默认。
-func initAdminChecker(cfg *config.Config) skills.AdminChecker {
-	if cfg != nil && cfg.Auth.Enabled {
+// initAdminChecker 根据认证引擎是否挂载选择 AdminChecker（与 HTTP authEngine 语义一致）。
+func initAdminChecker(authEngine *auth.Engine) skills.AdminChecker {
+	if authEngine != nil {
 		return NewAuthAdminChecker()
 	}
 	return skills.NewDenyAllAdminChecker()
@@ -1665,7 +1665,7 @@ func initExecutor(cfg *config.Config, logger *zap.Logger) sandbox.Executor {
 }
 
 func initAuthEngine(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, logger *zap.Logger) *auth.Engine {
-	if !cfg.Auth.Enabled || pool == nil {
+	if pool == nil {
 		return nil
 	}
 	// FrontendURL 验证：必须是合法的 HTTP/HTTPS URL
@@ -1704,8 +1704,14 @@ func initAuthEngine(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool,
 		logger.Fatal("auth engine init failed: 加载认证 Provider 失败", zap.Error(err))
 	}
 	if len(engine.ListProviders()) == 0 {
-		logger.Warn("auth.enabled=true 但尚未配置任何 Provider，请通过 Admin API 添加")
+		logger.Warn("认证引擎已初始化但尚未配置 OAuth/LDAP Provider；本地账号仍可用")
 	}
+	if seeded, err := auth.SeedDefaultAdmin(ctx, authStore, auth.SeedDefaultAdminEnabled(cfg.Auth.SeedDefaultAdmin)); err != nil {
+		logger.Warn("默认 admin 种子账号写入失败", zap.Error(err))
+	} else if seeded {
+		logger.Info("已种子默认管理员", zap.String("username", "admin"), zap.String("hint", "初始密码 admin，请尽快修改"))
+	}
+	auth.StartCacheInvalidationListener(ctx, pool, engine, logger)
 	logger.Info("认证引擎已初始化")
 	return engine
 }

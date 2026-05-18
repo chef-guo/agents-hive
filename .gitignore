@@ -54,3 +54,15 @@ openspec/
 config.prd.json
 hive-linux
 agentquality-benchmark
+
+# Docker Compose 默认挂载的宿主机工作目录（会话数据）
+.hive-workdir/
+
+# Log files
+logs/
+
+# Environment variables
+.env
+
+# Documentation
+docs/

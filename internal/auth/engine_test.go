@@ -108,9 +108,42 @@ func (m *mockStore) CountUsers(_ context.Context) (int64, error) {
 	return int64(len(m.users)), nil
 }
 
+func (m *mockStore) DeleteUser(_ context.Context, userID string) error {
+	delete(m.byID, userID)
+	return nil
+}
+func (m *mockStore) CountActiveAdmins(_ context.Context) (int64, error) { return 1, nil }
+func (m *mockStore) FindLocalUserByLogin(_ context.Context, login string) (*User, string, error) {
+	return nil, "", nil
+}
+func (m *mockStore) CreateUserWithPassword(ctx context.Context, user *User, _ string) error {
+	return m.CreateUser(ctx, user)
+}
+func (m *mockStore) RegisterUserWithInvite(ctx context.Context, user *User, _ string, _ string) error {
+	return m.CreateUser(ctx, user)
+}
+func (m *mockStore) CreateInviteCode(_ context.Context, _ *InviteCode, _ []byte, _ string) error {
+	return nil
+}
+func (m *mockStore) GetInviteCodeByID(_ context.Context, _ string) (*InviteCode, error) { return nil, nil }
+func (m *mockStore) ListInviteCodes(_ context.Context) ([]*InviteCode, error) { return nil, nil }
+func (m *mockStore) UpdateInviteCode(_ context.Context, _ string, _ *bool, _ *string, _ *time.Time) error {
+	return nil
+}
+func (m *mockStore) DeleteInviteCode(_ context.Context, _ string) error { return nil }
+func (m *mockStore) FindInviteByLookup(_ context.Context, _ []byte) (*InviteCode, error) {
+	return nil, nil
+}
+
 func newTestEngine(store Store) *Engine {
 	mgr := NewJWTManager("test-secret", time.Hour, 7*24*time.Hour)
 	return NewEngine(store, mgr, zap.NewNop())
+}
+
+func TestNewEngine_mountsLocalProvider(t *testing.T) {
+	engine := newTestEngine(newMockStore())
+	_, ok := engine.GetCredentialProvider(localProviderName)
+	require.True(t, ok, "local provider must exist immediately after NewEngine")
 }
 
 func TestFindOrCreateUserIdempotent(t *testing.T) {

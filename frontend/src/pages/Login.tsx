@@ -1,13 +1,16 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '../store/auth';
 import type { AuthProvider } from '../store/auth';
 
 export function Login() {
+  const { t } = useTranslation();
   const { authEnabled } = useAuthStore();
   const checkAuthEnabled = useAuthStore((s) => s.checkAuthEnabled);
   const fetchProviders = useAuthStore((s) => s.fetchProviders);
   const setAuth = useAuthStore((s) => s.setAuth);
+  const checkAuth = useAuthStore((s) => s.checkAuth);
   const navigate = useNavigate();
 
   const [providers, setProviders] = useState<AuthProvider[]>([]);
@@ -19,14 +22,20 @@ export function Login() {
   const [ldapError, setLdapError] = useState('');
   const [ldapSubmitting, setLdapSubmitting] = useState(false);
 
-  // auth 未启用 → redirect 首页
+  // 进入登录页时若尚未拉取 auth 开关，补一次检测
   useEffect(() => {
-    const init = async () => {
-      const enabled = authEnabled !== null ? authEnabled : await checkAuthEnabled();
-      if (!enabled) navigate('/', { replace: true });
-    };
-    init();
-  }, [authEnabled, checkAuthEnabled, navigate]);
+    if (authEnabled === null) {
+      void checkAuthEnabled();
+    }
+  }, [authEnabled, checkAuthEnabled]);
+
+  // 已登录则不必停留在登录页（退出后若 token 被误写回也会跳走，需配合 logout 取消 refresh）
+  useEffect(() => {
+    if (!localStorage.getItem('auth_token')) return;
+    void checkAuth().then((ok) => {
+      if (ok) navigate('/', { replace: true });
+    });
+  }, [checkAuth, navigate]);
 
   // 加载 provider 列表
   useEffect(() => {
@@ -61,10 +70,12 @@ export function Login() {
     setLdapSubmitting(true);
 
     try {
+      // 账密表单走 local（种子 admin、注册账号）；勿在存在 LDAP 配置时误用 ldap provider。
+      const providerName = showLocalForm ? 'local' : (ldapProvider?.name ?? 'ldap');
       const resp = await fetch('/api/v1/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ provider: ldapProvider?.name || 'ldap', username: username.trim(), password }),
+        body: JSON.stringify({ provider: providerName, username: username.trim(), password }),
       });
 
       if (!resp.ok) {
@@ -88,8 +99,39 @@ export function Login() {
     }
   };
 
-  const oauthProviders = providers.filter((p) => p.provider_type !== 'ldap');
+  const { hasLocalRegister, allowPublicRegistration } = useAuthStore();
+  const oauthProviders = providers.filter((p) => p.provider_type !== 'ldap' && p.provider_type !== 'local');
   const ldapProvider = providers.find((p) => p.provider_type === 'ldap');
+  const showLocalForm = hasLocalRegister || providers.some((p) => p.provider_type === 'local');
+
+  if (authEnabled === null) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-[var(--bg-primary)]">
+        <div className="text-[var(--text-secondary)] animate-pulse">加载中...</div>
+      </div>
+    );
+  }
+
+  if (authEnabled === false) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-[var(--bg-primary)] px-4">
+        <div className="w-full max-w-md p-8 bg-[var(--bg-card)] rounded-[16px] shadow-sm border border-[var(--border-color)] text-center">
+          <h1 className="text-xl font-semibold text-[var(--text-primary)] font-[Geist]">
+            {t('loginPage.authDisabledTitle')}
+          </h1>
+          <p className="mt-3 text-sm text-[var(--text-secondary)] leading-relaxed">
+            {t('loginPage.authDisabledDesc')}
+          </p>
+          <Link
+            to="/"
+            className="mt-6 inline-flex items-center justify-center rounded-[10px] bg-[var(--accent-600)] px-5 py-2.5 text-sm font-medium text-white hover:bg-[var(--accent-700)] transition-colors"
+          >
+            {t('loginPage.backHome')}
+          </Link>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex items-center justify-center min-h-screen bg-[var(--bg-primary)]">
@@ -102,7 +144,7 @@ export function Login() {
 
         {loadingProviders ? (
           <div className="text-center text-[var(--text-secondary)] animate-pulse">加载中...</div>
-        ) : providers.length === 0 ? (
+        ) : providers.length === 0 && !showLocalForm ? (
           <p className="text-center text-[var(--text-secondary)]">请联系管理员配置登录方式</p>
         ) : (
           <>
@@ -118,7 +160,7 @@ export function Login() {
             ))}
 
             {/* 分隔线 */}
-            {oauthProviders.length > 0 && ldapProvider && (
+            {oauthProviders.length > 0 && (ldapProvider || showLocalForm) && (
               <div className="flex items-center my-4">
                 <div className="flex-1 border-t border-[var(--border-color)]" />
                 <span className="px-3 text-xs text-[var(--text-secondary)]">或</span>
@@ -126,12 +168,12 @@ export function Login() {
               </div>
             )}
 
-            {/* LDAP 表单 */}
-            {ldapProvider && (
+            {/* LDAP / 本地账密 */}
+            {(ldapProvider || showLocalForm) && (
               <form onSubmit={handleLDAP}>
                 <input
                   type="text"
-                  placeholder="用户名"
+                  placeholder={showLocalForm && !ldapProvider ? '邮箱或用户名' : '用户名'}
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   className="w-full mb-3 px-4 py-3 rounded-[10px] border border-[var(--border-color)] bg-[var(--bg-primary)] text-sm text-[var(--text-primary)] placeholder:text-[var(--text-secondary)]"
@@ -156,6 +198,19 @@ export function Login() {
                   {ldapSubmitting ? '登录中...' : '登录'}
                 </button>
               </form>
+            )}
+
+            {showLocalForm && (
+              <p className="mt-6 text-center text-xs text-[var(--text-secondary)] space-x-3">
+                {allowPublicRegistration && (
+                  <Link to="/register" className="text-[var(--accent-600)] hover:underline">
+                    {t('register.publicLink', '注册账号')}
+                  </Link>
+                )}
+                <Link to="/register/invite" className="text-[var(--accent-600)] hover:underline">
+                  {t('register.inviteLink', '持邀请码注册')}
+                </Link>
+              </p>
             )}
           </>
         )}

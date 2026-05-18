@@ -18,8 +18,8 @@
     "adminUsage": "用量统计",
     "adminLLM": "大模型管理",
     "adminAuthProviders": "认证管理",
+    "adminInviteCodes": "邀请码",
     "adminPrompts": "Prompt 管理",
-    "adminKnowledgeBase": "知识库管理",
     "adminQualityCandidates": "质量候选",
     "adminQualityWorkbench": "质量工作台",
     "adminMemoryGovernance": "Memory 治理",
@@ -28,7 +28,14 @@
     "adminSettings": "系统设置",
     "backToChat": "返回对话",
     "preferences": "偏好设置",
-    "replay": "回放"
+    "replay": "回放",
+    "login": "登录",
+    "loginRequiresAuthHint": "管理后台需启用登录认证"
+  },
+  "loginPage": {
+    "authDisabledTitle": "暂未启用登录认证",
+    "authDisabledDesc": "管理后台等页面需要在服务器配置中启用认证。配置完成后刷新本页即可使用登录。",
+    "backHome": "返回首页"
   },
   "memoryGovernance": {
     "injectionExplain": "最近注入解释",
@@ -218,177 +225,6 @@
     "loadError": "加载 skill 失败",
     "deleteError": "删除 skill 失败",
     "confirmDelete": "删除 \"{{name}}\" 的 DB 覆盖？若 FS 中有同名 skill 将自动恢复。"
-  },
-  "knowledgeBase": {
-    "title": "知识库管理",
-    "subtitle": "管理树状章节文档、命名空间和 Agent 运行时绑定。",
-    "domain": "业务域",
-    "tabs": {
-      "namespaces": "命名空间",
-      "documents": "文档",
-      "bindings": "绑定"
-    },
-    "actions": {
-      "archive": "归档",
-      "addImageAssets": "添加图片资产",
-      "create": "创建",
-      "createBinding": "新建绑定",
-      "createNamespace": "新建命名空间",
-      "disable": "禁用",
-      "edit": "编辑",
-      "import": "导入",
-      "importDocument": "导入文档",
-      "insertAsset": "插入 {{asset}}",
-      "openDocuments": "进入文档",
-      "preview": "预览",
-      "selectDocumentFile": "选择文档文件",
-      "viewStructure": "查看结构"
-    },
-    "columns": {
-      "actions": "操作",
-      "effectiveAt": "生效时间",
-      "effectiveExpires": "生效/过期",
-      "id": "ID",
-      "longSectionSummary": "长章节保护/摘要",
-      "name": "名称",
-      "namespace": "命名空间",
-      "source": "来源",
-      "status": "状态",
-      "strategy": "策略",
-      "target": "目标",
-      "title": "标题",
-      "type": "类型",
-      "version": "版本"
-    },
-    "filters": {
-      "allNamespaces": "全部命名空间",
-      "allStatuses": "全部状态"
-    },
-    "placeholders": {
-      "searchDocuments": "搜索文档...",
-      "searchNamespaces": "搜索命名空间...",
-      "selectNamespace": "选择命名空间"
-    },
-    "namespace": {
-      "longSectionDisabled": "长章节保护关闭",
-      "longSectionThreshold": "长章节阈值 {{count}}",
-      "summaryThreshold": "摘要阈值 {{count}}"
-    },
-    "status": {
-      "bound": "已绑定",
-      "disabled": "禁用",
-      "enabled": "启用",
-      "longTerm": "长期",
-      "unbound": "未绑定"
-    },
-    "documentStatuses": {
-      "active": "生效中",
-      "archived": "已归档",
-      "draft": "草稿",
-      "revoked": "已撤销"
-    },
-    "bindingTypes": {
-      "agent": "Agent",
-      "domain": "业务域",
-      "session_template": "会话模板",
-      "session": "会话",
-      "tenant": "租户",
-      "user": "用户",
-      "system": "系统"
-    },
-    "runtimeFields": {
-      "agentId": "Agent ID",
-      "domainId": "业务域 ID",
-      "sessionTemplateId": "会话模板 ID",
-      "sessionId": "会话 ID",
-      "tenantId": "租户 ID"
-    },
-    "empty": {
-      "bindings": "暂无绑定",
-      "documents": "暂无文档",
-      "effectiveBindings": "暂无生效绑定",
-      "markdown": "暂无 Markdown 内容",
-      "namespaces": "暂无命名空间",
-      "selectNamespaceFirst": "请先选择命名空间",
-      "tree": "暂无结构数据"
-    },
-    "effective": {
-      "title": "生效绑定预览",
-      "subtitle": "按运行时上下文解析最终可用命名空间，来源显示为绑定类型和目标。"
-    },
-    "tree": {
-      "lines": "行 {{start}}-{{end}}",
-      "path": "路径",
-      "selectHint": "选择文档后查看树结构",
-      "title": "文档结构",
-      "tokens": "{{count}} 个 token"
-    },
-    "fields": {
-      "bindingTarget": "绑定目标",
-      "bindingType": "绑定类型",
-      "enableLongSectionProtection": "启用长章节保护",
-      "longSectionThreshold": "长章节阈值",
-      "name": "名称",
-      "sourceURI": "来源 URI",
-      "summaryThreshold": "摘要阈值",
-      "title": "标题",
-      "version": "版本"
-    },
-    "ingest": {
-      "converting": "正在转换文档并提取图片...",
-      "defaultMarkdown": "# 新文档\n\n",
-      "documentFileHint": "文档文件：{{filename}}。已先转换为可编辑 Markdown；修改图片行的位置后再导入，后端会按图片语法所在行绑定到章节。",
-      "editableFileHint": "已载入可编辑文档：{{filename}}。图片资产可通过下方按钮插入到当前光标位置。",
-      "imageAssets": "图片资产：{{assets}}",
-      "markdown": "Markdown",
-      "modalTitle": "导入文档 · {{namespace}}",
-      "renderedPreview": "效果预览"
-    },
-    "report": {
-      "assetColumns": {
-        "boundSection": "绑定章节",
-        "image": "图片"
-      },
-      "line": "第 {{line}} 行",
-      "metrics": {
-        "boundAssets": "已绑定图片",
-        "convertedAssets": "转换提图",
-        "durationMs": "耗时 ms",
-        "imageRefs": "图片引用",
-        "markdownLines": "Markdown 行",
-        "sections": "章节",
-        "unboundAssets": "未绑定图片",
-        "uploadedAssets": "上传图片"
-      },
-      "notInSection": "未落到章节范围",
-      "page": "第 {{page}} 页",
-      "provider": "转换器：{{provider}}",
-      "quality": "质量：{{quality}}",
-      "title": "最近一次导入报告",
-      "warningSeparator": "；"
-    },
-    "confirm": {
-      "archiveDocument": "归档文档 \"{{title}}\"？",
-      "disableBinding": "禁用 {{type}}:{{target}}？"
-    },
-    "toasts": {
-      "bindingCreated": "绑定已创建",
-      "bindingDisabled": "绑定已禁用",
-      "documentArchived": "文档已归档",
-      "documentImported": "文档已导入",
-      "documentImportedWithWarnings": "文档已导入，警告：{{warnings}}",
-      "namespaceCreated": "命名空间已创建"
-    },
-    "errors": {
-      "archiveDocument": "归档文档失败",
-      "disableBinding": "禁用绑定失败",
-      "loadBindings": "加载知识库绑定失败",
-      "loadDocuments": "加载知识库文档失败",
-      "loadNamespaces": "加载知识库命名空间失败",
-      "loadTree": "加载文档结构失败",
-      "previewEffectiveBindings": "预览生效绑定失败",
-      "previewMarkdown": "文档转换预览失败"
-    }
   },
   "common": {
     "connected": "已连接",
@@ -757,16 +593,16 @@
       },
       "runtimeSecurity": {
         "title": "运行时与安全",
-        "desc": "管理节点信息、Legacy HITL 回滚规则、命令执行规则、MCP、外部资源和 IM 设置。",
+        "desc": "管理节点信息、权限规则、命令执行规则、MCP、外部资源和 IM 设置。",
         "systemSettings": {
           "title": "1. 系统设置页结构",
           "desc": "后台设置分为系统、安全和集成三个 Tab。",
-          "detail": "## 系统 Tab\n\n显示节点 ID、运行模式、健康状态、版本和运行时长，并提供 Agent 超时设置。\n\n## 安全 Tab\n\n包含 Legacy HITL 回滚规则和命令执行规则。\n\n## 集成 Tab\n\n包含 IM 通道、MCP Servers、外部资源和远程 Agent。"
+          "detail": "## 系统 Tab\n\n显示节点 ID、运行模式、健康状态、版本和运行时长，并提供 Agent 超时设置。\n\n## 安全 Tab\n\n包含权限规则和命令执行规则。\n\n## 集成 Tab\n\n包含 IM 通道、MCP Servers、外部资源和远程 Agent。"
         },
         "permissionRules": {
-          "title": "2. Legacy HITL 回滚规则",
-          "desc": "这些规则只用于 HITL 执行通道和 strict 回滚，不是统一工具策略入口。",
-          "detail": "## 规则含义\n\n每条规则通常由工具名、动作和匹配模式组成。策略包括 allow、ask、deny。\n\n## 生效边界\n\nminimal 模式下，普通工具是否可调用由统一 ToolPolicy 决定；这些规则不能把统一 allow 降级成 ask 或 deny。strict 模式下，它们作为生产回滚/收紧规则生效。\n\n## 建议\n\n不要在这里给 MCP 或未知工具授信。能力授予、路由召回和危险动作判断应进入统一策略层。修改后点击应用，前端会通过运行时配置接口提交到后端。"
+          "title": "2. 权限规则",
+          "desc": "权限规则用于控制工具动作是允许、询问还是拒绝。",
+          "detail": "## 规则含义\n\n每条规则通常由工具名、动作、匹配模式和策略组成。策略包括 allow、ask、deny。\n\n## 建议\n\n对读操作可以更宽松；对写文件、外部发送、删除、执行命令等有副作用动作应默认 ask 或 deny。\n\n## 生效方式\n\n修改后点击应用，前端会通过运行时配置接口提交到后端。"
         },
         "execRules": {
           "title": "3. 命令执行规则",
@@ -833,8 +669,8 @@
         },
         "apiWebSocket": {
           "title": "3. API 与 WebSocket",
-          "desc": "前端通过 `/api/v1` REST/RPC 接口和 WebSocket 与后端通信，开发模式由 Vite 代理到 8080。",
-          "detail": "## 前端代理\n\n本地前端开发服务运行在 `localhost:3000`，`/api` 请求会代理到 `localhost:8080`。\n\n## 常用接口类别\n\n- 会话与消息：创建会话、发送消息、加载历史。\n- 管理接口：用户、认证、LLM、质量、运行时配置。\n- RPC：部分配置和管理能力通过 JSON-RPC 方法暴露。\n- WebSocket：聊天流式输出、任务状态、回放 live 事件和审批通知。\n\n## 生产模式\n\n前端构建产物输出到 `internal/webui/dist`，由 Go 二进制嵌入并直接提供。"
+          "desc": "前端通过 `/api/v1` REST/RPC 接口和 WebSocket 与后端通信，开发模式由 Vite 代理到 18080。",
+          "detail": "## 前端代理\n\n本地前端开发服务运行在 `localhost:3000`，`/api` 请求会代理到 `localhost:18080`。\n\n## 常用接口类别\n\n- 会话与消息：创建会话、发送消息、加载历史。\n- 管理接口：用户、认证、LLM、质量、运行时配置。\n- RPC：部分配置和管理能力通过 JSON-RPC 方法暴露。\n- WebSocket：聊天流式输出、任务状态、回放 live 事件和审批通知。\n\n## 生产模式\n\n前端构建产物输出到 `internal/webui/dist`，由 Go 二进制嵌入并直接提供。"
         }
       }
     }
@@ -886,8 +722,8 @@
   },
   "runtimeConfig": {
     "title": "运行时配置",
-    "permissionRules": "Legacy HITL 回滚规则",
-    "hitlEnabled": "启用 HITL 通道",
+    "permissionRules": "工具权限规则",
+    "hitlEnabled": "启用人工审批",
     "toolName": "工具名",
     "action": "权限",
     "pattern": "模式",
@@ -905,12 +741,9 @@
     "taskTimeout": "任务超时",
     "shellTimeout": "Shell 命令超时",
     "planApproval": "计划需要审批",
-    "permissionRulesHint": "这些规则只用于 HITL 执行通道和 strict 回滚。minimal 模式下统一 ToolPolicy 是主授权源，旧规则不能把普通 allow 降级成 ask/deny，也不能给 MCP 或未知工具授信。",
+    "permissionRulesHint": "规则按顺序匹配，第一个匹配的规则生效。工具名支持通配符 *",
     "execRules": "命令执行规则",
     "execRulesHint": "定义正则表达式规则，控制命令的允许、询问或拒绝。规则按顺序匹配，第一个匹配的规则生效。",
-    "permissionMode": "权限模式",
-    "permissionModeMinimal": "minimal：统一 ToolPolicy 主路径",
-    "permissionModeStrict": "strict：Legacy HITL 回滚",
     "defaultPolicy": "默认策略（无规则匹配时）",
     "description": "描述",
     "allow": "允许",
@@ -935,9 +768,6 @@
     "mcpNoRuntimeTools": "当前还没有远程 MCP 工具注册到运行时。",
     "mcpToolsLoadFailed": "加载 MCP 工具目录失败",
     "mcpServerRuntimeCounts": "{{tools}} 个工具 / {{resources}} 个资源 / {{prompts}} 个提示",
-    "requiresApproval": "需要审批",
-    "mayRequireApproval": "含高风险动作",
-    "toolUnavailable": "不可调用",
     "addMcpServer": "添加服务端",
     "deleteMcpServer": "删除",
     "mcpNeedRestart": "MCP 配置变更需保存到文件并重启服务",
@@ -1025,14 +855,6 @@
   "tools": {
     "bash": "命令执行",
     "edit": "文件编辑",
-    "filesystem": "文件系统",
-    "filesystem.actions.list": "列出文件",
-    "filesystem.actions.glob": "文件匹配",
-    "filesystem.actions.grep": "内容搜索",
-    "filesystem.actions.read": "读取文件",
-    "filesystem.actions.write": "写入文件",
-    "filesystem.actions.edit": "编辑文件",
-    "filesystem.actions.multiedit": "批量编辑",
     "write": "文件写入",
     "write_file": "文件写入",
     "read": "文件读取",
@@ -1088,17 +910,6 @@
     "clickToCollapse": "点击收起",
     "invoked": "已调用工具"
   },
-  "filesystem": {
-    "actions": {
-      "list": "列出文件",
-      "glob": "文件匹配",
-      "grep": "内容搜索",
-      "read": "读取文件",
-      "write": "写入文件",
-      "edit": "编辑文件",
-      "multiedit": "批量编辑"
-    }
-  },
   "externalResources": {
     "title": "外部资源",
     "description": "配置数据库、监控平台、API 等外部系统的连接信息，Agent 会在需要时自动使用",
@@ -1130,5 +941,90 @@
     "endpointPlaceholder": "例如: https://api.example.com/v1",
     "saving": "保存中...",
     "save": "保存资源"
+  },
+  "register": {
+    "title": "注册账号",
+    "email": "邮箱",
+    "displayName": "显示名（可选）",
+    "password": "密码（至少 8 位）",
+    "submit": "注册",
+    "submitting": "提交中...",
+    "fillRequired": "请填写邮箱和密码",
+    "networkError": "网络错误，请重试",
+    "closed": "当前未开放公开注册",
+    "inviteLink": "持邀请码注册",
+    "publicLink": "注册账号",
+    "backLogin": "返回登录",
+    "hasAccount": "已有账号？"
+  },
+  "inviteCodes": {
+    "title": "邀请码",
+    "desc": "创建与管理注册邀请码；明文仅创建时展示一次",
+    "create": "创建邀请码",
+    "newTitle": "新建邀请码",
+    "role": "注册角色",
+    "maxUses": "最大使用次数",
+    "expiresAt": "过期时间",
+    "expiresRequired": "请设置过期时间",
+    "maxUsesInvalid": "最大使用次数须为正整数",
+    "note": "备注",
+    "notePlaceholder": "用途说明",
+    "hint": "码尾",
+    "usage": "用量",
+    "empty": "暂无邀请码",
+    "loadFailed": "加载邀请码失败",
+    "createFailed": "创建邀请码失败",
+    "created": "邀请码已创建",
+    "updateFailed": "更新邀请码失败",
+    "enabled": "邀请码已启用",
+    "disabled": "邀请码已禁用",
+    "disable": "禁用",
+    "enable": "启用",
+    "deleted": "邀请码已删除",
+    "deleteFailed": "删除邀请码失败",
+    "deleteTitle": "删除邀请码",
+    "deleteConfirm": "删除后无法恢复，已分发的码将失效。",
+    "plainTitle": "邀请码已生成",
+    "plainWarning": "明文仅显示一次，请立即复制并妥善分发",
+    "copyCode": "复制码",
+    "copyLink": "复制注册链接",
+    "codeCopied": "邀请码已复制",
+    "linkCopied": "注册链接已复制",
+    "copyFailed": "复制失败，请手动复制",
+    "statusActive": "可用",
+    "statusDisabled": "已禁用",
+    "statusExpired": "已过期",
+    "statusExhausted": "已用尽"
+  },
+  "admin": {
+    "users": "用户管理",
+    "usersDesc": "管理系统用户的角色、状态和 Token 配额",
+    "user": "用户",
+    "provider": "登录方式",
+    "role": "角色",
+    "status": "状态",
+    "quota": "Token 配额",
+    "used": "已用",
+    "actions": "操作",
+    "searchUsers": "搜索用户名或邮箱...",
+    "totalUsers": "共 {{count}} 位用户",
+    "noUsers": "暂无用户",
+    "editQuota": "点击编辑配额",
+    "demote": "降为用户",
+    "promote": "提升为管理员",
+    "disable": "禁用",
+    "enable": "启用",
+    "page": "第 {{page}} / {{total}} 页",
+    "deleteUser": "删除用户",
+    "deleteUserTitle": "删除用户",
+    "deleteUserConfirm": "确定永久删除 {{name}}？此操作不可恢复。",
+    "userDeleted": "用户已删除",
+    "userDeleteFailed": "删除用户失败",
+    "demoteTitle": "降为普通用户",
+    "promoteTitle": "提升为管理员",
+    "disableTitle": "禁用用户",
+    "enableTitle": "启用用户",
+    "roleConfirm": "确定将 {{name}} 的角色改为 {{role}}？",
+    "statusConfirm": "确定{{action}} {{name}}？"
   }
 }

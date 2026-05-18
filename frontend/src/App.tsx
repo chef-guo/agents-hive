@@ -4,6 +4,8 @@ import { AppShell } from './layouts/AppShell';
 import { AdminShell } from './layouts/AdminShell';
 import { Login } from './pages/Login';
 import { AuthCallback } from './pages/AuthCallback';
+import { RegisterInvite } from './pages/RegisterInvite';
+import { Register } from './pages/Register';
 import { useTheme } from './hooks/useTheme';
 import { useLanguage } from './hooks/useLanguage';
 import { useAppStore } from './store/app';
@@ -23,8 +25,9 @@ const ScheduledTasks = lazy(() => import('./pages/ScheduledTasks').then(({ Sched
 const UserList = lazy(() => import('./pages/admin/UserList').then(({ UserList }) => ({ default: UserList })));
 const UsageStats = lazy(() => import('./pages/admin/UsageStats').then(({ UsageStats }) => ({ default: UsageStats })));
 const AuthProviders = lazy(() => import('./pages/admin/AuthProviders').then(({ AuthProviders }) => ({ default: AuthProviders })));
-const PromptManager = lazy(() => import('./pages/admin/PromptManager').then(({ PromptManager }) => ({ default: PromptManager })));
+const InviteCodes = lazy(() => import('./pages/admin/InviteCodes').then(({ InviteCodes }) => ({ default: InviteCodes })));
 const KnowledgeBase = lazy(() => import('./pages/admin/KnowledgeBase').then(({ KnowledgeBase }) => ({ default: KnowledgeBase })));
+const PromptManager = lazy(() => import('./pages/admin/PromptManager').then(({ PromptManager }) => ({ default: PromptManager })));
 const QualityCandidates = lazy(() => import('./pages/admin/QualityCandidates').then(({ QualityCandidates }) => ({ default: QualityCandidates })));
 const QualityWorkbench = lazy(() => import('./pages/admin/qualityworkbench/QualityWorkbench').then(({ QualityWorkbench }) => ({ default: QualityWorkbench })));
 const MemoryGovernance = lazy(() => import('./pages/admin/MemoryGovernance').then(({ MemoryGovernance }) => ({ default: MemoryGovernance })));
@@ -68,12 +71,13 @@ export default function App() {
             {/* 公开路由 */}
             <Route path="/login" element={<Login />} />
             <Route path="/auth/callback" element={<AuthCallback />} />
+            <Route path="/register/invite" element={<RegisterInvite />} />
+            <Route path="/register" element={<Register />} />
 
             {/* 受保护路由 — AuthGuard 包裹 */}
             <Route element={<AuthGuard><Outlet /></AuthGuard>}>
               <Route element={<AppShell />}>
                 <Route path="/" element={<ChatLanding />} />
-                <Route path="/sessions" element={<Navigate to="/" replace />} />
                 <Route path="/sessions/:id" element={<Chat />} />
                 <Route path="/replay" element={<ReplayGallery />} />
                 <Route path="/guide" element={<Guide key="user-guide" variant="user" />} />
@@ -87,7 +91,7 @@ export default function App() {
               <Route path="/agents" element={<Navigate to="/admin/agents" replace />} />
               <Route path="/skills" element={<Navigate to="/admin/skills" replace />} />
 
-              {/* 管理后台路由 */}
+              {/* 管理后台路由（整棵 /admin 树统一 AdminGuard） */}
               <Route element={<AdminGuard><AdminShell /></AdminGuard>}>
                 <Route path="/admin" element={<Dashboard />} />
                 <Route path="/admin/agents" element={<Agents />} />
@@ -95,12 +99,12 @@ export default function App() {
                 <Route path="/admin/skills" element={<Skills />} />
                 <Route path="/admin/settings" element={<AdminSettings />} />
                 <Route path="/admin/guide" element={<Guide key="admin-guide" variant="admin" />} />
-                {/* Admin-only 页面 */}
                 <Route path="/admin/users" element={<UserList />} />
                 <Route path="/admin/usage" element={<UsageStats />} />
                 <Route path="/admin/auth-providers" element={<AuthProviders />} />
-                <Route path="/admin/prompts" element={<PromptManager />} />
+                <Route path="/admin/invite-codes" element={<InviteCodes />} />
                 <Route path="/admin/kb" element={<KnowledgeBase />} />
+                <Route path="/admin/prompts" element={<PromptManager />} />
                 <Route path="/admin/quality-candidates" element={<QualityCandidates />} />
                 <Route path="/admin/quality-workbench" element={<QualityWorkbench />} />
                 <Route path="/admin/memory-governance" element={<MemoryGovernance />} />
@@ -108,7 +112,6 @@ export default function App() {
                 <Route path="/admin/multi-agent" element={<MultiAgentEcosystem />} />
                 <Route path="/admin/llm" element={<LLMProviders />} />
               </Route>
-              <Route path="*" element={<Navigate to="/" replace />} />
             </Route>
           </Routes>
         </Suspense>

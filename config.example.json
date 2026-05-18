@@ -5,12 +5,12 @@
 
   "server": {
     "_comment": "HTTP API 服务器配置",
-    "_comment_port": "监听端口，默认 8080",
-    "port": 8080,
+    "_comment_port": "监听端口，默认 18080",
+    "port": 18080,
     "_comment_host": "监听地址，默认 0.0.0.0（全部接口）",
     "host": "0.0.0.0",
-    "_comment_cors_origins": "允许的 CORS 来源列表，空表示仅允许 localhost。生产环境请显式配置域名",
-    "cors_origins": ["http://localhost:3000"]
+    "_comment_cors_origins": "允许的 CORS 来源列表，空表示仅允许 localhost。生产环境请显式配置域名；含 Vite 默认 3000",
+    "cors_origins": ["http://localhost:5173", "http://localhost:3000"]
   },
 
   "logging": {
@@ -37,6 +37,21 @@
     "enabled": false,
     "_comment_tokens": "预设认证 token 列表",
     "tokens": []
+  },
+
+  "auth": {
+    "_comment": "用户登录（OAuth/LDAP/本地）。需 PostgreSQL；引擎由数据库池决定，不再使用 auth.enabled 开关。allow_public_registration 默认 false（持邀请码注册见 /register/invite）",
+    "_comment_enabled": "已废弃，可省略；保留仅 JSON 兼容",
+    "enabled": true,
+    "allow_public_registration": false,
+    "invite_error_weak_distinction": false,
+    "seed_default_admin": true,
+    "frontend_url": "http://localhost:3000",
+    "_comment_jwt_ttl": "单次 JWT 有效期（Go time.ParseDuration 格式，如 24h、30m）。到期前前端会调用 /api/v1/auth/refresh 续期；省略时默认 24h",
+    "jwt_ttl": "24h",
+    "_comment_jwt_max_ttl": "自首次登录起的绝对最长会话（如 168h=7 天）。超过后 refresh 失败须重新登录；省略时默认 168h",
+    "jwt_max_ttl": "168h",
+    "_comment_jwt_secret": "JWT 签名密钥；省略时首次启动写入数据库 configs.auth.jwt_secret"
   },
 
   "agent": {
@@ -70,8 +85,9 @@
     "_comment": "存储后端配置。运行时配置存储在此数据库中，首次启动自动写入默认值",
     "_comment_type": "存储类型: postgres（唯一支持的后端）",
     "type": "postgres",
-    "postgres": {
+      "postgres": {
       "_comment": "PostgreSQL 配置，type 为 postgres 时生效",
+      "_comment_host": "本机 ./server 开发：先 docker compose up -d postgres（compose 已映射 127.0.0.1:5432），密码与 .env 中 POSTGRES_PASSWORD 一致；密码字段可用 ${POSTGRES_PASSWORD} 需导出该环境变量",
       "dsn": "",
       "host": "localhost",
       "port": 5432,

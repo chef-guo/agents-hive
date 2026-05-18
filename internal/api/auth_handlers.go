@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"net"
 	"net/http"
 	"os"
@@ -17,7 +18,51 @@ import (
 
 // handleAuthStatus 返回 auth 是否启用（公开端点，前端 AuthGuard 用）
 func (s *Server) handleAuthStatus(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]bool{"enabled": s.authEngine != nil})
+	cfg := s.config.Auth
+	resp := map[string]any{
+		"enabled":                        s.authEngine != nil,
+		"allow_public_registration":      cfg.AllowPublicRegistration,
+		"invite_error_weak_distinction":  cfg.InviteErrorWeakDistinction,
+		"has_local_register":             s.authEngine != nil,
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// AuthErrorResponse 认证相关错误（含 error_code）。
+type AuthErrorResponse struct {
+	Error     string `json:"error"`
+	ErrorCode string `json:"error_code,omitempty"`
+	Code      int    `json:"code"`
+}
+
+// handleAuthRegister POST /api/v1/auth/register
+func (s *Server) handleAuthRegister(w http.ResponseWriter, r *http.Request) {
+	if s.authEngine == nil {
+		http.Error(w, "auth not enabled", http.StatusNotFound)
+		return
+	}
+	var req auth.RegisterRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, AuthErrorResponse{Error: "请求格式错误", ErrorCode: "invalid_request", Code: http.StatusBadRequest})
+		return
+	}
+	policy := auth.RegisterPolicy{
+		AllowPublicRegistration:    s.config.Auth.AllowPublicRegistration,
+		InviteErrorWeakDistinction: s.config.Auth.InviteErrorWeakDistinction,
+	}
+	ip := realIP(r)
+	token, user, err := s.authEngine.RegisterLocalUser(r.Context(), req, policy, ip)
+	if err != nil {
+		var re *auth.RegisterError
+		if errors.As(err, &re) {
+			writeJSON(w, re.HTTPStatus, AuthErrorResponse{Error: re.Message, ErrorCode: re.ErrorCode, Code: re.HTTPStatus})
+			return
+		}
+		s.logger.Error("注册失败", zap.Error(err))
+		writeJSON(w, http.StatusInternalServerError, AuthErrorResponse{Error: "注册失败", Code: http.StatusInternalServerError})
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"token": token, "user": user})
 }
 
 // handleListAuthProviders 返回已启用的 provider 列表（公开，登录页用）

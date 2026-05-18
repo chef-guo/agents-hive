@@ -906,6 +906,13 @@ html.dark .apple-header {
   -webkit-backdrop-filter: saturate(180%) blur(20px);
 }
 
+/* 用户菜单：不透明，避免被毛玻璃顶栏或下方内容透出 */
+.user-menu-panel {
+  background: var(--bg-primary) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
 /* ===== 苹果风格：按钮 ===== */
 .apple-btn-primary {
   background: var(--accent);

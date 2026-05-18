@@ -18,8 +18,8 @@
     "adminUsage": "Usage",
     "adminLLM": "LLM Models",
     "adminAuthProviders": "Auth Providers",
+    "adminInviteCodes": "Invite Codes",
     "adminPrompts": "Prompt Manager",
-    "adminKnowledgeBase": "Knowledge Base",
     "adminQualityCandidates": "Quality Candidates",
     "adminQualityWorkbench": "Quality Workbench",
     "adminMemoryGovernance": "Memory Governance",
@@ -28,7 +28,14 @@
     "adminSettings": "Settings",
     "backToChat": "Back to Chat",
     "preferences": "Preferences",
-    "replay": "Replay"
+    "replay": "Replay",
+    "login": "Log in",
+    "loginRequiresAuthHint": "Admin requires authentication to be enabled on the server"
+  },
+  "loginPage": {
+    "authDisabledTitle": "Sign-in is not enabled",
+    "authDisabledDesc": "Admin and other protected pages require authentication in server configuration. After enabling it, refresh this page to sign in.",
+    "backHome": "Back to home"
   },
   "memoryGovernance": {
     "injectionExplain": "Recent Injection Explain",
@@ -218,177 +225,6 @@
     "loadError": "Failed to load skills",
     "deleteError": "Failed to delete skill",
     "confirmDelete": "Remove DB override for \"{{name}}\"? The FS version (if any) will be restored."
-  },
-  "knowledgeBase": {
-    "title": "Knowledge Base",
-    "subtitle": "Manage tree-structured documents, namespaces, and Agent runtime bindings.",
-    "domain": "Domain",
-    "tabs": {
-      "namespaces": "Namespaces",
-      "documents": "Documents",
-      "bindings": "Bindings"
-    },
-    "actions": {
-      "archive": "Archive",
-      "addImageAssets": "Add Image Assets",
-      "create": "Create",
-      "createBinding": "New Binding",
-      "createNamespace": "New Namespace",
-      "disable": "Disable",
-      "edit": "Edit",
-      "import": "Import",
-      "importDocument": "Import Document",
-      "insertAsset": "Insert {{asset}}",
-      "openDocuments": "Open Documents",
-      "preview": "Preview",
-      "selectDocumentFile": "Select Document File",
-      "viewStructure": "View Structure"
-    },
-    "columns": {
-      "actions": "Actions",
-      "effectiveAt": "Effective At",
-      "effectiveExpires": "Effective/Expires",
-      "id": "ID",
-      "longSectionSummary": "Long Section/Summary",
-      "name": "Name",
-      "namespace": "Namespace",
-      "source": "Source",
-      "status": "Status",
-      "strategy": "Strategy",
-      "target": "Target",
-      "title": "Title",
-      "type": "Type",
-      "version": "Version"
-    },
-    "filters": {
-      "allNamespaces": "All Namespaces",
-      "allStatuses": "All Statuses"
-    },
-    "placeholders": {
-      "searchDocuments": "Search documents...",
-      "searchNamespaces": "Search namespaces...",
-      "selectNamespace": "Select namespace"
-    },
-    "namespace": {
-      "longSectionDisabled": "Long section protection off",
-      "longSectionThreshold": "Long section threshold {{count}}",
-      "summaryThreshold": "Summary threshold {{count}}"
-    },
-    "status": {
-      "bound": "Bound",
-      "disabled": "Disabled",
-      "enabled": "Enabled",
-      "longTerm": "Long-term",
-      "unbound": "Unbound"
-    },
-    "documentStatuses": {
-      "active": "Active",
-      "archived": "Archived",
-      "draft": "Draft",
-      "revoked": "Revoked"
-    },
-    "bindingTypes": {
-      "agent": "Agent",
-      "domain": "Domain",
-      "session_template": "Session Template",
-      "session": "Session",
-      "tenant": "Tenant",
-      "user": "User",
-      "system": "System"
-    },
-    "runtimeFields": {
-      "agentId": "Agent ID",
-      "domainId": "Domain ID",
-      "sessionTemplateId": "Session Template ID",
-      "sessionId": "Session ID",
-      "tenantId": "Tenant ID"
-    },
-    "empty": {
-      "bindings": "No bindings",
-      "documents": "No documents",
-      "effectiveBindings": "No effective bindings",
-      "markdown": "No Markdown content",
-      "namespaces": "No namespaces",
-      "selectNamespaceFirst": "Select a namespace first",
-      "tree": "No structure data"
-    },
-    "effective": {
-      "title": "Effective Bindings Preview",
-      "subtitle": "Resolve the namespaces available for a runtime context. Source shows the binding type and target."
-    },
-    "tree": {
-      "lines": "lines {{start}}-{{end}}",
-      "path": "path",
-      "selectHint": "Select a document to inspect its tree",
-      "title": "Document Structure",
-      "tokens": "{{count}} tokens"
-    },
-    "fields": {
-      "bindingTarget": "Binding Target",
-      "bindingType": "Binding Type",
-      "enableLongSectionProtection": "Enable long section protection",
-      "longSectionThreshold": "Long Section Threshold",
-      "name": "Name",
-      "sourceURI": "Source URI",
-      "summaryThreshold": "Summary Threshold",
-      "title": "Title",
-      "version": "Version"
-    },
-    "ingest": {
-      "converting": "Converting document and extracting images...",
-      "defaultMarkdown": "# New Document\n\n",
-      "documentFileHint": "Document file: {{filename}}. It has been converted to editable Markdown first. Adjust image line positions before importing; the backend binds each image to the section containing its Markdown image syntax.",
-      "editableFileHint": "Loaded editable document: {{filename}}. Use the buttons below to insert image assets at the current cursor position.",
-      "imageAssets": "Image assets: {{assets}}",
-      "markdown": "Markdown",
-      "modalTitle": "Import Document · {{namespace}}",
-      "renderedPreview": "Rendered Preview"
-    },
-    "report": {
-      "assetColumns": {
-        "boundSection": "Bound Section",
-        "image": "Image"
-      },
-      "line": "line {{line}}",
-      "metrics": {
-        "boundAssets": "Bound Images",
-        "convertedAssets": "Converted Images",
-        "durationMs": "Duration ms",
-        "imageRefs": "Image Refs",
-        "markdownLines": "Markdown Lines",
-        "sections": "Sections",
-        "unboundAssets": "Unbound Images",
-        "uploadedAssets": "Uploaded Images"
-      },
-      "notInSection": "Outside any section range",
-      "page": "page {{page}}",
-      "provider": "Converter: {{provider}}",
-      "quality": "Quality: {{quality}}",
-      "title": "Latest Ingest Report",
-      "warningSeparator": "; "
-    },
-    "confirm": {
-      "archiveDocument": "Archive document \"{{title}}\"?",
-      "disableBinding": "Disable {{type}}:{{target}}?"
-    },
-    "toasts": {
-      "bindingCreated": "Binding created",
-      "bindingDisabled": "Binding disabled",
-      "documentArchived": "Document archived",
-      "documentImported": "Document imported",
-      "documentImportedWithWarnings": "Document imported with warnings: {{warnings}}",
-      "namespaceCreated": "Namespace created"
-    },
-    "errors": {
-      "archiveDocument": "Failed to archive document",
-      "disableBinding": "Failed to disable binding",
-      "loadBindings": "Failed to load KB bindings",
-      "loadDocuments": "Failed to load KB documents",
-      "loadNamespaces": "Failed to load KB namespaces",
-      "loadTree": "Failed to load document structure",
-      "previewEffectiveBindings": "Failed to preview effective bindings",
-      "previewMarkdown": "Failed to preview document conversion"
-    }
   },
   "common": {
     "connected": "Connected",
@@ -757,16 +593,16 @@
       },
       "runtimeSecurity": {
         "title": "Runtime and Security",
-        "desc": "Manage node info, legacy HITL rollback rules, command rules, MCP, external resources, and IM settings.",
+        "desc": "Manage node info, permissions, command rules, MCP, external resources, and IM settings.",
         "systemSettings": {
           "title": "1. Settings structure",
           "desc": "Admin Settings has System, Security, and Integrations tabs.",
-          "detail": "## System\n\nShows node ID, mode, health, version, uptime, and Agent timeout settings.\n\n## Security\n\nContains legacy HITL rollback rules and command execution rules.\n\n## Integrations\n\nContains IM channels, MCP servers, external resources, and remote agents."
+          "detail": "## System\n\nShows node ID, mode, health, version, uptime, and Agent timeout settings.\n\n## Security\n\nContains permission rules and command execution rules.\n\n## Integrations\n\nContains IM channels, MCP servers, external resources, and remote agents."
         },
         "permissionRules": {
-          "title": "2. Legacy HITL rollback rules",
-          "desc": "These rules are only for the HITL execution channel and strict rollback, not the unified tool policy entry point.",
-          "detail": "## Rule meaning\n\nRules usually include tool name, action, and pattern. Policies are allow, ask, and deny.\n\n## Scope\n\nIn minimal mode, the unified ToolPolicy decides whether routine tools are callable; these rules cannot downgrade a unified allow into ask or deny. In strict mode, they act as production rollback and tightening rules.\n\n## Recommendation\n\nDo not trust MCP or unknown tools here. Capability grants, route recall, and dangerous-action decisions belong in the unified policy layer. Click Apply to submit runtime config updates to the backend."
+          "title": "2. Permission rules",
+          "desc": "Permission rules decide whether tool actions are allowed, asked, or denied.",
+          "detail": "## Rule meaning\n\nRules usually include tool name, action, pattern, and policy. Policies are allow, ask, and deny.\n\n## Recommendation\n\nBe permissive with read-only tools and conservative with writes, deletes, shell commands, and external sends.\n\n## Applying changes\n\nClick Apply to submit runtime config updates to the backend."
         },
         "execRules": {
           "title": "3. Exec rules",
@@ -833,8 +669,8 @@
         },
         "apiWebSocket": {
           "title": "3. API and WebSocket",
-          "desc": "The frontend talks to the backend through `/api/v1` REST/RPC endpoints and WebSocket. Vite proxies `/api` to port 8080 in dev.",
-          "detail": "## Frontend proxy\n\nThe local frontend dev server runs on `localhost:3000`; `/api` proxies to `localhost:8080`.\n\n## Endpoint categories\n\n- Sessions and messages.\n- Admin APIs for users, auth, LLM, quality, and runtime config.\n- RPC for selected configuration and management methods.\n- WebSocket for chat streaming, task state, replay live events, and approval notifications.\n\n## Production\n\nThe frontend build outputs to `internal/webui/dist` and is embedded in the Go binary."
+          "desc": "The frontend talks to the backend through `/api/v1` REST/RPC endpoints and WebSocket. Vite proxies `/api` to port 18080 in dev.",
+          "detail": "## Frontend proxy\n\nThe local frontend dev server runs on `localhost:3000`; `/api` proxies to `localhost:18080`.\n\n## Endpoint categories\n\n- Sessions and messages.\n- Admin APIs for users, auth, LLM, quality, and runtime config.\n- RPC for selected configuration and management methods.\n- WebSocket for chat streaming, task state, replay live events, and approval notifications.\n\n## Production\n\nThe frontend build outputs to `internal/webui/dist` and is embedded in the Go binary."
         }
       }
     }
@@ -886,8 +722,8 @@
   },
   "runtimeConfig": {
     "title": "Runtime Config",
-    "permissionRules": "Legacy HITL Rollback Rules",
-    "hitlEnabled": "Enable HITL Channel",
+    "permissionRules": "Tool Permission Rules",
+    "hitlEnabled": "Enable HITL",
     "toolName": "Tool Name",
     "action": "Permission",
     "pattern": "Pattern",
@@ -905,12 +741,9 @@
     "taskTimeout": "Task Timeout",
     "shellTimeout": "Shell Timeout",
     "planApproval": "Plan Requires Approval",
-    "permissionRulesHint": "These rules only apply to the HITL execution channel and strict rollback. In minimal mode, unified ToolPolicy is the primary authorization source; legacy rules cannot downgrade routine allow decisions to ask/deny or trust MCP/unknown tools.",
+    "permissionRulesHint": "Rules are matched in order; the first match wins. Tool names support wildcard *",
     "execRules": "Command Execution Rules",
     "execRulesHint": "Define regex patterns to allow, ask, or deny command execution. Rules are evaluated in order; first match wins.",
-    "permissionMode": "Permission mode",
-    "permissionModeMinimal": "minimal: unified ToolPolicy primary",
-    "permissionModeStrict": "strict: legacy HITL rollback",
     "defaultPolicy": "Default policy (when no rule matches)",
     "description": "Description",
     "allow": "Allow",
@@ -935,9 +768,6 @@
     "mcpNoRuntimeTools": "No remote MCP tools are currently registered at runtime.",
     "mcpToolsLoadFailed": "Failed to load MCP tool catalog",
     "mcpServerRuntimeCounts": "{{tools}} tools / {{resources}} resources / {{prompts}} prompts",
-    "requiresApproval": "Requires approval",
-    "mayRequireApproval": "Contains high-risk actions",
-    "toolUnavailable": "Unavailable",
     "addMcpServer": "Add Server",
     "deleteMcpServer": "Delete",
     "mcpNeedRestart": "MCP changes require saving to file and restart",
@@ -1025,14 +855,6 @@
   "tools": {
     "bash": "Run Command",
     "edit": "Edit File",
-    "filesystem": "Filesystem",
-    "filesystem.actions.list": "List Files",
-    "filesystem.actions.glob": "Glob Files",
-    "filesystem.actions.grep": "Search Contents",
-    "filesystem.actions.read": "Read File",
-    "filesystem.actions.write": "Write File",
-    "filesystem.actions.edit": "Edit File",
-    "filesystem.actions.multiedit": "Batch Edit",
     "write": "Write File",
     "write_file": "Write File",
     "read": "Read File",
@@ -1088,17 +910,6 @@
     "clickToCollapse": "Click to collapse",
     "invoked": "Called tool"
   },
-  "filesystem": {
-    "actions": {
-      "list": "List Files",
-      "glob": "Glob Files",
-      "grep": "Search Contents",
-      "read": "Read File",
-      "write": "Write File",
-      "edit": "Edit File",
-      "multiedit": "Batch Edit"
-    }
-  },
   "externalResources": {
     "title": "External Resources",
     "description": "Configure connections to databases, monitoring, APIs and other external systems. Agents use these automatically when needed.",
@@ -1130,5 +941,90 @@
     "endpointPlaceholder": "e.g. https://api.example.com/v1",
     "saving": "Saving...",
     "save": "Save Resource"
+  },
+  "register": {
+    "title": "Create account",
+    "email": "Email",
+    "displayName": "Display name (optional)",
+    "password": "Password (min. 8 characters)",
+    "submit": "Sign up",
+    "submitting": "Submitting...",
+    "fillRequired": "Email and password are required",
+    "networkError": "Network error, please try again",
+    "closed": "Public registration is not open",
+    "inviteLink": "Register with invite code",
+    "publicLink": "Sign up",
+    "backLogin": "Back to sign in",
+    "hasAccount": "Already have an account?"
+  },
+  "inviteCodes": {
+    "title": "Invite codes",
+    "desc": "Create and manage registration invite codes; plaintext is shown only once",
+    "create": "Create invite code",
+    "newTitle": "New invite code",
+    "role": "Role",
+    "maxUses": "Max uses",
+    "expiresAt": "Expires at",
+    "expiresRequired": "Expiration time is required",
+    "maxUsesInvalid": "Max uses must be a positive integer",
+    "note": "Note",
+    "notePlaceholder": "Purpose or batch label",
+    "hint": "Hint",
+    "usage": "Usage",
+    "empty": "No invite codes yet",
+    "loadFailed": "Failed to load invite codes",
+    "createFailed": "Failed to create invite code",
+    "created": "Invite code created",
+    "updateFailed": "Failed to update invite code",
+    "enabled": "Invite code enabled",
+    "disabled": "Invite code disabled",
+    "disable": "Disable",
+    "enable": "Enable",
+    "deleted": "Invite code deleted",
+    "deleteFailed": "Failed to delete invite code",
+    "deleteTitle": "Delete invite code",
+    "deleteConfirm": "This cannot be undone; distributed codes will stop working.",
+    "plainTitle": "Invite code created",
+    "plainWarning": "Copy now — plaintext is shown only once",
+    "copyCode": "Copy code",
+    "copyLink": "Copy registration link",
+    "codeCopied": "Code copied",
+    "linkCopied": "Registration link copied",
+    "copyFailed": "Copy failed — copy manually",
+    "statusActive": "Active",
+    "statusDisabled": "Disabled",
+    "statusExpired": "Expired",
+    "statusExhausted": "Exhausted"
+  },
+  "admin": {
+    "users": "Users",
+    "usersDesc": "Manage roles, status, and token quotas",
+    "user": "User",
+    "provider": "Sign-in method",
+    "role": "Role",
+    "status": "Status",
+    "quota": "Token quota",
+    "used": "Used",
+    "actions": "Actions",
+    "searchUsers": "Search by name or email...",
+    "totalUsers": "{{count}} users total",
+    "noUsers": "No users",
+    "editQuota": "Click to edit quota",
+    "demote": "Demote to user",
+    "promote": "Promote to admin",
+    "disable": "Disable",
+    "enable": "Enable",
+    "page": "Page {{page}} / {{total}}",
+    "deleteUser": "Delete user",
+    "deleteUserTitle": "Delete user",
+    "deleteUserConfirm": "Permanently delete {{name}}? This cannot be undone.",
+    "userDeleted": "User deleted",
+    "userDeleteFailed": "Failed to delete user",
+    "demoteTitle": "Demote to user",
+    "promoteTitle": "Promote to admin",
+    "disableTitle": "Disable user",
+    "enableTitle": "Enable user",
+    "roleConfirm": "Change {{name}}'s role to {{role}}?",
+    "statusConfirm": "{{action}} {{name}}?"
   }
 }
