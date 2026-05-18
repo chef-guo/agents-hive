@@ -1,6 +1,7 @@
 import { Link, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { LogIn, PanelLeft } from 'lucide-react';
 import { LanguageSwitcher } from './LanguageSwitcher';
 import { ThemeToggle } from './ThemeToggle';
@@ -19,19 +20,51 @@ export function Header({ connected, onToggleSidebar }: Props) {
   const { leftExtra, centerOverride, rightExtra } = useHeaderStore();
   const { user, authEnabled } = useAuthStore();
   const [menuOpen, setMenuOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
+  const [menuAnchor, setMenuAnchor] = useState<DOMRect | null>(null);
+  const menuTriggerRef = useRef<HTMLButtonElement>(null);
+  const menuPanelRef = useRef<HTMLDivElement>(null);
 
-  // 点击菜单外部时关闭
+  const updateMenuAnchor = useCallback(() => {
+    const el = menuTriggerRef.current;
+    if (!el) return;
+    setMenuAnchor(el.getBoundingClientRect());
+  }, []);
+
+  const openUserMenu = () => {
+    updateMenuAnchor();
+    setMenuOpen(true);
+  };
+
+  const closeUserMenu = () => setMenuOpen(false);
+
+  const handleLogout = () => {
+    closeUserMenu();
+    useAuthStore.getState().logout();
+  };
+
+  // 点击菜单外部时关闭（面板在 portal 中，需同时判断触发按钮）
   useEffect(() => {
     if (!menuOpen) return;
     const handler = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setMenuOpen(false);
-      }
+      const target = e.target as Node;
+      if (menuTriggerRef.current?.contains(target)) return;
+      if (menuPanelRef.current?.contains(target)) return;
+      setMenuOpen(false);
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, [menuOpen]);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onLayout = () => updateMenuAnchor();
+    window.addEventListener('resize', onLayout);
+    window.addEventListener('scroll', onLayout, true);
+    return () => {
+      window.removeEventListener('resize', onLayout);
+      window.removeEventListener('scroll', onLayout, true);
+    };
+  }, [menuOpen, updateMenuAnchor]);
 
   // 根据路由映射页面标题
   const pageTitleMap: Record<string, string> = {
@@ -64,7 +97,7 @@ export function Header({ connected, onToggleSidebar }: Props) {
   };
 
   return (
-    <header className="apple-header h-14 flex items-center justify-between px-4 border-b border-[var(--border-color)] shrink-0">
+    <header className="apple-header relative z-30 h-14 flex items-center justify-between px-4 border-b border-[var(--border-color)] shrink-0">
       {/* 左侧：侧栏折叠按钮 + 页面注入的额外内容 */}
       <div className="flex items-center gap-1 min-w-0">
         <button
@@ -93,13 +126,15 @@ export function Header({ connected, onToggleSidebar }: Props) {
 
         {/* 用户信息（已登录） */}
         {user && (
-          <div className="relative" ref={menuRef}>
+          <div className="relative">
             <button
+              ref={menuTriggerRef}
+              type="button"
               className="flex items-center gap-2 px-2 py-1 rounded-[10px] hover:bg-[var(--bg-hover)] transition-colors"
               aria-haspopup="menu"
               aria-expanded={menuOpen}
-              onClick={() => setMenuOpen(v => !v)}
-              onKeyDown={(e) => { if (e.key === 'Escape') setMenuOpen(false); }}
+              onClick={() => (menuOpen ? closeUserMenu() : openUserMenu())}
+              onKeyDown={(e) => { if (e.key === 'Escape') closeUserMenu(); }}
             >
               {user.avatar_url ? (
                 <img
@@ -118,12 +153,16 @@ export function Header({ connected, onToggleSidebar }: Props) {
               </span>
             </button>
 
-            {/* 下拉菜单 */}
-            {menuOpen && (
+            {menuOpen && menuAnchor && createPortal(
               <div
+                ref={menuPanelRef}
                 role="menu"
-                className="absolute right-0 top-full mt-1 w-48 py-1 bg-[var(--bg-card)] rounded-[10px] border border-[var(--border-color)] shadow-lg z-50"
-                onKeyDown={(e) => { if (e.key === 'Escape') setMenuOpen(false); }}
+                className="user-menu-panel fixed z-[9999] w-48 py-1 rounded-[10px] border border-[var(--border-color)] bg-[var(--bg-primary)] shadow-xl"
+                style={{
+                  top: menuAnchor.bottom + 4,
+                  right: window.innerWidth - menuAnchor.right,
+                }}
+                onKeyDown={(e) => { if (e.key === 'Escape') closeUserMenu(); }}
               >
                 <div className="px-3 py-2 border-b border-[var(--border-color)]">
                   <p className="text-sm font-medium text-[var(--text-primary)] truncate">{user.display_name}</p>
@@ -134,19 +173,21 @@ export function Header({ connected, onToggleSidebar }: Props) {
                     to="/admin"
                     role="menuitem"
                     className="block px-3 py-2 text-sm text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
-                    onClick={() => setMenuOpen(false)}
+                    onClick={closeUserMenu}
                   >
                     管理后台
                   </Link>
                 )}
                 <button
+                  type="button"
                   role="menuitem"
-                  onClick={() => { setMenuOpen(false); useAuthStore.getState().logout(); }}
+                  onClick={handleLogout}
                   className="w-full text-left px-3 py-2 text-sm text-red-500 hover:bg-[var(--bg-hover)]"
                 >
                   退出登录
                 </button>
-              </div>
+              </div>,
+              document.body,
             )}
           </div>
         )}

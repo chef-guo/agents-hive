@@ -42,7 +42,14 @@ interface AuthState {
 }
 
 let refreshPromise: Promise<string | null> | null = null;
+let refreshGeneration = 0;
 const DEFAULT_REFRESH_SKEW_MS = 60_000;
+
+/** 取消进行中的 token 刷新（退出登录时调用，避免 refresh 完成后把 token 写回）。 */
+export function cancelAuthRefresh() {
+  refreshGeneration++;
+  refreshPromise = null;
+}
 
 function decodeJWTPayload(token: string): { exp?: number } | null {
   const parts = token.split('.');
@@ -75,7 +82,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   clearAuth: () => {
     localStorage.removeItem('auth_token');
-    set({ token: null, user: null, loading: false });
+    set({
+      token: null,
+      user: null,
+      loading: false,
+      authError: null,
+    });
   },
 
   setAuth: (token, user) => {
@@ -84,8 +96,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   logout: () => {
+    cancelAuthRefresh();
     get().clearAuth();
-    window.location.href = '/login';
+    // 硬跳转，断开 WS 并清空各页面内存态
+    window.location.replace('/login');
   },
 
   checkAuthEnabled: async () => {
@@ -152,17 +166,25 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
 export async function refreshToken(): Promise<string | null> {
   if (refreshPromise) return refreshPromise;
+  const gen = refreshGeneration;
   refreshPromise = (async () => {
     try {
       const data = await apiClient.post<{ token: string }>('/api/v1/auth/refresh');
+      if (gen !== refreshGeneration) {
+        return null;
+      }
       localStorage.setItem('auth_token', data.token);
       useAuthStore.setState({ token: data.token });
       return data.token;
     } catch {
-      useAuthStore.getState().clearAuth();
+      if (gen === refreshGeneration) {
+        useAuthStore.getState().clearAuth();
+      }
       return null;
     } finally {
-      refreshPromise = null;
+      if (gen === refreshGeneration) {
+        refreshPromise = null;
+      }
     }
   })();
   return refreshPromise;

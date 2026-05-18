@@ -10,6 +10,7 @@ export function Login() {
   const checkAuthEnabled = useAuthStore((s) => s.checkAuthEnabled);
   const fetchProviders = useAuthStore((s) => s.fetchProviders);
   const setAuth = useAuthStore((s) => s.setAuth);
+  const checkAuth = useAuthStore((s) => s.checkAuth);
   const navigate = useNavigate();
 
   const [providers, setProviders] = useState<AuthProvider[]>([]);
@@ -27,6 +28,14 @@ export function Login() {
       void checkAuthEnabled();
     }
   }, [authEnabled, checkAuthEnabled]);
+
+  // 已登录则不必停留在登录页（退出后若 token 被误写回也会跳走，需配合 logout 取消 refresh）
+  useEffect(() => {
+    if (!localStorage.getItem('auth_token')) return;
+    void checkAuth().then((ok) => {
+      if (ok) navigate('/', { replace: true });
+    });
+  }, [checkAuth, navigate]);
 
   // 加载 provider 列表
   useEffect(() => {
@@ -61,7 +70,8 @@ export function Login() {
     setLdapSubmitting(true);
 
     try {
-      const providerName = ldapProvider?.name || (showLocalForm ? 'local' : 'ldap');
+      // 账密表单走 local（种子 admin、注册账号）；勿在存在 LDAP 配置时误用 ldap provider。
+      const providerName = showLocalForm ? 'local' : (ldapProvider?.name ?? 'ldap');
       const resp = await fetch('/api/v1/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
