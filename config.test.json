@@ -26,7 +26,11 @@
 
   "auth": {
     "_comment": "回归测试不跑登录流，显式关闭",
-    "enabled": false
+    "enabled": false,
+    "_comment_jwt_ttl": "启用认证时：单次 token 有效期，Go duration（默认 24h）",
+    "jwt_ttl": "1h",
+    "_comment_jwt_max_ttl": "启用认证时：自首次登录起最长会话（默认 168h）",
+    "jwt_max_ttl": "24h"
   },
 
   "store": {

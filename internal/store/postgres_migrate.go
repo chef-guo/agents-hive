@@ -850,7 +850,7 @@ CREATE TABLE IF NOT EXISTS auth_providers (
     updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- 用户表
+-- 用户表（password_hash：本地账密 / 种子 admin）
 CREATE TABLE IF NOT EXISTS users (
     id              TEXT PRIMARY KEY,
     external_id     TEXT NOT NULL DEFAULT '',
@@ -861,6 +861,7 @@ CREATE TABLE IF NOT EXISTS users (
     department      TEXT NOT NULL DEFAULT '',
     role            TEXT NOT NULL DEFAULT 'user',
     status          TEXT NOT NULL DEFAULT 'active',
+    password_hash   TEXT NOT NULL DEFAULT '',
     last_login_at   TIMESTAMPTZ,
     last_login_ip   TEXT NOT NULL DEFAULT '',
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -924,6 +925,24 @@ CREATE TABLE IF NOT EXISTS login_history (
     user_agent    TEXT NOT NULL DEFAULT '',
     created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+-- 邀请码（公开注册关闭时持码注册）
+CREATE TABLE IF NOT EXISTS auth_invite_codes (
+    id              TEXT PRIMARY KEY,
+    code_lookup     BYTEA NOT NULL UNIQUE,
+    code_hash       TEXT NOT NULL,
+    code_hint       TEXT NOT NULL DEFAULT '',
+    role            TEXT NOT NULL DEFAULT 'user',
+    max_uses        INT NOT NULL DEFAULT 1,
+    use_count       INT NOT NULL DEFAULT 0,
+    expires_at      TIMESTAMPTZ NOT NULL,
+    disabled        BOOLEAN NOT NULL DEFAULT FALSE,
+    note            TEXT NOT NULL DEFAULT '',
+    created_by      TEXT NOT NULL DEFAULT '',
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_auth_invite_codes_expires ON auth_invite_codes(expires_at);
+
 CREATE INDEX IF NOT EXISTS idx_login_history_user
     ON login_history(user_id, created_at DESC);
 
@@ -1745,6 +1764,10 @@ func pgMigrate(ctx context.Context, pool *pgxpool.Pool, logger *zap.Logger) erro
 
 	if _, err := pool.Exec(ctx, pgInitSQL); err != nil {
 		return errs.Wrap(errs.CodeStoreError, "PostgreSQL 建表失败", err)
+	}
+	// 认证扩展（password_hash、邀请码）尽早执行，避免旧库在未跑到迁移尾部时种子 admin 失败。
+	if _, err := pool.Exec(ctx, pgMigrateAuthUserManagement); err != nil {
+		return errs.Wrap(errs.CodeStoreError, "PostgreSQL 认证扩展迁移失败", err)
 	}
 	if err := pgEnsureScheduledTaskUniqueNameIndex(ctx, pool); err != nil {
 		return err

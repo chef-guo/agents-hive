@@ -41,6 +41,8 @@ func NewEngine(store Store, jwt *JWTManager, logger *zap.Logger) *Engine {
 		store:          store,
 		logger:         logger,
 	}
+	// 内置 local 账密（种子 admin、注册账号）；LoadProvidersFromDB 会重建 cred map 后再次挂载。
+	e.MountLocalProvider()
 	// BUG-5: 后台定期清理超过 15 分钟未活跃的 loginAttempts 条目，防止内存泄漏
 	go func() {
 		ticker := time.NewTicker(5 * time.Minute)

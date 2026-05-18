@@ -1706,8 +1706,10 @@ func initAuthEngine(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool,
 	if len(engine.ListProviders()) == 0 {
 		logger.Warn("认证引擎已初始化但尚未配置 OAuth/LDAP Provider；本地账号仍可用")
 	}
-	if err := auth.SeedDefaultAdmin(ctx, authStore, auth.SeedDefaultAdminEnabled(cfg.Auth.SeedDefaultAdmin)); err != nil {
+	if seeded, err := auth.SeedDefaultAdmin(ctx, authStore, auth.SeedDefaultAdminEnabled(cfg.Auth.SeedDefaultAdmin)); err != nil {
 		logger.Warn("默认 admin 种子账号写入失败", zap.Error(err))
+	} else if seeded {
+		logger.Info("已种子默认管理员", zap.String("username", "admin"), zap.String("hint", "初始密码 admin，请尽快修改"))
 	}
 	auth.StartCacheInvalidationListener(ctx, pool, engine, logger)
 	logger.Info("认证引擎已初始化")

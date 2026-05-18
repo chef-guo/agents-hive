@@ -140,6 +140,12 @@ func newTestEngine(store Store) *Engine {
 	return NewEngine(store, mgr, zap.NewNop())
 }
 
+func TestNewEngine_mountsLocalProvider(t *testing.T) {
+	engine := newTestEngine(newMockStore())
+	_, ok := engine.GetCredentialProvider(localProviderName)
+	require.True(t, ok, "local provider must exist immediately after NewEngine")
+}
+
 func TestFindOrCreateUserIdempotent(t *testing.T) {
 	store := newMockStore()
 	engine := newTestEngine(store)

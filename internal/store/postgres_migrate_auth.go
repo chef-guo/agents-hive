@@ -1,6 +1,7 @@
 package store
 
-// pgMigrateAuthUserManagement 本地注册、邀请码与用户密码（认证方案附录 D）。
+// pgMigrateAuthUserManagement 升级已有库：补 users.password_hash、auth_invite_codes 及 NOTIFY 触发器。
+// 新库建表见 pgInitSQL（users / auth_invite_codes 已含于主 DDL）。
 const pgMigrateAuthUserManagement = `
 ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT NOT NULL DEFAULT '';
 
