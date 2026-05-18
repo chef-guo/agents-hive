@@ -153,6 +153,35 @@ func (s *adminAuthProviderStore) UpdateUserStatus(_ context.Context, _, _ string
 func (s *adminAuthProviderStore) GetLoginHistory(_ context.Context, _ string, _ int) ([]*auth.LoginRecord, error) {
 	return nil, nil
 }
+func (s *adminAuthProviderStore) DeleteUser(_ context.Context, _ string) error { return nil }
+func (s *adminAuthProviderStore) CountActiveAdmins(_ context.Context) (int64, error) {
+	return 0, nil
+}
+func (s *adminAuthProviderStore) FindLocalUserByLogin(_ context.Context, _ string) (*auth.User, string, error) {
+	return nil, "", nil
+}
+func (s *adminAuthProviderStore) CreateUserWithPassword(_ context.Context, _ *auth.User, _ string) error {
+	return nil
+}
+func (s *adminAuthProviderStore) RegisterUserWithInvite(_ context.Context, _ *auth.User, _ string, _ string) error {
+	return nil
+}
+func (s *adminAuthProviderStore) CreateInviteCode(_ context.Context, _ *auth.InviteCode, _ []byte, _ string) error {
+	return nil
+}
+func (s *adminAuthProviderStore) GetInviteCodeByID(_ context.Context, _ string) (*auth.InviteCode, error) {
+	return nil, nil
+}
+func (s *adminAuthProviderStore) ListInviteCodes(_ context.Context) ([]*auth.InviteCode, error) {
+	return nil, nil
+}
+func (s *adminAuthProviderStore) UpdateInviteCode(_ context.Context, _ string, _ *bool, _ *string, _ *time.Time) error {
+	return nil
+}
+func (s *adminAuthProviderStore) DeleteInviteCode(_ context.Context, _ string) error { return nil }
+func (s *adminAuthProviderStore) FindInviteByLookup(_ context.Context, _ []byte) (*auth.InviteCode, error) {
+	return nil, nil
+}
 
 func cloneProviderConfig(p auth.ProviderConfig) auth.ProviderConfig {
 	p.ConfigJSON = append(json.RawMessage(nil), p.ConfigJSON...)

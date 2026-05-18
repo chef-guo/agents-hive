@@ -56,7 +56,7 @@ npm run preview
 
 - **说明**: 后端 API 基础 URL
 - **默认值**: 空字符串（使用当前域名）
-- **示例**: `http://localhost:8080`
+- **示例**: `http://localhost:18080`
 
 #### 配置方式
 
@@ -66,20 +66,20 @@ npm run preview
 
 ```bash
 # .env.local
-VITE_API_BASE=http://localhost:8080
+VITE_API_BASE=http://localhost:18080
 ```
 
 **方式 2: 命令行环境变量**
 
 ```bash
-VITE_API_BASE=http://localhost:8080 npm run dev
+VITE_API_BASE=http://localhost:18080 pnpm dev
 ```
 
 **方式 3: 系统环境变量**
 
 ```bash
-export VITE_API_BASE=http://localhost:8080
-npm run dev
+export VITE_API_BASE=http://localhost:18080
+pnpm dev
 ```
 
 #### 工作原理
@@ -91,9 +91,9 @@ npm run dev
 **示例**：
 
 ```typescript
-// 当 VITE_API_BASE = "http://localhost:8080" 时：
-// REST API: http://localhost:8080/api/v1/sessions
-// WebSocket: ws://localhost:8080/api/v1/ws
+// 当 VITE_API_BASE = "http://localhost:18080" 时：
+// REST API: http://localhost:18080/api/v1/sessions
+// WebSocket: ws://localhost:18080/api/v1/ws
 
 // 当 VITE_API_BASE 为空时（生产环境）：
 // REST API: https://your-domain.com/api/v1/sessions
@@ -616,7 +616,7 @@ const { t } = useTranslation();
 **调试步骤**：
 ```bash
 # 1. 检查后端是否运行
-curl http://localhost:8080/api/v1/health
+curl http://localhost:18080/api/v1/health
 
 # 2. 查看浏览器控制台 Network -> WS 标签
 # 3. 检查 WebSocket 握手响应
@@ -641,7 +641,7 @@ export default defineConfig({
   server: {
     proxy: {
       '/api': {
-        target: 'http://localhost:8080',
+        target: 'http://localhost:18080',
         changeOrigin: true,
         ws: true, // 代理 WebSocket
       },
@@ -759,7 +759,7 @@ server {
 
   # API 代理
   location /api/ {
-    proxy_pass http://backend:8080;
+    proxy_pass http://backend:18080;
     proxy_http_version 1.1;
     proxy_set_header Upgrade $http_upgrade;
     proxy_set_header Connection "upgrade";

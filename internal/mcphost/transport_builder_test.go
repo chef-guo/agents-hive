@@ -20,7 +20,7 @@ func TestBuildTransport_SSE(t *testing.T) {
 			spec: MCPServerSpec{
 				Name:      "test-sse",
 				Transport: "sse",
-				URL:       "http://localhost:8080/sse",
+				URL:       "http://localhost:18080/sse",
 			},
 			wantErr: false,
 		},
@@ -29,7 +29,7 @@ func TestBuildTransport_SSE(t *testing.T) {
 			spec: MCPServerSpec{
 				Name:      "test-sse-headers",
 				Transport: "sse",
-				URL:       "http://localhost:8080/sse",
+				URL:       "http://localhost:18080/sse",
 				Headers:   map[string]string{"X-Custom": "value"},
 				Timeout:   10 * time.Second,
 			},
@@ -40,7 +40,7 @@ func TestBuildTransport_SSE(t *testing.T) {
 			spec: MCPServerSpec{
 				Name:      "test-sse-oauth",
 				Transport: "sse",
-				URL:       "http://localhost:8080/sse",
+				URL:       "http://localhost:18080/sse",
 				OAuth: &OAuthConfig{
 					ClientID: "my-client",
 					AuthURL:  "http://auth.example.com/authorize",
@@ -89,7 +89,7 @@ func TestBuildTransport_HTTP(t *testing.T) {
 			spec: MCPServerSpec{
 				Name:      "test-http",
 				Transport: "http",
-				URL:       "http://localhost:8080/mcp",
+				URL:       "http://localhost:18080/mcp",
 			},
 			wantErr: false,
 		},
@@ -98,7 +98,7 @@ func TestBuildTransport_HTTP(t *testing.T) {
 			spec: MCPServerSpec{
 				Name:      "test-http-oauth",
 				Transport: "http",
-				URL:       "http://localhost:8080/mcp",
+				URL:       "http://localhost:18080/mcp",
 				OAuth: &OAuthConfig{
 					ClientID:     "my-client",
 					ClientSecret: "my-secret",
@@ -178,7 +178,7 @@ func TestBuildTransport_SSE_OAuth_AuthProvider已设置(t *testing.T) {
 	spec := MCPServerSpec{
 		Name:      "oauth-test",
 		Transport: "sse",
-		URL:       "http://localhost:8080/sse",
+		URL:       "http://localhost:18080/sse",
 		OAuth: &OAuthConfig{
 			ClientID: "test-client",
 			AuthURL:  "http://auth.example.com/authorize",
@@ -202,7 +202,7 @@ func TestBuildTransport_HTTP_OAuth_AuthProvider已设置(t *testing.T) {
 	spec := MCPServerSpec{
 		Name:      "oauth-test",
 		Transport: "http",
-		URL:       "http://localhost:8080/mcp",
+		URL:       "http://localhost:18080/mcp",
 		OAuth: &OAuthConfig{
 			ClientID: "test-client",
 			AuthURL:  "http://auth.example.com/authorize",

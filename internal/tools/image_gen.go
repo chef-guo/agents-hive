@@ -23,7 +23,7 @@ func generateImageID() string {
 }
 
 // RegisterImageGen registers the generate_image tool.
-// serverBaseURL 是服务器对外可访问的 base URL（如 "http://localhost:8080"），
+// serverBaseURL 是服务器对外可访问的 base URL（如 "http://localhost:18080"），
 // 用于构造保存到本地的图片的完整访问地址，以便 WenYan MCP 等外部工具能 fetch。
 func RegisterImageGen(host *mcphost.Host, router *airouter.Router, logger *zap.Logger, serverBaseURL string) {
 	if router == nil {

@@ -56,13 +56,13 @@ func TestNormalizeBaseURL(t *testing.T) {
 		},
 		{
 			name:     "localhost 带端口号",
-			input:    "http://localhost:8080",
-			expected: "http://localhost:8080/v1",
+			input:    "http://localhost:18080",
+			expected: "http://localhost:18080/v1",
 		},
 		{
 			name:     "localhost 带端口号和尾部斜杠",
-			input:    "http://localhost:8080/",
-			expected: "http://localhost:8080/v1",
+			input:    "http://localhost:18080/",
+			expected: "http://localhost:18080/v1",
 		},
 		{
 			name:     "自定义路径（复杂路径保持不变）",

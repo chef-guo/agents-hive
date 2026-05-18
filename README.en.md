@@ -102,19 +102,22 @@ git clone https://github.com/chef-guo/agents-hive.git
 cd agents-hive
 
 # Use a strong password in production.
+# Linux: DOCKER_GID=$(stat -c '%g' /var/run/docker.sock)
+# macOS: DOCKER_GID=$(stat -f '%g' /var/run/docker.sock)
 cat > .env <<EOF
 POSTGRES_PASSWORD=your_strong_password
-DOCKER_GID=$(stat -c '%g' /var/run/docker.sock)
+DOCKER_GID=$(stat -f '%g' /var/run/docker.sock 2>/dev/null || stat -c '%g' /var/run/docker.sock)
 TZ=Asia/Shanghai
-HIVE_PORT=8080
+HIVE_PORT=18080
 MINIO_ROOT_USER=minioadmin
 MINIO_ROOT_PASSWORD=minioadmin
 MINIO_BUCKET=hive-assets
 EOF
 
-mkdir -p /opt/hive/workdir/sessions
+# Default host workdir is ./.hive-workdir (see docker-compose.yml); avoids macOS /opt mount denial.
+mkdir -p .hive-workdir/sessions
 # The Hive container runs as a non-root user; the bind-mounted workdir must be writable.
-chmod 0775 /opt/hive/workdir /opt/hive/workdir/sessions
+chmod 0777 .hive-workdir .hive-workdir/sessions
 
 # Sandbox containers run on the host Docker daemon, so build the sandbox image first.
 docker build -t hive-sandbox:latest -f docker/sandbox/Dockerfile .
@@ -127,7 +130,7 @@ docker compose logs -f hive
 Open:
 
 ```text
-http://localhost:8080
+http://localhost:18080
 ```
 
 To build only the main service image:
@@ -136,7 +139,7 @@ To build only the main service image:
 docker build -t hive:latest .
 ```
 
-The sandbox bind mount path must be identical on the host and inside the Hive container. The default is `/opt/hive/workdir`. If you change it, update both [docker-compose.yml](docker-compose.yml) and [docker/config.docker.json](docker/config.docker.json), then rebuild the main service image. The host directory must also be writable by the non-root `hive` user inside the container.
+Inside the Hive container the workdir prefix is always `/opt/hive/workdir` (matching `sessions_dir` in [docker/config.docker.json](docker/config.docker.json)). Prefer **`make docker-up`** / **`make docker-setup`**: they pick a host bind-mount path automatically (macOS / Git-Bash-style Windows → `./.hive-workdir`; Linux → `/opt/hive/workdir`). Plain **`docker compose up`** without `HIVE_WORKDIR_HOST` defaults to `./.hive-workdir` (safe everywhere). Override with `HIVE_WORKDIR_HOST` or `HIVE_WORKDIR_FORCE_PROJECT=1` (force project dir on Linux when using `make`). The host directory must be writable by the non-root `hive` user inside the container.
 
 Unified object storage defaults to the Compose MinIO service, and the bucket is created by `minio-init`. Local or single-node deployments can use `asset.provider=local`; production deployments can set `asset.provider=s3` for AWS S3 or another S3-compatible service.
 
@@ -167,14 +170,22 @@ go build -o server ./cmd/server
 Start the backend:
 
 ```bash
+# Requires PostgreSQL: you can start only the DB (compose maps 5432 to localhost for config.json).
+docker compose up -d postgres
+# If config uses ${POSTGRES_PASSWORD}, export the same value as in .env, for example:
+export POSTGRES_PASSWORD=same_as_in_dot_env
 ./server --config config.json
 ```
+
+Or use a locally installed PostgreSQL with the `claw` database and matching credentials, then run `./server --config config.json` directly.
 
 Start the frontend dev server:
 
 ```bash
 cd frontend
 npm install
+# Defaults match config/vite (18080). If the backend listens elsewhere, set:
+# echo 'VITE_DEV_API_TARGET=http://localhost:<port>' > frontend/.env.development.local
 npm run dev
 ```
 
@@ -248,6 +259,8 @@ Common environment variables:
 | `POSTGRES_HOST` / `POSTGRES_PORT` / `POSTGRES_DB` | PostgreSQL host, port, and database |
 | `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_SSL_MODE` | PostgreSQL auth and SSL settings |
 | `SESSIONS_DIR` | Session work directory |
+| `HIVE_WORKDIR_HOST` | (Compose) Host path bind-mounted to `/opt/hive/workdir`; unset defaults to `./.hive-workdir`; `make docker-up` uses `/opt/hive/workdir` on Linux automatically |
+| `HIVE_WORKDIR_FORCE_PROJECT` | Set to `1` to force `./.hive-workdir` on Linux even when using `make` |
 | `CUSTOM_TOOLS_DIR` | Custom tools directory |
 | `ASSET_PROVIDER` / `ASSET_LOCAL_BASE_PATH` | Unified object storage provider and local storage path |
 | `MINIO_ENDPOINT` / `MINIO_ACCESS_KEY` / `MINIO_SECRET_KEY` / `MINIO_BUCKET` | MinIO / S3-compatible object storage settings |
@@ -269,6 +282,12 @@ Markdown, plain text, and DOCX enter the same Markdown ingest pipeline. PDF defa
 KB retrieval uses PageIndex-style tree mode, not a separate vector database. The agent calls `kb.doc.meta`, then `kb.doc.structure`, then `kb.section.text` with tight `node_ids` or PDF page-anchor `page_ranges`. `kb.doc.meta` returns `page_count`, `line_count`, and `node_count`, so the agent can judge document scale before selecting tight ranges. When PDF/MinerU or an external provider emits Markdown with markers such as `<physical_index_5>`, `<page_5>`, `<!-- page: 5 -->`, or `[[page=5]]`, KB stores them as `start_page/end_page` in the structure tree and supports `page_ranges: ["5-7"]` to fetch exact text plus in-page image `asset_refs`.
 
 When MinerU is configured, server startup checks whether `mineru` is executable. If it is missing and `install.enabled=true`, Hive creates an isolated Python venv under `fileconv.markdown.pdf.install.install_dir` and installs `mineru[all]`. Install failure is fail-fast; PDF ingest does not create degraded placeholder documents. To use another OCR/layout/model tool, set provider to `external` and configure a command that writes a Markdown file plus an asset directory.
+
+### Default administrator and permissions (Web auth)
+
+When the **auth service is ready** (PostgreSQL available and user tables initialized) and the **`users` table is still empty**, the system seeds a local administrator: **username `admin`**, **initial password `admin`**, with role **`admin`**. Change the password promptly on production or public deployments.
+
+**User administration** and **invite-code** features (admin console and matching APIs) are available **only to users with the `admin` role**.
 
 ## Web UI
 
@@ -303,7 +322,7 @@ For UI changes, keep the existing component patterns, layout density, color syst
 Default HTTP API prefix:
 
 ```text
-http://localhost:8080/api/v1
+http://localhost:18080/api/v1
 ```
 
 Common resources:

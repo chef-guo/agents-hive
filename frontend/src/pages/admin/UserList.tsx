@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Search, Shield, Ban, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Search, Shield, Ban, ChevronLeft, ChevronRight, Trash2 } from 'lucide-react';
 import { useNodeClient } from '../../hooks/useNodeClient';
 import { useToastStore } from '../../store/toast';
 import type { AdminUser } from '../../types/api';
@@ -16,7 +16,7 @@ export function UserList() {
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(false);
   const [editingQuota, setEditingQuota] = useState<{ id: string; value: string } | null>(null);
-  const [confirm, setConfirm] = useState<{ user: AdminUser; action: 'role' | 'status' } | null>(null);
+  const [confirm, setConfirm] = useState<{ user: AdminUser; action: 'role' | 'status' | 'delete' } | null>(null);
 
   const size = 20;
 
@@ -56,7 +56,7 @@ export function UserList() {
       } catch (e: unknown) {
         addToast('error', e instanceof Error ? e.message : '更新角色失败');
       }
-    } else {
+    } else if (action === 'status') {
       const newStatus = user.status === 'active' ? 'disabled' : 'active';
       try {
         await client.adminUpdateUser(user.id, { status: newStatus });
@@ -64,6 +64,14 @@ export function UserList() {
         load();
       } catch (e: unknown) {
         addToast('error', e instanceof Error ? e.message : '更新状态失败');
+      }
+    } else {
+      try {
+        await client.adminDeleteUser(user.id);
+        addToast('success', t('admin.userDeleted', '用户已删除'));
+        load();
+      } catch (e: unknown) {
+        addToast('error', e instanceof Error ? e.message : t('admin.userDeleteFailed', '删除用户失败'));
       }
     }
   };
@@ -209,6 +217,14 @@ export function UserList() {
                     >
                       {user.status === 'active' ? t('admin.disable', '禁用') : t('admin.enable', '启用')}
                     </button>
+                    <button
+                      type="button"
+                      onClick={() => setConfirm({ user, action: 'delete' })}
+                      className="text-xs px-2 py-1 rounded border border-red-200 text-red-600 hover:bg-red-50 dark:border-red-800 dark:hover:bg-red-900/20"
+                      title={t('admin.deleteUser', '删除用户')}
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
                   </div>
                 </td>
               </tr>
@@ -248,13 +264,23 @@ export function UserList() {
           <div className="w-80 rounded-xl bg-[var(--bg-card)] border border-[var(--border-color)] shadow-2xl p-6">
             <h3 className="text-sm font-semibold text-[var(--text-primary)] mb-2">
               {confirm.action === 'role'
-                ? (confirm.user.role === 'admin' ? '降为普通用户' : '提升为管理员')
-                : (confirm.user.status === 'active' ? '禁用用户' : '启用用户')}
+                ? (confirm.user.role === 'admin' ? t('admin.demoteTitle', '降为普通用户') : t('admin.promoteTitle', '提升为管理员'))
+                : confirm.action === 'status'
+                  ? (confirm.user.status === 'active' ? t('admin.disableTitle', '禁用用户') : t('admin.enableTitle', '启用用户'))
+                  : t('admin.deleteUserTitle', '删除用户')}
             </h3>
             <p className="text-sm text-[var(--text-secondary)] mb-5">
               {confirm.action === 'role'
-                ? `确定将 ${confirm.user.display_name} 的角色改为 ${confirm.user.role === 'admin' ? 'user' : 'admin'}？`
-                : `确定${confirm.user.status === 'active' ? '禁用' : '启用'} ${confirm.user.display_name}？`}
+                ? t('admin.roleConfirm', '确定将 {{name}} 的角色改为 {{role}}？', {
+                    name: confirm.user.display_name,
+                    role: confirm.user.role === 'admin' ? 'user' : 'admin',
+                  })
+                : confirm.action === 'status'
+                  ? t('admin.statusConfirm', '确定{{action}} {{name}}？', {
+                      name: confirm.user.display_name,
+                      action: confirm.user.status === 'active' ? t('admin.disable', '禁用') : t('admin.enable', '启用'),
+                    })
+                  : t('admin.deleteUserConfirm', '确定永久删除 {{name}}？此操作不可恢复。', { name: confirm.user.display_name })}
             </p>
             <div className="flex justify-end gap-2">
               <button
@@ -266,7 +292,7 @@ export function UserList() {
               <button
                 onClick={handleConfirm}
                 className={`px-3 py-1.5 text-xs rounded-lg text-white transition-colors ${
-                  confirm.action === 'status' && confirm.user.status === 'active'
+                  (confirm.action === 'status' && confirm.user.status === 'active') || confirm.action === 'delete'
                     ? 'bg-red-600 hover:bg-red-700'
                     : 'bg-[var(--accent-600)] hover:bg-[var(--accent-700)]'
                 }`}

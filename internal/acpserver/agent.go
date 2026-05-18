@@ -175,6 +175,21 @@ func (a *ClawAgent) SetSessionMode(_ context.Context, params acp.SetSessionModeR
 	return acp.SetSessionModeResponse{}, nil
 }
 
+// ListSessions 未实现（客户端需具备 sessionCapabilities.list 才会调用）。
+func (a *ClawAgent) ListSessions(_ context.Context, _ acp.ListSessionsRequest) (acp.ListSessionsResponse, error) {
+	return acp.ListSessionsResponse{}, acp.NewMethodNotFound(acp.AgentMethodSessionList)
+}
+
+// ResumeSession 未实现。
+func (a *ClawAgent) ResumeSession(_ context.Context, _ acp.ResumeSessionRequest) (acp.ResumeSessionResponse, error) {
+	return acp.ResumeSessionResponse{}, acp.NewMethodNotFound(acp.AgentMethodSessionResume)
+}
+
+// SetSessionConfigOption 未实现。
+func (a *ClawAgent) SetSessionConfigOption(_ context.Context, _ acp.SetSessionConfigOptionRequest) (acp.SetSessionConfigOptionResponse, error) {
+	return acp.SetSessionConfigOptionResponse{}, acp.NewMethodNotFound(acp.AgentMethodSessionSetConfigOption)
+}
+
 // Cancel 取消指定会话的当前请求
 func (a *ClawAgent) Cancel(_ context.Context, params acp.CancelNotification) error {
 	sid := string(params.SessionId)
@@ -350,8 +365,14 @@ func randFallback() int64 {
 	return n
 }
 
-// CloseSession 关闭指定 ACP 会话，释放会话级 MCP 客户端等资源
-func (a *ClawAgent) CloseSession(sessionID string) {
+// CloseSession 实现 acp.Agent：关闭指定 ACP 会话并释放资源。
+func (a *ClawAgent) CloseSession(_ context.Context, params acp.CloseSessionRequest) (acp.CloseSessionResponse, error) {
+	a.closeSessionResources(string(params.SessionId))
+	return acp.CloseSessionResponse{}, nil
+}
+
+// closeSessionResources 关闭指定 ACP 会话，释放会话级 MCP 客户端等资源（内部复用）。
+func (a *ClawAgent) closeSessionResources(sessionID string) {
 	a.mu.Lock()
 	entry, ok := a.sessions[sessionID]
 	if ok {
@@ -386,7 +407,7 @@ func (a *ClawAgent) CloseAllSessions() {
 	a.mu.Unlock()
 
 	for _, sid := range sids {
-		a.CloseSession(sid)
+		a.closeSessionResources(sid)
 	}
 }
 

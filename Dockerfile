@@ -114,11 +114,11 @@ COPY docker/config.docker.json /app/config.json
 RUN chmod +x /app/hive && chown hive:hive /app/hive
 
 # 暴露 HTTP API + WebUI 端口
-EXPOSE 8080
+EXPOSE 18080
 
 # 健康检查
 HEALTHCHECK --interval=15s --timeout=5s --start-period=30s --retries=3 \
-    CMD wget -qO- http://localhost:8080/api/v1/health || exit 1
+    CMD wget -qO- http://localhost:18080/api/v1/health || exit 1
 
 USER hive
 

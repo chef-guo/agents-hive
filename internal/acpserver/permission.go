@@ -52,7 +52,7 @@ func createACPPermissionFnWithRequester(
 		// 构建 ACP 权限请求
 		permResp, err := requester.RequestPermission(ctx, acp.RequestPermissionRequest{
 			SessionId: acp.SessionId(sessionID),
-			ToolCall: acp.RequestPermissionToolCall{
+			ToolCall: acp.ToolCallUpdate{
 				ToolCallId: acp.ToolCallId(fmt.Sprintf("perm_%s", req.ToolName)),
 				Title:      acp.Ptr(req.Description),
 				Kind:       acp.Ptr(toolKindFromName(req.ToolName)),

@@ -27,6 +27,11 @@ import type {
   AdminProvider,
   AdminProviderCreateRequest,
   AdminProviderUpdateRequest,
+  AdminInviteCode,
+  AdminInviteCodeCreateRequest,
+  AdminInviteCodeCreateResponse,
+  AdminInviteCodeUpdateRequest,
+  AdminInviteCodesResponse,
   PromptRecord,
   LLMProviderRecord,
   LLMProviderCreateRequest,
@@ -188,6 +193,11 @@ export interface NodeClient {
   adminCreateProvider(body: AdminProviderCreateRequest): Promise<void>;
   adminUpdateProvider(name: string, body: AdminProviderUpdateRequest): Promise<void>;
   adminDeleteProvider(name: string): Promise<void>;
+  adminDeleteUser(id: string): Promise<void>;
+  adminListInviteCodes(): Promise<AdminInviteCode[]>;
+  adminCreateInviteCode(body: AdminInviteCodeCreateRequest): Promise<AdminInviteCodeCreateResponse>;
+  adminUpdateInviteCode(id: string, body: AdminInviteCodeUpdateRequest): Promise<AdminInviteCode>;
+  adminDeleteInviteCode(id: string): Promise<void>;
   adminListScheduledTasks(): Promise<ScheduledTask[]>;
   // Journal（回放剧场）
   getSessionJournal(sessionId: string, limit?: number): Promise<JournalResponse>;
@@ -553,6 +563,27 @@ export class LocalNodeClient implements NodeClient {
 
   adminDeleteProvider(name: string): Promise<void> {
     return this.client.delete(`/api/v1/admin/auth/providers/${name}`);
+  }
+
+  adminDeleteUser(id: string): Promise<void> {
+    return this.client.delete(`/api/v1/admin/users/${encodeURIComponent(id)}`);
+  }
+
+  async adminListInviteCodes(): Promise<AdminInviteCode[]> {
+    const res = await this.client.get<AdminInviteCodesResponse>('/api/v1/admin/auth/invite-codes');
+    return res.invite_codes ?? [];
+  }
+
+  adminCreateInviteCode(body: AdminInviteCodeCreateRequest): Promise<AdminInviteCodeCreateResponse> {
+    return this.client.post('/api/v1/admin/auth/invite-codes', body);
+  }
+
+  adminUpdateInviteCode(id: string, body: AdminInviteCodeUpdateRequest): Promise<AdminInviteCode> {
+    return this.client.patch(`/api/v1/admin/auth/invite-codes/${encodeURIComponent(id)}`, body);
+  }
+
+  adminDeleteInviteCode(id: string): Promise<void> {
+    return this.client.delete(`/api/v1/admin/auth/invite-codes/${encodeURIComponent(id)}`);
   }
 
   adminListScheduledTasks(): Promise<ScheduledTask[]> {

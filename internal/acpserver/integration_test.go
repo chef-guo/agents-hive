@@ -38,8 +38,8 @@ func (m *mockACPClient) CreateTerminal(_ context.Context, _ acp.CreateTerminalRe
 	return acp.CreateTerminalResponse{}, nil
 }
 
-func (m *mockACPClient) KillTerminalCommand(_ context.Context, _ acp.KillTerminalCommandRequest) (acp.KillTerminalCommandResponse, error) {
-	return acp.KillTerminalCommandResponse{}, nil
+func (m *mockACPClient) KillTerminal(_ context.Context, _ acp.KillTerminalRequest) (acp.KillTerminalResponse, error) {
+	return acp.KillTerminalResponse{}, nil
 }
 
 func (m *mockACPClient) TerminalOutput(_ context.Context, _ acp.TerminalOutputRequest) (acp.TerminalOutputResponse, error) {

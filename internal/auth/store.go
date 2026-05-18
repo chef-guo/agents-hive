@@ -37,7 +37,22 @@ type Store interface {
 	GetUserWithQuota(ctx context.Context, userID string) (*UserWithQuota, error)
 	UpdateUserRole(ctx context.Context, userID, role string) error
 	UpdateUserStatus(ctx context.Context, userID, status string) error
+	DeleteUser(ctx context.Context, userID string) error
+	CountActiveAdmins(ctx context.Context) (int64, error)
 	GetLoginHistory(ctx context.Context, userID string, limit int) ([]*LoginRecord, error)
+
+	// 本地账号
+	FindLocalUserByLogin(ctx context.Context, login string) (*User, string, error)
+	CreateUserWithPassword(ctx context.Context, user *User, passwordHash string) error
+	RegisterUserWithInvite(ctx context.Context, user *User, passwordHash string, inviteID string) error
+
+	// 邀请码
+	CreateInviteCode(ctx context.Context, invite *InviteCode, lookup []byte, hash string) error
+	GetInviteCodeByID(ctx context.Context, id string) (*InviteCode, error)
+	ListInviteCodes(ctx context.Context) ([]*InviteCode, error)
+	UpdateInviteCode(ctx context.Context, id string, disabled *bool, note *string, expiresAt *time.Time) error
+	DeleteInviteCode(ctx context.Context, id string) error
+	FindInviteByLookup(ctx context.Context, lookup []byte) (*InviteCode, error)
 
 	// Admin Provider 管理（Phase 5C 新增）
 	ListAllProviders(ctx context.Context) ([]ProviderConfig, error)

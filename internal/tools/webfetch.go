@@ -81,7 +81,7 @@ func registerWebFetch(host *mcphost.Host, logger *zap.Logger) {
 
 			// 检查域名过滤
 			parsedURL, _ := url.Parse(normalizedURL)
-			// 去除端口号（例如 127.0.0.1:8080 -> 127.0.0.1）
+			// 去除端口号（例如 127.0.0.1:18080 -> 127.0.0.1）
 			urlHost := parsedURL.Hostname()
 			domain := strings.ToLower(urlHost)
 			domain = strings.TrimPrefix(domain, "www.")

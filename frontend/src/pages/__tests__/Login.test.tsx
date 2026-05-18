@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
+import i18n from '../../i18n';
 import { Login } from '../Login';
 import { useAuthStore } from '../../store/auth';
 
@@ -41,15 +42,18 @@ beforeEach(() => {
 });
 
 describe('Login', () => {
-  it('authEnabled=false → redirect 首页', async () => {
-    const store = buildStore({
-      authEnabled: null,
-      checkAuthEnabled: vi.fn().mockResolvedValue(false),
-    });
+  it('authEnabled=false → 显示未启用说明，不自动跳首页', () => {
+    const store = buildStore({ authEnabled: false });
     renderLogin(store);
-    await waitFor(() => {
-      expect(mockNavigate).toHaveBeenCalledWith('/', { replace: true });
-    });
+    expect(screen.getByText(i18n.t('loginPage.authDisabledTitle'))).toBeInTheDocument();
+    expect(mockNavigate).not.toHaveBeenCalledWith('/', { replace: true });
+  });
+
+  it('authEnabled=null → 请求 checkAuthEnabled', async () => {
+    const checkAuthEnabled = vi.fn().mockResolvedValue(true);
+    const store = buildStore({ authEnabled: null, checkAuthEnabled });
+    renderLogin(store);
+    await waitFor(() => expect(checkAuthEnabled).toHaveBeenCalled());
   });
 
   it('authEnabled=true → 加载 providers', async () => {

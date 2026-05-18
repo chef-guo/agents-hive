@@ -48,9 +48,10 @@ func TestACPClientImplRequestPermissionAllowsReadOnlyAndAsksOrDeniesDangerous(t 
 			{Kind: acp.PermissionOptionKindAllowOnce, Name: "Allow", OptionId: "allow"},
 			{Kind: acp.PermissionOptionKindRejectOnce, Name: "Reject", OptionId: "reject"},
 		},
-		ToolCall: acp.RequestPermissionToolCall{
-			Title:    acp.Ptr("Read project file"),
-			RawInput: map[string]any{"path": "/tmp/a.txt"},
+		ToolCall: acp.ToolCallUpdate{
+			ToolCallId: "call_read",
+			Title:      acp.Ptr("Read project file"),
+			RawInput:   map[string]any{"path": "/tmp/a.txt"},
 		},
 	})
 	require.NoError(t, err)
@@ -62,9 +63,10 @@ func TestACPClientImplRequestPermissionAllowsReadOnlyAndAsksOrDeniesDangerous(t 
 			{Kind: acp.PermissionOptionKindAllowOnce, Name: "Allow", OptionId: "allow"},
 			{Kind: acp.PermissionOptionKindRejectOnce, Name: "Reject", OptionId: "reject"},
 		},
-		ToolCall: acp.RequestPermissionToolCall{
-			Title:    acp.Ptr("Delete file"),
-			RawInput: map[string]any{"command": "rm -rf /tmp/project"},
+		ToolCall: acp.ToolCallUpdate{
+			ToolCallId: "call_delete",
+			Title:      acp.Ptr("Delete file"),
+			RawInput:   map[string]any{"command": "rm -rf /tmp/project"},
 		},
 	})
 	require.NoError(t, err)

@@ -24,6 +24,11 @@
     "tokens": []
   },
 
+  "auth": {
+    "_comment": "回归测试不跑登录流，显式关闭",
+    "enabled": false
+  },
+
   "store": {
     "_comment": "CI 里 services.postgres 绑 5432；TEST_DATABASE_URL env 覆盖也可",
     "type": "postgres",

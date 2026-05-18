@@ -167,7 +167,13 @@ func (e *Engine) LoadProvidersFromDB(ctx context.Context) error {
 	e.oauthProviders = newOAuth
 	e.credProviders = newCred
 	e.mu.Unlock()
+	e.MountLocalProvider()
 	return nil
+}
+
+// MountLocalProvider 挂载内置 local 凭证 Provider（LoadProvidersFromDB 之后调用）。
+func (e *Engine) MountLocalProvider() {
+	e.RegisterCredentialProvider(localProviderName, NewLocalProvider(e.store))
 }
 
 // FindOrCreateUser 查找或创建用户

@@ -1903,6 +1903,10 @@ func pgMigrate(ctx context.Context, pool *pgxpool.Pool, logger *zap.Logger) erro
 		return fmt.Errorf("hive_skills user_id 迁移失败: %w", err)
 	}
 
+	if _, err := pool.Exec(ctx, pgMigrateAuthUserManagement); err != nil {
+		return errs.Wrap(errs.CodeStoreError, "PostgreSQL 认证扩展迁移失败", err)
+	}
+
 	// Spec-driven cognition Phase 2：3 张表 + 触发器的建表块抽成 MigrateSpecTables，
 	// 为 Sprint 3.2 TestMigration_DownReverts 提供独立可调 + down 反向的入口。
 	// 此处的 pgMigrate 继续作为 canonical 建表 orchestrator，单一事实源。

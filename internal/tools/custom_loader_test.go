@@ -736,7 +736,7 @@ func TestIsDomainAllowed(t *testing.T) {
 		{"通配符匹配子域名", "https://foo.example.com/path", []string{"*.example.com"}, true},
 		{"通配符不匹配根域名", "https://example.com/path", []string{"*.example.com"}, false},
 		{"通配符不匹配其他域名", "https://evil.com/path", []string{"*.example.com"}, false},
-		{"带端口精确匹配", "https://api.example.com:8080/path", []string{"api.example.com"}, true},
+		{"带端口精确匹配", "https://api.example.com:18080/path", []string{"api.example.com"}, true},
 		{"空白名单", "https://any.com/path", []string{}, false},
 		{"无效 URL", "not-a-url", []string{"example.com"}, false},
 		{"多个白名单域名", "https://b.com/path", []string{"a.com", "b.com"}, true},

@@ -256,8 +256,8 @@ func sessionUpdateText(update acp.SessionUpdate) string {
 }
 
 func promptResponseContent(resp acp.PromptResponse) string {
-	meta, ok := resp.Meta.(map[string]any)
-	if !ok {
+	meta := resp.Meta
+	if len(meta) == 0 {
 		return ""
 	}
 	for _, key := range []string{"content", "text", "assistant", "assistant_result"} {
@@ -413,7 +413,7 @@ func ConnectAndInit(ctx context.Context, cfg RemoteAgentConfig, logger *zap.Logg
 
 func hiveACPClientCapabilities() acp.ClientCapabilities {
 	return acp.ClientCapabilities{
-		Fs: acp.FileSystemCapability{
+		Fs: acp.FileSystemCapabilities{
 			ReadTextFile:  true,
 			WriteTextFile: true,
 		},

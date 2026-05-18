@@ -23,6 +23,7 @@ var publicPaths = []string{
 	"/api/v1/auth/login",
 	"/api/v1/auth/callback",
 	"/api/v1/auth/refresh",
+	"/api/v1/auth/register",
 	"/api/v1/health",
 	"/api/v1/assets/proxy",
 	"/api/v1/channel/",
@@ -45,8 +46,12 @@ func AuthMiddleware(engine *Engine) func(http.Handler) http.Handler {
 			// 规范化路径，防路径穿越绕过白名单
 			cleanPath := path.Clean(r.URL.Path)
 
-			// auth 未启用：不注入 WithAuthEnabled，直接放行
+			// 认证引擎未挂载（无 PG）：/api/v1 除健康/状态等外拒绝，避免业务 API 裸奔
 			if engine == nil {
+				if strings.HasPrefix(cleanPath, "/api/v1/") && !isAPIPublicWithoutEngine(cleanPath) {
+					http.Error(w, `{"error":"认证服务未就绪，请检查数据库配置","code":"service_unavailable"}`, http.StatusServiceUnavailable)
+					return
+				}
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -111,6 +116,15 @@ func AuthMiddleware(engine *Engine) func(http.Handler) http.Handler {
 
 func isGatewayRPCPath(cleanPath string) bool {
 	return cleanPath == "/api/v1/rpc" || cleanPath == "/api/v1/rpc/ws"
+}
+
+func isAPIPublicWithoutEngine(cleanPath string) bool {
+	switch cleanPath {
+	case "/api/v1/health", "/api/v1/auth/status":
+		return true
+	default:
+		return false
+	}
 }
 
 func authenticateBearerUser(r *http.Request, engine *Engine) (*User, *Claims, bool) {

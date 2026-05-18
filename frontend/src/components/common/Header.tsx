@@ -1,7 +1,7 @@
 import { Link, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useState, useRef, useEffect } from 'react';
-import { PanelLeft } from 'lucide-react';
+import { LogIn, PanelLeft } from 'lucide-react';
 import { LanguageSwitcher } from './LanguageSwitcher';
 import { ThemeToggle } from './ThemeToggle';
 import { useHeaderStore } from '../../store/header';
@@ -17,7 +17,7 @@ export function Header({ connected, onToggleSidebar }: Props) {
   const { t } = useTranslation();
   const location = useLocation();
   const { leftExtra, centerOverride, rightExtra } = useHeaderStore();
-  const { user } = useAuthStore();
+  const { user, authEnabled } = useAuthStore();
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -87,11 +87,11 @@ export function Header({ connected, onToggleSidebar }: Props) {
         )}
       </div>
 
-      {/* 右侧：页面注入内容 + 用户信息 + 语言切换 + 主题切换 + WS 状态 */}
-      <div className="flex items-center gap-2">
+      {/* 右侧：提高 z-index，避免被中间 absolute 标题层叠遮挡 */}
+      <div className="relative z-20 flex min-w-0 shrink-0 items-center gap-2">
         {rightExtra}
 
-        {/* 用户信息（auth 启用时显示） */}
+        {/* 用户信息（已登录） */}
         {user && (
           <div className="relative" ref={menuRef}>
             <button
@@ -166,6 +166,17 @@ export function Header({ connected, onToggleSidebar }: Props) {
             {connected ? t('common.connected') : t('common.disconnected')}
           </span>
         </div>
+
+        {!user && (
+          <Link
+            to="/login"
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-[var(--border-color)] bg-[var(--bg-card)] px-2.5 py-1.5 text-sm font-medium text-[var(--text-primary)] shadow-sm hover:bg-[var(--bg-hover)] transition-colors"
+            title={authEnabled === false ? t('nav.loginRequiresAuthHint') : undefined}
+          >
+            <LogIn className="h-4 w-4 text-[var(--accent-600)]" aria-hidden />
+            <span>{t('nav.login')}</span>
+          </Link>
+        )}
       </div>
     </header>
   );

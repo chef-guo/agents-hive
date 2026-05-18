@@ -1572,6 +1572,42 @@ export interface AdminProvidersResponse {
   providers: AdminProvider[];
 }
 
+export interface AdminInviteCode {
+  id: string;
+  code_hint?: string;
+  role: 'user' | 'admin';
+  max_uses: number;
+  use_count: number;
+  expires_at: string;
+  disabled: boolean;
+  note?: string;
+  created_by?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AdminInviteCodesResponse {
+  invite_codes: AdminInviteCode[];
+}
+
+export interface AdminInviteCodeCreateRequest {
+  role?: 'user' | 'admin';
+  max_uses?: number;
+  expires_at: string;
+  note?: string;
+}
+
+export interface AdminInviteCodeCreateResponse {
+  invite: AdminInviteCode;
+  code: string;
+}
+
+export interface AdminInviteCodeUpdateRequest {
+  disabled?: boolean;
+  note?: string;
+  expires_at?: string;
+}
+
 export interface PromptRecord {
   key: string;
   language: string;

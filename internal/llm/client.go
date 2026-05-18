@@ -172,7 +172,7 @@ func (c *Client) markJSONModeUnsupported() {
 // - https://gmini.xyz → https://gmini.xyz/v1
 // - https://gmini.xyz/ → https://gmini.xyz/v1
 // - https://gmini.xyz/v1 → 保持不变
-// - http://localhost:8080 → http://localhost:8080/v1
+// - http://localhost:18080 → http://localhost:18080/v1
 // - https://api.custom.com/custom/path → 保持不变（自定义路径）
 func normalizeBaseURL(baseURL string) string {
 	if baseURL == "" {

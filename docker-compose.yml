@@ -2,7 +2,7 @@
 # Hive — Docker Compose 部署
 #
 # 架构说明：
-#   hive      主服务（Go 二进制 + 内嵌前端），监听 8080
+#   hive      主服务（Go 二进制 + 内嵌前端），默认监听 18080
 #   postgres  PostgreSQL 16，存储运行时配置和会话数据
 #   minio     S3-compatible 对象存储，保存 KB 图片、附件和 Agent 资产
 #
@@ -11,24 +11,24 @@
 #   在宿主机上创建 sandbox 容器（hive-sandbox:latest），
 #   而非在容器内运行嵌套 Docker daemon。
 #
-#   关键约束：sandbox bind mount 路径必须在宿主机和 Hive 容器内完全一致。
-#   本文件将宿主机 /opt/hive/workdir 挂载到容器相同路径，
-#   config.docker.json 中 sessions_dir 也指向该路径。
+#   关键约束：sandbox 通过 DooD 在「宿主机」上 docker run -v <host>:<host>，
+#   因此 Hive 容器内也必须存在相同路径；本文件将「宿主机目录」挂载到容器内
+#   /opt/hive/workdir（与 config.docker.json 中 sessions_dir 一致）。
+#
+#   宿主机路径由变量 HIVE_WORKDIR_HOST 控制（见下方 volumes）。
+#   未设置时 Compose 默认 ./.hive-workdir（全平台安全，尤其 Docker Desktop for Mac）。
+#   推荐使用「make docker-up / make docker-setup」：Makefile 会按 OS 自动设置
+#   HIVE_WORKDIR_HOST（macOS/Windows 类 → 项目 .hive-workdir；Linux → /opt/hive/workdir）。
+#   也可在 .env 中显式写 HIVE_WORKDIR_HOST=... 覆盖任意自动逻辑。
 #
 # 首次启动前：
 #   1. 构建 sandbox 镜像（宿主机上）：
 #        make build-sandbox-image
-#   2. 设置环境变量或 .env 文件：
-#        echo "POSTGRES_PASSWORD=your_password" > .env
-#        echo "DOCKER_GID=$(stat -c '%g' /var/run/docker.sock)" >> .env
-#        echo "MINIO_ROOT_USER=minioadmin" >> .env
-#        echo "MINIO_ROOT_PASSWORD=minioadmin" >> .env
-#        # 可选：CLAW_API_KEY / OPENAI_API_KEY 用于首次启动初始化 LLM 配置
-#   3. 创建宿主机 workdir，并确保容器内非 root hive 用户可写：
-#        mkdir -p /opt/hive/workdir/sessions
-#        chmod 0775 /opt/hive/workdir /opt/hive/workdir/sessions
-#   4. 启动：
-#        docker compose up -d
+#   2. 设置环境变量或 .env 文件（含 POSTGRES_PASSWORD、MINIO_* 等）：
+#        make docker-setup
+#   3. 启动（推荐 make，自动 HIVE_WORKDIR_HOST）：
+#        make docker-up
+#   或手动：mkdir -p .hive-workdir/sessions && docker compose up -d
 #
 # runtime 镜像会内置 docker/config.docker.json 到 /app/config.json，并默认
 # 以 --config /app/config.json 启动；如修改 docker/config.docker.json，需要重建镜像。
@@ -48,12 +48,9 @@ services:
     container_name: hive
     restart: unless-stopped
     ports:
-      - "${HIVE_PORT:-8080}:8080"
+      - "${HIVE_PORT:-18080}:18080"
     environment:
       # ── PostgreSQL 连接 ────────────────────────────────────────────
-      # 方式A：单个 DSN（优先）
-      # DATABASE_URL: postgres://claw:password@postgres:5432/claw?sslmode=disable
-      # 方式B：拆分字段
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
       POSTGRES_DB: claw
@@ -79,18 +76,8 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       TZ: ${TZ:-Asia/Shanghai}
     volumes:
-      # ── Docker socket（DooD 核心）──────────────────────────────────
-      # Hive 调用 docker CLI 管理 sandbox 容器，
-      # 所有 sandbox 容器运行在宿主机 Docker daemon 上。
       - /var/run/docker.sock:/var/run/docker.sock
-
-      # ── 工作目录（sandbox bind mount 路径一致性）──────────────────
-      # ⚠️  重要：路径必须与 docker/config.docker.json sessions_dir 完全一致，
-      # 且与宿主机实际路径相同（Docker daemon 按宿主机路径解析 -v）。
-      # 如修改此路径，同步修改 config.docker.json sessions_dir。
-      - /opt/hive/workdir:/opt/hive/workdir
-
-      # ── 持久化数据（日志、自定义工具）────────────────────────────
+      - ${HIVE_WORKDIR_HOST:-./.hive-workdir}:/opt/hive/workdir
       - hive-logs:/data/logs
       - hive-tools:/data/tools
 
@@ -100,10 +87,6 @@ services:
       minio:
         condition: service_healthy
 
-    # ⚠️  必须配置：Hive 以非 root 用户运行，需要访问 /var/run/docker.sock。
-    # 查询宿主机 docker.sock 的 gid：
-    #   stat -c '%g' /var/run/docker.sock
-    # 将输出的数字填入下方 group_add，否则启动后会报 permission denied。
     group_add:
       - "${DOCKER_GID:-999}"
 
@@ -132,9 +115,8 @@ services:
       start_period: 10s
     networks:
       - hive-net
-    # 生产环境建议不暴露此端口，仅通过 hive-net 内部通信
-    # ports:
-    #   - "127.0.0.1:5432:5432"
+    ports:
+      - "127.0.0.1:5432:5432"
 
   # --------------------------------------------------------------------------
   # MinIO 对象存储
@@ -180,9 +162,6 @@ services:
     networks:
       - hive-net
 
-# ------------------------------------------------------------------------------
-# 持久化卷
-# ------------------------------------------------------------------------------
 volumes:
   postgres-data:
     name: hive-postgres-data
@@ -193,9 +172,6 @@ volumes:
   minio-data:
     name: hive-minio-data
 
-# ------------------------------------------------------------------------------
-# 内部网络
-# ------------------------------------------------------------------------------
 networks:
   hive-net:
     name: hive-net
